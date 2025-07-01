@@ -347,7 +347,6 @@ def calculate_MAE(observed: np.ndarray,
     return mae
 
 
-
 def calculate_QuantileLoss(observed: np.ndarray, 
                       simulated: np.ndarray, 
                       quantile_levels: np.ndarray,
@@ -401,6 +400,65 @@ def calculate_QuantileLoss(observed: np.ndarray,
     
     return mean_pinball_loss
 
+
+def calculate_R2(observed: np.ndarray, 
+                 simulated: np.ndarray) -> float:
+    """
+    Calculate R-squared (coefficient of determination) with robust error handling.
+    
+    R² = 1 - (SS_res / SS_tot)
+    where SS_res is the sum of squares of residuals and SS_tot is the total sum of squares
+
+    import r2_score from sklearn.metrics
+    
+    Parameters:
+    -----------
+    observed : np.ndarray
+        Array of observed values
+    simulated : np.ndarray
+        Array of simulated values
+        
+    Returns:
+    --------
+    float
+        R-squared value (between 0 and 1, higher is better)
+    """
+
+    from sklearn.metrics import r2_score
+
+    # Convert inputs to numpy arrays if they aren't already
+    observed = np.asarray(observed)
+    simulated = np.asarray(simulated)
+
+    # Ensure same length
+    if observed.shape != simulated.shape:
+        raise ValueError(f"Observed and simulated arrays must have same shape. "
+                        f"Got shapes {observed.shape} and {simulated.shape}")
+    
+    # Find valid indices (non-NaN in both arrays)
+    valid_mask = ~np.isnan(observed) & ~np.isnan(simulated)
+    valid_observed = observed[valid_mask]
+    valid_simulated = simulated[valid_mask]
+
+    # Check if we have enough valid data points
+    n_valid = len(valid_observed)
+    if n_valid < 2:  # Need at least 2 points to calculate variance
+        return np.nan
+    
+    # Calculate R-squared using sklearn's r2_score
+    try:
+        r2 = r2_score(valid_observed, valid_simulated)
+    except ValueError as e:
+        logger.debug(f"Error calculating R-squared: {str(e)}")
+        return np.nan
+
+    # Handle edge cases
+    if np.isinf(r2) or np.isnan(r2):
+        logger.debug(f"Invalid R-squared value: {r2}")
+        return np.nan
+    
+    return r2
+    
 
 
 from scipy import integrate
