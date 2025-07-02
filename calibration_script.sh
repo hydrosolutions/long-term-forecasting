@@ -6,9 +6,9 @@
 set -e  # Exit on any error
 
 # Configuration
-CONFIG_DIR="../monthly_forecasting_models/BaseCase/LR_Q_T_P"
-MODEL_NAME="LR_Q_T_P"
-INPUT_FAMILY="BaseCase"
+CONFIG_DIR="../monthly_forecasting_models/SnowMapper_Based/LR_Q_SWE_T"
+MODEL_NAME="LR_Q_SWE_T"
+INPUT_FAMILY="SnowMapper_Based"
 LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
 
 # Environment configuration - Choose one of the following:
