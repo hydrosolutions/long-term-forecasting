@@ -38,9 +38,8 @@ from joblib import dump, load
 # Custom modules
 from scr import data_loading as dl
 from scr import data_utils as du
-import plotter 
 from scr import FeatureExtractor as FE
-from scr import pca_utils
+
 
 import optuna
 
@@ -49,7 +48,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from config import MODEL_CONFIG, PATH_CONFIG, EXPERIMENT_CONFIG
+#from config import MODEL_CONFIG, PATH_CONFIG, EXPERIMENT_CONFIG
 
 class NaiveMeanModel:
     def __init__(self):

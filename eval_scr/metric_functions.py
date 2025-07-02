@@ -605,3 +605,83 @@ def calculate_metrics_decad(df, forecast_col, observed_col, delta_col,):
         metrics = pd.concat([metrics, pd.DataFrame(new_row, index=[0])])
     
     return metrics
+
+
+# Convenience functions for calibrate_hindcast.py
+def r2_score(observed, predicted):
+    """Convenience wrapper for R2 calculation."""
+    return calculate_R2(observed, predicted)
+
+def rmse(observed, predicted):
+    """Convenience wrapper for RMSE calculation."""
+    return calculate_RMSE(observed, predicted, normalize=False)
+
+def mae(observed, predicted):
+    """Convenience wrapper for MAE calculation."""
+    return calculate_MAE(observed, predicted, normalize=False)
+
+def bias(observed, predicted):
+    """Calculate bias (mean error)."""
+    observed = np.asarray(observed)
+    predicted = np.asarray(predicted)
+    
+    # Find valid indices
+    valid_mask = ~np.isnan(observed) & ~np.isnan(predicted)
+    if not np.any(valid_mask):
+        return np.nan
+    
+    valid_obs = observed[valid_mask]
+    valid_pred = predicted[valid_mask]
+    
+    return np.mean(valid_pred - valid_obs)
+
+def nse(observed, predicted):
+    """Convenience wrapper for NSE calculation."""
+    return calculate_NSE(observed, predicted)
+
+def kge(observed, predicted):
+    """Calculate Kling-Gupta Efficiency."""
+    observed = np.asarray(observed)
+    predicted = np.asarray(predicted)
+    
+    # Find valid indices
+    valid_mask = ~np.isnan(observed) & ~np.isnan(predicted)
+    if not np.any(valid_mask):
+        return np.nan
+    
+    valid_obs = observed[valid_mask]
+    valid_pred = predicted[valid_mask]
+    
+    if len(valid_obs) < 2:
+        return np.nan
+    
+    # Calculate correlation coefficient
+    try:
+        r = np.corrcoef(valid_obs, valid_pred)[0, 1]
+        if np.isnan(r):
+            return np.nan
+    except:
+        return np.nan
+    
+    # Calculate bias ratio (mean predicted / mean observed)
+    mean_obs = np.mean(valid_obs)
+    mean_pred = np.mean(valid_pred)
+    
+    if mean_obs == 0:
+        return np.nan
+    
+    bias_ratio = mean_pred / mean_obs
+    
+    # Calculate variability ratio (std predicted / std observed)
+    std_obs = np.std(valid_obs, ddof=1)
+    std_pred = np.std(valid_pred, ddof=1)
+    
+    if std_obs == 0:
+        return np.nan
+    
+    var_ratio = std_pred / std_obs
+    
+    # Calculate KGE
+    kge_value = 1 - np.sqrt((r - 1)**2 + (bias_ratio - 1)**2 + (var_ratio - 1)**2)
+    
+    return kge_value

@@ -3,3 +3,5 @@
 .DS_Store
 /scr/__pycache__
 /old_files
+/__pycache__
+/eval_scr/__pycache__

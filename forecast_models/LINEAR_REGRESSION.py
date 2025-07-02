@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 import matplotlib.pyplot as plt
 
 # Ensure the logs directory exists
@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logg
 from forecast_models.base_class import BaseForecastModel
 from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.metrics import mean_squared_error, r2_score
+import pickle
+import json
+from tqdm import tqdm
 
 from scr import FeatureExtractor as FE
 
@@ -73,6 +76,24 @@ class LinearRegressionModel(BaseForecastModel):
         self.data['year'] = self.data['date'].dt.year
         self.data['month'] = self.data['date'].dt.month
 
+    def __get_periods__(self) -> None:
+        """
+        Get unique periods from the data.
+        The period name is <month>-<day>.
+        if it is the last day of the month, the period name is <month>-end. (accounts for february)
+
+        Returns:
+            pd.DataFrame: DataFrame containing unique periods.
+        """
+        self.data['day'] = self.data['date'].dt.day
+        self.data['month'] = self.data['date'].dt.month
+        self.data['period_suffix'] = np.where(
+            self.data['date'].dt.day == self.data['date'].dt.days_in_month, 
+            "end", 
+            self.data['date'].dt.day.astype(str)
+        )
+        self.data['period'] = self.data['month'].astype(str) + '-' + self.data['period_suffix']
+        self.data.drop(columns=['period_suffix'], inplace=True)
 
     def get_highest_corr_features(self, 
                                   df_period: pd.DataFrame,
@@ -100,9 +121,6 @@ class LinearRegressionModel(BaseForecastModel):
         nan_test.append(target)
         test_df = df_period.dropna(subset=nan_test, how='all').copy()
         len_data_points = len(test_df)
-
-        if len_data_points < num_features * 2: # Need at least 2 data points per feature
-            logger.warning(f"Not enough data points for {target} for the current period {this_period}.")
 
 
         feature_types = {}
@@ -156,10 +174,8 @@ class LinearRegressionModel(BaseForecastModel):
         prediction_data = prediction_data.dropna(
             subset=features, how='any').copy()
         if len(prediction_data) == 0:
-            logger.warning(f"No data points for prediction.")
             return [np.nan], [np.nan], np.nan, None
         if len(calibration_data) < self.general_config['num_features'] * 2:
-            logger.warning(f"Not enough data points for calibration.")
             return [np.nan], [np.nan], np.nan, None
         
         X_calibration = calibration_data[features]
@@ -200,16 +216,26 @@ class LinearRegressionModel(BaseForecastModel):
         today = datetime.datetime.now()
         today_day = today.day
         today_month = today.month
-        self.data['day'] = self.data['date'].dt.day
-        period_name = f"{today_month}-{today_day}"
-        self.data['period'] = self.data['month'].astype(str) + '-' + self.data['day'].astype(str)
+        is_last_day_of_month = today_day == today_month.days_in_month
+        period_suffix = "_end" if is_last_day_of_month else str(today_day)
+        period_name = f"{today_month}-{period_suffix}"
+
+        self.__get_periods__()
+
         # Filter the data for the current period
         operational_data = self.data[self.data['period'] == period_name].copy()
+        logger.debug(f"Operational data for period {period_name} contains {len(operational_data)} samples.")
+
+        if len(operational_data) == 0:
+            logger.warning(f"No operational data available for period {period_name}.")
+            return pd.DataFrame()
 
         forecast = pd.DataFrame()
         if not self.general_config['offset']:
-            self.general_config['offset'] = self.general_config['prediction_horizon']
+            self.general_config['offset'] = 0
+        
         shift = self.general_config['offset'] - self.general_config['prediction_horizon'] 
+        shift = max(shift, 0)  # Ensure shift is non-negative
         valid_from = today + datetime.timedelta(days=1) + datetime.timedelta(days=shift)
         valid_to = valid_from + datetime.timedelta(days=self.general_config['prediction_horizon'])
 
@@ -229,13 +255,11 @@ class LinearRegressionModel(BaseForecastModel):
             # Get the features for the current code
             features = self.get_highest_corr_features(code_data, 'target')
             logger.debug(f"Features for {code}: {features}")
-            # Get current date (without time component)
-            today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-
 
             calibration_data = code_data[code_data['date'].dt.normalize() < today].copy()
             prediction_data = code_data[code_data['date'].dt.normalize() == today].copy()
-            logger.debug(f"Prediction data for {code}: {prediction_data}")
+            
+            logger.debug(f"Prediction data for {code}: {len(prediction_data)}")
 
             calibration_target_mean = calibration_data['target'].mean()
             if pd.isna(calibration_target_mean):
@@ -248,6 +272,7 @@ class LinearRegressionModel(BaseForecastModel):
                 features=features,
                 target='target'
             )   
+            
             if predictions[0] is not np.nan:
                 predictions = np.clip(predictions, 0, None)  # Ensure predictions are non-negative
                 predictions = np.round(predictions, 2)  # Round to 2 decimal places
@@ -260,13 +285,13 @@ class LinearRegressionModel(BaseForecastModel):
                 logger.debug(f"Model equation for {code}: {model_equation}")
 
             # Create a DataFrame for the predictions
+            pred_col = f"Q_{self.name}"
             pred_df = pd.DataFrame({
                 'forecast_date': [today],
-                'model_name': [self.name],
                 'code': [code],
                 'valid_from': [valid_from],
                 'valid_to': [valid_to],
-                'Q': predictions,
+                pred_col: predictions,
             })
 
             forecast = pd.concat([forecast, pred_df], ignore_index=True)
@@ -274,33 +299,161 @@ class LinearRegressionModel(BaseForecastModel):
         return forecast
 
 
-    def calibrate_model_and_hindcast(self, data: pd.DataFrame) -> pd.DataFrame:
+    def calibrate_model_and_hindcast(self) -> pd.DataFrame:
         """
         Calibrate the model using the provided data.
-
-        Args:
-            data (pd.DataFrame): DataFrame containing the calibration data.
+        The highest correlated features are selected for each period and code on each loocv year seperately.
 
         Returns:
             hindcast (pd.DataFrame): DataFrame containing the hindcasted values.
                 columns: ['date', 'model', 'code', 'Q_pred' (Optional: Q_05, Q_10, Q_50 ...)]
         """
-        # Implement the calibration and hindcasting logic here
-        pass
+        logger.info(f"Starting calibration and hindcasting for {self.name}")
+        
+        # Add day column if not present
+        if 'day' not in self.data.columns:
+            self.data['day'] = self.data['date'].dt.day
+        
+        forecast_days = self.general_config.get('forecast_days', [5, 10, 15, 20, 25, 'end'])
+        
+        # Filter data to include only the specified forecast days
+        if forecast_days:
+            day_conditions = []
+            for forecast_day in forecast_days:
+                if forecast_day == 'end':
+                    day_conditions.append(self.data['date'].dt.day == self.data['date'].dt.days_in_month)
+                else:
+                    day_conditions.append(self.data['date'].dt.day == forecast_day)
+            
+            # Combine all conditions with OR logic
+            combined_condition = day_conditions[0]
+            for condition in day_conditions[1:]:
+                combined_condition = combined_condition | condition
+            
+            self.data = self.data[combined_condition]
 
-    def tune_hyperparameters(self, data: pd.DataFrame) -> None:
+        # get period names
+        self.__get_periods__()
+
+        # Get unique years and codes
+        years = sorted(self.data['year'].unique())
+        codes = self.data['code'].unique()
+        
+        filter_years = self.general_config.get('filter_years', None)
+        if filter_years is not None:
+            loocv_years = [year for year in years if year not in filter_years]
+        else:
+            loocv_years = years
+
+        # Initialize results container
+        all_predictions = []
+
+        Q_pred_col = f"Q_{self.name}"
+
+        logger.info(f"Performing Leave-One-Year-Out CV for {len(loocv_years)} years: {loocv_years}")
+        logger.info("Unique periods in data: " + ", ".join(self.data['period'].unique()))
+
+        # Process each period (day-month combination)
+        failed_lr = []
+        for period_name in tqdm(self.data['period'].unique(), desc="Processing periods"):
+            period_df = self.data[self.data['period'] == period_name]
+
+            # Process each code separately
+            for code in codes:
+                code_period_df = period_df[period_df['code'] == code].copy()
+                
+                if len(code_period_df) < 2:  # Need at least 2 samples
+                    failed_lr.append({
+                        'code': code,
+                        'period': period_name,
+                        'reason': 'Not enough data points'
+                    })
+                    continue
+                
+            
+                # Perform Leave-One-Year-Out CV on non-test years
+                for test_year in loocv_years:
+                    # Training data: all years except current test year
+                    train_data = code_period_df[
+                        (code_period_df['year'].isin(loocv_years)) & 
+                        (code_period_df['year'] != test_year)
+                    ].copy()
+
+                    
+                    # Test data: current test year
+                    test_data = code_period_df[code_period_df['year'] == test_year].copy()
+                    
+                    if len(train_data) < self.general_config['num_features']*2:
+                        failed_lr.append({
+                            'code': code,
+                            'period': period_name,
+                            'reason': 'Not enough data points > 2 * num_features'
+                        })
+                        continue
+
+                    # Get features for this code and period on the training data
+                   
+                    features = self.get_highest_corr_features(train_data, 'target')
+                    
+                    if not features:
+                        failed_lr.append({
+                            'code': code,
+                            'period': period_name,
+                            'reason': 'No features selected'
+                        })
+                        continue
+                    
+                    # Make predictions
+                    predictions, _, r2, model = self.predict_on_sample(
+                        calibration_data=train_data,
+                        prediction_data=test_data,
+                        features=features,
+                        target='target'
+                    )
+
+                    #round predictions to 2 decimal places
+                    predictions = np.round(predictions, 2)
+
+                    Q_obs = test_data['target'].values
+                    
+                    # Store predictions
+                    for i, (idx, row) in enumerate(test_data.iterrows()):
+                        if not np.isnan(predictions[i]):
+                            all_predictions.append({
+                                'date': row['date'],
+                                'code': code,
+                                Q_pred_col : max(0, predictions[i]),  # Ensure non-negative
+                                'period': period_name,
+                                "Q_obs": Q_obs[i],
+                            })
+                    
+
+        logger.debug(f"Failed linear regression for {len(failed_lr)} cases: {failed_lr}")
+        
+        # Convert to DataFrame
+        if all_predictions:
+            hindcast_df = pd.DataFrame(all_predictions)
+            # Remove period and cv_type columns as they're not in the expected output format
+            hindcast_df = hindcast_df[['date', 'code', Q_pred_col, 'period', 'Q_obs']]
+            # Sort by date and code
+            hindcast_df = hindcast_df.sort_values(['date', 'code']).reset_index(drop=True)
+            logger.info(f"Calibration complete. Generated {len(hindcast_df)} predictions for {len(hindcast_df['code'].unique())} codes")
+        else:
+            logger.warning("No predictions generated during calibration")
+            hindcast_df = pd.DataFrame(columns=['date', 'code', Q_pred_col, 'period', 'Q_obs'])
+
+        return hindcast_df
+
+    def tune_hyperparameters(self,) -> Tuple[bool, str]:
         """
         Tune the hyperparameters of the model using the provided data.
-
-        Args:
-            data (pd.DataFrame): DataFrame containing the data for hyperparameter tuning.
+        For linear regression, this optimizes alpha for Ridge/Lasso using time series CV.
 
         Returns:
             bool: True if hyperparameters were tuned successfully, False otherwise.
             str: Message indicating the result of the tuning process.
         """
-        # Implement hyperparameter tuning logic here
-        return False, "Tuning hyperparameters not yet implemented for linear regression model."
+        return False, "Hyperparameter tuning is not applicable for Linear Regression models. Please use the model as is or implement a custom tuning method."
 
     def save_model(self) -> None:
         """
@@ -309,8 +462,8 @@ class LinearRegressionModel(BaseForecastModel):
         Returns:
             None
         """
-        # Implement model saving logic here
-        pass
+        logger.info(f"Linear Regression model is being fitted each time seperately - no model to save.")
+
 
     def load_model(self) -> None:
         """
@@ -319,9 +472,7 @@ class LinearRegressionModel(BaseForecastModel):
         Returns:
             None
         """
-        # Implement model loading logic here
-        pass
-
+        logger.info(f"Linear Regression model is being fitted each time seperately - no model to load.")
 
 
     

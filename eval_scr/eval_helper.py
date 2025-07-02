@@ -21,8 +21,6 @@ from scr import data_utils as du
 from scr import FeatureExtractor as FE
 from scr import tree_utils
 
-from config import PATH_CONFIG, EXPERIMENT_CONFIG, MODEL_CONFIG, FEATURE_CONFIG
-
 
 import logging
 logging.basicConfig(level=logging.INFO)
