@@ -392,7 +392,6 @@ class LinearRegressionModel(BaseForecastModel):
                         continue
 
                     # Get features for this code and period on the training data
-                   
                     features = self.get_highest_corr_features(train_data, 'target')
                     
                     if not features:
