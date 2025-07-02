@@ -430,6 +430,7 @@ class LinearRegressionModel(BaseForecastModel):
 
         logger.debug(f"Failed linear regression for {len(failed_lr)} cases: {failed_lr}")
         
+        
         # Convert to DataFrame
         if all_predictions:
             hindcast_df = pd.DataFrame(all_predictions)
