@@ -64,7 +64,6 @@ def get_model(model_type: str, params: Dict[str, Any], cat_features: Optional[Li
         'rf': lambda p: RandomForestRegressor(**p),
         'gradient_boosting': lambda p: GradientBoostingRegressor(**p),
         'mlp': lambda p: MLPRegressor(**p),
-        'naive_mean': lambda p: NaiveMeanModel()
     }
     
     if model_type not in model_mapping:

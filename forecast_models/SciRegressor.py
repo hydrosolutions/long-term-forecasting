@@ -4,6 +4,7 @@ import numpy as np
 import geopandas as gpd
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Tuple, Optional
+from tqdm import tqdm as progress_bar
 import json
 import joblib
 import datetime
@@ -15,7 +16,8 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from sklearn.metrics import mean_squared_error, r2_score
 
 from scr import FeatureExtractor as FE
-from scr import tree_utils
+from scr.FeatureProcessingArtifacts import process_training_data, process_test_data, post_process_target
+from scr.FeatureProcessingArtifacts import FeatureProcessingArtifacts
 from scr import data_utils as du
 from scr import sci_utils
 
@@ -69,16 +71,17 @@ class SciRegressor(BaseForecastModel):
         self.feature_sets = {}  # Will store feature sets per period
         
         # Get preprocessing configuration
-        self.missing_value_handling = self.model_config.get('missing_value_handling', 'drop')
-        self.normalization_type = self.model_config.get('normalization_type', None)
-        self.normalize_per_basin = self.model_config.get('normalize_per_basin', False)
-        self.use_pca = self.model_config.get('use_pca', False)
-        self.use_lr_predictors = self.model_config.get('use_lr_predictors', False)
-        self.use_temporal_features = self.model_config.get('use_temporal_features', True)
-        self.use_static_features = self.model_config.get('use_static_features', True)
-        self.cat_features = self.model_config.get('cat_features', ['code_str'])
-        self.feature_cols = self.feature_config.get('feature_cols', ['discharge', 'P', 'T',])
-        self.static_features = self.feature_config.get('static_features', [])
+        self.target = self.general_config.get('target', 'target')
+        self.missing_value_handling = self.general_config.get('missing_value_handling', 'drop')
+        self.normalization_type = self.general_config.get('normalization_type', None)
+        self.normalize_per_basin = self.general_config.get('normalize_per_basin', False)
+        self.use_pca = self.general_config.get('use_pca', False)
+        self.use_lr_predictors = self.general_config.get('use_lr_predictors', False)
+        self.use_temporal_features = self.general_config.get('use_temporal_features', True)
+        self.use_static_features = self.general_config.get('use_static_features', True)
+        self.cat_features = self.general_config.get('cat_features', ['code_str'])
+        self.feature_cols = self.general_config.get('feature_cols', ['discharge', 'P', 'T',])
+        self.static_features = self.general_config.get('static_features', [])
         self.rivers_to_exclude = self.general_config.get('rivers_to_exclude', [])
         self.snow_vars = self.general_config.get('snow_vars', ['SWE'])
 
@@ -114,17 +117,18 @@ class SciRegressor(BaseForecastModel):
             self.data.loc[self.data['code'] == code, 'discharge'] = self.data.loc[self.data['code'] == code, 'discharge'] * 86.4 / area
 
         # -------------- 3. Snow Data to equal percentage area ------------------------------
-        elevation_band_shp = gpd.read_file(self.path_config['path_to_hru_shp'])
-        #rename CODE to code
-        elevation_band_shp.rename(columns={'CODE': 'code'}, inplace=True)
-        elevation_band_shp['code'] = elevation_band_shp['code'].astype(int)
+        if self.path_config['path_to_hru_shp'] is not None:
+            elevation_band_shp = gpd.read_file(self.path_config['path_to_hru_shp'])
+            #rename CODE to code
+            elevation_band_shp.rename(columns={'CODE': 'code'}, inplace=True)
+            elevation_band_shp['code'] = elevation_band_shp['code'].astype(int)
 
-        for snow_var in self.snow_vars:
-            self.data = du.calculate_percentile_snow_bands(
-                self.data, elevation_band_shp,
-                num_bands=self.experiment_config["num_elevation_zones"], col_name=snow_var)
-            snow_vars_drop = [col for col in self.data.columns if snow_var in col and 'P' not in col]
-            self.data = self.data.drop(columns=snow_vars_drop)
+            for snow_var in self.snow_vars:
+                self.data = du.calculate_percentile_snow_bands(
+                    self.data, elevation_band_shp,
+                    num_bands=self.experiment_config["num_elevation_zones"], col_name=snow_var)
+                snow_vars_drop = [col for col in self.data.columns if snow_var in col and 'P' not in col]
+                self.data = self.data.drop(columns=snow_vars_drop)
 
         logger.debug('Data preprocessing completed. Data shape: %s', self.data.shape)
 
@@ -139,18 +143,27 @@ class SciRegressor(BaseForecastModel):
         # -------------- 6. Dummy encoding for categorical features ------------------------------
         self.data['basin'] = self.data['code']
         self.data['code_str'] = self.data['code'].astype(str)
-        self.data_with_dummies = pd.get_dummies(self.data, columns=['month', 'basin'], dtype=int)
+        self.data = pd.get_dummies(self.data, columns=['month', 'basin'], dtype=int)
 
 
         # -------------- 7. Merge with static features ------------------------------
         static_df_feat = self.static_data[['code'] + self.static_features].copy()
-        self.data_with_dummies = pd.merge(self.data_with_dummies, static_df_feat, on='code', how='inner')
+        self.data = pd.merge(self.data, static_df_feat, on='code', how='inner')
 
         # -------------- 8. Prepare feature sets ------------------------------
-        lr_features = [col for col in self.data_with_dummies.columns if 'LR' in col]
+        lr_features = [col for col in self.data.columns if 'LR' in col]
         self.feature_set = [col + "_" for col in self.feature_cols] + \
         ['week_sin', 'week_cos','month_sin', 'month_cos'] + \
         self.static_features + lr_features
+
+        self.feature_set = [col for col in self.data.columns
+        if any([f in col for f in self.feature_set])]
+
+        #check if the cat_features are in the columns
+        for cat_feature in self.cat_features:
+            if cat_feature not in self.data.columns:
+                logger.warning(f"Categorical feature '{cat_feature}' not found in data columns. Removing from cat_features.")
+                self.cat_features.remove(cat_feature)
 
     def __extract_features__(self):
         """
@@ -193,8 +206,216 @@ class SciRegressor(BaseForecastModel):
 
     def __load_lr_predictors__(self) -> pd.DataFrame:
         pass
-    def __post_process_data__(self, df: pd.DataFrame) -> pd.DataFrame:
-        pass
+    def __post_process_data__(self, 
+                              df: pd.DataFrame,
+                              pred_cols : List[str],
+                              obs_col: str) -> pd.DataFrame:
+        """
+        Post-process the data after model predictions.
+        this is the re-transformation from mm/d to m3/s
+        """
+        # Convert predictions from mm/d to m3/s
+        df = df.copy()
+        for code in df['code'].unique():
+            area = self.static_data[self.static_data['code'] == code]['area_km2'].values[0]
+            df.loc[df['code'] == code, pred_cols] = df.loc[df['code'] == code, pred_cols] * area / 86.4
+            df.loc[df['code'] == code, obs_col] = df.loc[df['code'] == code, obs_col] * area / 86.4
+
+        return df
+
+    def __loocv__(self, 
+                  years : List[int],
+                  features: List[str],
+                  params: Dict[str, Any] = None,
+                  model_type: str = "xgb") -> pd.DataFrame:
+        """
+        Perform Leave-One-Year-Out Cross-Validation.
+
+        Args:
+            years (List[int]): List of years to use for cross-validation.
+            features (List[str]): List of features to use for training.
+            params (Dict[str, Any], optional): Hyperparameters for the model.
+            model_type (str, optional): Type of model to use (default is "xgb").
+
+        Returns:
+            pd.DataFrame: DataFrame containing the cross-validated predictions.
+        """
+        logger.info(f"Starting LOOCV for {self.name} with years: {years}")
+        
+        df_predictions = pd.DataFrame()
+
+        pred_col = f"Q_{model_type}"
+
+        if 'catboost' in model_type:
+            if len(self.cat_features) > 0:
+                features = features + self.cat_features
+                logger.info(f"Using categorical features for {model_type}: {self.cat_features}")
+                
+
+        # Iterate over each year for LOOCV
+        for year in progress_bar(years, desc="Processing years", leave=True):
+            
+            df_train = self.data[self.data['year'] != year].dropna(subset=[self.target])
+            df_test = self.data[self.data['year'] == year].dropna(subset=[self.target])
+            # Original columns so we don't mess up anything
+            df_predictions_year = df_test[['date', 'code', self.target]].copy()
+
+            # Create artifacts
+            # This handles nan imputation, scaling and variable selection
+            train_processed, artifacts = process_training_data(
+                df_train, features, self.target, self.general_config
+            )
+
+            final_features = artifacts.final_features
+
+            # Process test data
+            test_processed = process_test_data(
+                df_test=df_test, 
+                artifacts=artifacts, 
+                experiment_config=self.general_config
+            )
+
+            # Prepare data
+            X_train = train_processed[final_features]
+            y_train = train_processed[self.target]
+            X_test = test_processed[final_features]
+
+            # Create model
+            if params:
+                model = sci_utils.get_model(model_type, params, self.cat_features)
+            else:
+                params = {}
+                model = sci_utils.get_model(model_type, params, self.cat_features)
+
+            # Train and predict
+            model = sci_utils.fit_model(model, X_train, y_train)
+            y_pred = model.predict(X_test)
+
+            # Extra step if we dropped any rows in the test set
+            test_processed[pred_col] = y_pred
+            test_processed = test_processed[['date', 'code', pred_col]].copy()
+
+            df_predictions_year = pd.merge(
+                df_predictions_year, 
+                test_processed, 
+                on=['date', 'code'], 
+                how='inner'
+            )
+            
+            df_predictions_year = post_process_target(
+                df_predictions=df_predictions_year, 
+                target=self.target, 
+                artifacts=artifacts, 
+                experiment_config=self.general_config,
+                prediction_column=pred_col 
+            )
+            
+            df_predictions = pd.concat([df_predictions, df_predictions_year])
+
+        # Rename columns
+        df_predictions.rename(columns={self.target: 'Q_obs'}, inplace=True)
+        
+        return df_predictions
+
+    def __fit_on_all__(self,
+                        features: List[str],
+                        test_years: List[int] = None,
+                        params: Dict[str, Any] = None,
+                        model_type: str = "xgb") -> Tuple[Any, Any, List[str]]:
+        """
+        Fit the model on all available data.
+        Args:
+            features (List[str]): List of features to use for training.
+            params (Dict[str, Any], optional): Hyperparameters for the model.
+            model_type (str, optional): Type of model to use (default is "xgb").
+        Returns:
+            pd.DataFrame: DataFrame containing the fitted model predictions.
+        """
+        logger.info(f"Starting global fitting for {self.name} with model type: {model_type}")
+        df_predictions = pd.DataFrame()
+        pred_col = f"Q_{model_type}"
+
+        if 'catboost' in model_type:
+            if len(self.cat_features) > 0:
+                features = features + self.cat_features
+                logger.info(f"Using categorical features for {model_type}: {self.cat_features}")
+                
+
+        if test_years is None:
+            train_data = self.data.copy()
+            train_data = train_data.dropna(subset=[self.target]).copy()
+        
+        else:
+            train_data = self.data[self.data['year'].isin(test_years) == False].copy()
+            train_data = train_data.dropna(subset=[self.target]).copy()
+
+            test_data = self.data[self.data['year'].isin(test_years)].copy()
+            test_data = test_data.dropna(subset=[self.target]).copy()
+
+            df_predictions = test_data.copy()
+            df_predictions = df_predictions[['date', 'code', self.target]].copy()
+
+        # Create artifacts
+        # This handles nan imputation, scaling and variable selection
+        train_processed, artifacts = process_training_data(
+            df_train=train_data, 
+            features=features, 
+            target=self.target, 
+            experiment_config=self.general_config
+        )
+
+        final_features = artifacts.final_features
+
+        # Prepare data
+        X_train = train_processed[final_features]
+        y_train = train_processed[self.target]
+        
+        # Create model
+        if params:
+            model = sci_utils.get_model(model_type, params, self.cat_features)
+        else:
+            params = {}
+            model = sci_utils.get_model(model_type, params, self.cat_features)
+
+        # Train the model
+        model = sci_utils.fit_model(model, X_train, y_train)
+
+        # Predict on test data
+        if test_years is not None:
+
+            test_data_processed = process_test_data(
+                df_test=test_data, 
+                artifacts=artifacts, 
+                experiment_config=self.general_config
+            )
+
+            X_test = test_data_processed[final_features]
+            y_pred = model.predict(X_test)
+
+            test_data_processed[pred_col] = y_pred
+            test_data_processed = test_data_processed[['date', 'code', pred_col]].copy()
+            
+            df_predictions = pd.merge(
+                df_predictions,
+                test_data_processed,
+                on=['date', 'code'],
+                how='inner'
+            )
+            df_predictions = post_process_target(
+                df_predictions=df_predictions, 
+                target=self.target, 
+                artifacts=artifacts, 
+                experiment_config=self.general_config,
+                prediction_column=pred_col
+            )
+
+            # Rename columns
+            df_predictions.rename(columns={self.target: 'Q_obs'}, inplace=True)
+        else:
+            df_predictions = pd.DataFrame()
+
+        return [model, df_predictions, artifacts, final_features]
+         
 
     def predict_operational(self) -> pd.DataFrame:
         """
@@ -235,32 +456,117 @@ class SciRegressor(BaseForecastModel):
         
         return forecast
     
-    def calibrate_model_and_hindcast(self, data: pd.DataFrame) -> pd.DataFrame:
+    def calibrate_model_and_hindcast(self) -> pd.DataFrame:
         """
         Calibrate the ensemble models using Leave-One-Year-Out cross-validation.
-
-        Args:
-            data (pd.DataFrame): DataFrame containing the calibration data.
 
         Returns:
             hindcast (pd.DataFrame): DataFrame containing the hindcasted values.
         """
         logger.info(f"Starting calibration and hindcasting for {self.name} with models: {self.models}")
         
+        self.__preprocess_data__()
+
+        if 'year' not in self.data.columns:
+            self.data['year'] = self.data['date'].dt.year
+
         # Add day column if not present
         if 'day' not in self.data.columns:
             self.data['day'] = self.data['date'].dt.day
         
         # Get configuration parameters
-        test_years = self.general_config.get('test_years', 3)
+        num_test_years = self.general_config.get('num_test_years', 2)
         forecast_days = self.general_config.get('forecast_days', [5, 10, 15, 20, 25, 'end'])
         
- 
+        all_years = sorted(self.data['year'].unique())
+        loocv_years = all_years[:-num_test_years]
+        test_years = all_years[-num_test_years:]
+
+
+        hindcast_df = None
+        all_pred_cols = []
+        for model_type, params in self.model_config.items():
+            logger.info(f"Calibrating model {model_type} with parameters: {params}")
+            
+            # Perform LOOCV for the model
+            df_predictions = self.__loocv__(
+                years=loocv_years,
+                features=self.feature_set,
+                params=params,
+                model_type=model_type
+            )
+
+            pred_col = f"Q_{model_type}"
+            all_pred_cols.append(pred_col)
+
+            if hindcast_df is None:
+                hindcast_df = df_predictions
+            else:
+                #merge on date and code
+                df_predictions = df_predictions[['date', 'code', pred_col]]
+                hindcast_df = pd.merge(hindcast_df, df_predictions, on=['date', 'code'], how='inner')
         
+        ensemble_name = f"Q_{self.name}"
+        hindcast_df[ensemble_name] = hindcast_df[all_pred_cols].mean(axis=1)
+
+        hindcast_df = self.__post_process_data__(
+            df=hindcast_df,
+            pred_cols=all_pred_cols + [ensemble_name],
+            obs_col='Q_obs'
+        )
+
+        logger.info(f"Finished hindcasting for {self.name}")
+
+
+        # ------------ Fit on All Data --------------
+        logger.info(f"Fitting models on all data for {self.name}")
+        fitted_models = {}
+
+        fit_on_all_predictions = None
+        for model_type, params in self.model_config.items():
+            logger.info(f"Fitting model {model_type} with parameters: {params}")
+
+            model, df_predictions, artifacts, final_features = self.__fit_on_all__(
+                features=self.feature_set,
+                test_years=test_years,
+                params=params,
+                model_type=model_type
+            )
+
+            fitted_models[model_type] = {
+                'model': model,
+                'artifacts': artifacts,
+                'final_features': final_features
+            }
+
+            pred_col = f"Q_{model_type}"
+            if fit_on_all_predictions is None:
+                fit_on_all_predictions = df_predictions
+            else:
+                #merge on date and code
+                df_predictions = df_predictions[['date', 'code', pred_col]]
+                fit_on_all_predictions = pd.merge(fit_on_all_predictions, df_predictions, on=['date', 'code'], how='inner')
+           
+
+        # Add ensemble prediction
+        fit_on_all_predictions[ensemble_name] = fit_on_all_predictions[all_pred_cols].mean(axis=1)
+        fit_on_all_predictions = self.__post_process_data__(
+            df=fit_on_all_predictions,
+            pred_cols=all_pred_cols + [ensemble_name],
+            obs_col='Q_obs'
+        )
+
+
+        hindcast_df = pd.concat([hindcast_df, fit_on_all_predictions], ignore_index=True)
+
+        # Save fitted models
+        self.fitted_models = fitted_models
+        self.save_model()
+
         return hindcast_df
     
     def tune_hyperparameters(self, data: pd.DataFrame) -> Tuple[bool, str]:
-        pass
+        return False, "Hyperparameter tuning is not implemented for SciRegressor. Please use the model_config dictionary to set hyperparameters."
 
     
     def save_model(self) -> None:
@@ -268,9 +574,79 @@ class SciRegressor(BaseForecastModel):
         Save all fitted models and preprocessing artifacts.
         """
         logger.info(f"Saving {self.name} models")
+        save_path = os.path.join(self.path_config['output_path'], f"{self.name}_models")
+        os.makedirs(save_path, exist_ok=True)
+
+        # Save fitted models
+        for model_type, model_info in self.fitted_models.items():
+            model = model_info['model']
+            artifacts = model_info['artifacts']
+            final_features = model_info['final_features']
+
+            # Save the model
+            model_path = os.path.join(save_path, f"{model_type}_model.joblib")
+            joblib.dump(model, model_path)
+
+            # Save artifacts
+            artifacts_path = os.path.join(save_path, f"{model_type}_artifacts")
+            artifacts.save(filepath=artifacts_path,
+                           format='hybrid')
+
+            # Save final features
+            features_path = os.path.join(save_path, f"{model_type}_features.json")
+            with open(features_path, 'w') as f:
+                json.dump(final_features, f)
+
+        # Save general model configuration
+        model_config_path = os.path.join(save_path, "model_config.json")
+        with open(model_config_path, 'w') as f:
+            json.dump(self.model_config, f, indent=4)
+        # Save general feature configuration
+        feature_config_path = os.path.join(save_path, "feature_config.json")
+        with open(feature_config_path, 'w') as f:
+            json.dump(self.feature_config, f, indent=4)
+        # Save general experiment configuration
+        experiment_config_path = os.path.join(save_path, "experiment_config.json")
+        with open(experiment_config_path, 'w') as f:
+            json.dump(self.general_config, f, indent=4)
+        
+        logger.info(f"Models and artifacts saved to {save_path}")
+
 
     def load_model(self) -> None:
         """
         Load all fitted models and preprocessing artifacts.
         """
         logger.info(f"Loading {self.name}  models")
+        load_path = os.path.join(self.path_config['output_path'], f"{self.name}_models")
+
+        if not os.path.exists(load_path):
+            logger.error(f"Model path {load_path} does not exist. Cannot load models.")
+            return
+        
+        # Load fitted models
+        for model_type in self.models:
+            model_path = os.path.join(load_path, f"{model_type}_model.joblib")
+            if not os.path.exists(model_path):
+                logger.error(f"Model file {model_path} does not exist. Cannot load model.")
+                continue
+            
+            model = joblib.load(model_path)
+
+            # Load artifacts
+            artifacts_path = os.path.join(load_path, f"{model_type}_artifacts")
+            artifacts = FeatureProcessingArtifacts.load(filepath=artifacts_path, format='hybrid')
+
+            # Load final features
+            features_path = os.path.join(load_path, f"{model_type}_features.json")
+            with open(features_path, 'r') as f:
+                final_features = json.load(f)
+
+            self.fitted_models[model_type] = {
+                'model': model,
+                'artifacts': artifacts,
+                'final_features': final_features
+            }
+
+        logger.info(f"Models loaded from {load_path}")
+

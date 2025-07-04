@@ -71,10 +71,12 @@ class FeatureProcessingArtifacts:
     
     def _save_hybrid(self, filepath: Path) -> None:
         """
-        Save using hybrid approach: JSON for metadata, joblib for sklearn objects, 
-        JSON/CSV for pandas objects (safer than pickle).
+        Save using hybrid approach: JSON for metadata and dict objects, 
+        joblib only for sklearn objects (safer than pickle).
         """
-        base_path = filepath.parent / filepath.stem
+        # Create artifacts directory: parent_folder/artifacts_name/
+        artifacts_dir = filepath.parent / filepath.name
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
         
         # Save metadata as JSON
         metadata = {
@@ -88,26 +90,69 @@ class FeatureProcessingArtifacts:
             'feature_count': self.feature_count
         }
         
-        with open(f"{base_path}_metadata.json", 'w') as f:
+        with open(artifacts_dir / "metadata.json", 'w') as f:
             json.dump(metadata, f, indent=2)
         
-        # Save sklearn objects with joblib
+        # Save sklearn objects with joblib (only actual sklearn objects)
         sklearn_objects = {}
         if self.imputer is not None:
             sklearn_objects['imputer'] = self.imputer
-        if self.scaler is not None:
-            sklearn_objects['scaler'] = self.scaler
         if self.feature_selector is not None:
             sklearn_objects['feature_selector'] = self.feature_selector
         
         if sklearn_objects:
-            joblib.dump(sklearn_objects, f"{base_path}_sklearn.joblib")
+            joblib.dump(sklearn_objects, artifacts_dir / "sklearn_objects.joblib")
         
-        # Save pandas objects as JSON/CSV (safer than pickle)
+        # Save scaler as JSON (it's a dict, not sklearn object)
+        if self.scaler is not None:
+            self._save_scaler_safe(artifacts_dir)
+        
+        # Save long_term_means as JSON
         if self.long_term_means is not None:
-            self._save_long_term_means_safe(base_path)
+            self._save_long_term_means_safe(artifacts_dir)
     
-    def _save_long_term_means_safe(self, base_path: Path) -> None:
+    def _save_scaler_safe(self, artifacts_dir: Path) -> None:
+        """
+        Save scaler dictionary in a safe, human-readable format.
+        
+        The scaler can be either:
+        1. Global: {'feature_name': (mean, std), ...}
+        2. Per-basin: {'basin_code': {'feature_name': (mean, std), ...}, ...}
+        """
+        if self.scaler is None:
+            return
+        
+        # Convert scaler to JSON-serializable format
+        scaler_data = {}
+        
+        for key, value in self.scaler.items():
+            if isinstance(value, dict):
+                # Per-basin case: key is basin_code, value is dict of feature scalers
+                scaler_data[str(key)] = {}
+                for feature, params in value.items():
+                    if isinstance(params, (tuple, list)) and len(params) == 2:
+                        scaler_data[str(key)][feature] = {
+                            'mean': float(params[0]) if pd.notna(params[0]) else None,
+                            'std': float(params[1]) if pd.notna(params[1]) else None
+                        }
+                    else:
+                        logger.warning(f"Unexpected scaler format for {key}.{feature}: {params}")
+            elif isinstance(value, (tuple, list)) and len(value) == 2:
+                # Global case: key is feature_name, value is (mean, std)
+                scaler_data[str(key)] = {
+                    'mean': float(value[0]) if pd.notna(value[0]) else None,
+                    'std': float(value[1]) if pd.notna(value[1]) else None
+                }
+            else:
+                logger.warning(f"Unexpected scaler format for {key}: {value}")
+        
+        # Save as JSON
+        with open(artifacts_dir / "scaler.json", 'w') as f:
+            json.dump(scaler_data, f, indent=2)
+        
+        logger.info(f"Saved scaler with {len(scaler_data)} entries as JSON")
+
+    def _save_long_term_means_safe(self, artifacts_dir: Path) -> None:
         """
         Save long_term_means in a safe, human-readable format.
         
@@ -141,49 +186,91 @@ class FeatureProcessingArtifacts:
                 logger.warning(f"Unexpected type for basin {basin_code}: {type(feature_means)}")
         
         # Save as JSON
-        with open(f"{base_path}_long_term_means.json", 'w') as f:
+        with open(artifacts_dir / "long_term_means.json", 'w') as f:
             json.dump(flattened_means, f, indent=2)
         
         logger.info(f"Saved long-term means for {len(self.long_term_means)} basins as JSON")
     
     @classmethod
     def _load_hybrid(cls, filepath: Path) -> 'FeatureProcessingArtifacts':
-        """Load from hybrid format with safe pandas loading."""
-        base_path = filepath.parent / filepath.stem
+        """Load from hybrid format with proper directory structure."""
+        # Expect artifacts to be in: parent_folder/artifacts_name/
+        artifacts_dir = filepath.parent / filepath.name
+        
+        if not artifacts_dir.exists():
+            raise FileNotFoundError(f"Artifacts directory not found: {artifacts_dir}")
+        
         artifacts = cls()
         
         # Load metadata
-        with open(f"{base_path}_metadata.json", 'r') as f:
-            metadata = json.load(f)
-        
-        artifacts.selected_features = metadata.get('selected_features')
-        artifacts.highly_correlated_features = metadata.get('highly_correlated_features')
-        artifacts.final_features = metadata.get('final_features')
-        artifacts.cat_features = metadata.get('cat_features')
-        artifacts.num_features = metadata.get('num_features')
-        artifacts.creation_timestamp = metadata.get('creation_timestamp')
-        artifacts.experiment_config_hash = metadata.get('experiment_config_hash')
-        artifacts.feature_count = metadata.get('feature_count')
+        metadata_path = artifacts_dir / "metadata.json"
+        if metadata_path.exists():
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+            
+            artifacts.selected_features = metadata.get('selected_features')
+            artifacts.highly_correlated_features = metadata.get('highly_correlated_features')
+            artifacts.final_features = metadata.get('final_features')
+            artifacts.cat_features = metadata.get('cat_features')
+            artifacts.num_features = metadata.get('num_features')
+            artifacts.creation_timestamp = metadata.get('creation_timestamp')
+            artifacts.experiment_config_hash = metadata.get('experiment_config_hash')
+            artifacts.feature_count = metadata.get('feature_count')
         
         # Load sklearn objects
-        sklearn_path = f"{base_path}_sklearn.joblib"
-        if Path(sklearn_path).exists():
+        sklearn_path = artifacts_dir / "sklearn_objects.joblib"
+        if sklearn_path.exists():
             sklearn_objects = joblib.load(sklearn_path)
             artifacts.imputer = sklearn_objects.get('imputer')
-            artifacts.scaler = sklearn_objects.get('scaler')
             artifacts.feature_selector = sklearn_objects.get('feature_selector')
         
-        # Load pandas objects from JSON (safe)
-        artifacts.long_term_means = cls._load_long_term_means_safe(base_path)
+        # Load scaler from JSON
+        artifacts.scaler = cls._load_scaler_safe(artifacts_dir)
+        
+        # Load long_term_means from JSON
+        artifacts.long_term_means = cls._load_long_term_means_safe(artifacts_dir)
         
         return artifacts
     
     @staticmethod
-    def _load_long_term_means_safe(base_path: Path) -> Optional[Dict]:
-        """Load long_term_means from JSON format."""
-        means_path = f"{base_path}_long_term_means.json"
+    def _load_scaler_safe(artifacts_dir: Path) -> Optional[Dict]:
+        """Load scaler from JSON format."""
+        scaler_path = artifacts_dir / "scaler.json"
         
-        if not Path(means_path).exists():
+        if not scaler_path.exists():
+            return None
+        
+        with open(scaler_path, 'r') as f:
+            scaler_data = json.load(f)
+        
+        # Convert back to the expected format
+        scaler = {}
+        
+        for key, value in scaler_data.items():
+            if isinstance(value, dict):
+                if 'mean' in value and 'std' in value:
+                    # Global case: convert back to tuple
+                    scaler[key] = (value['mean'], value['std'])
+                else:
+                    # Per-basin case: convert nested dict
+                    scaler[key] = {}
+                    for feature, params in value.items():
+                        if isinstance(params, dict) and 'mean' in params and 'std' in params:
+                            scaler[key][feature] = (params['mean'], params['std'])
+                        else:
+                            logger.warning(f"Unexpected scaler format for {key}.{feature}: {params}")
+            else:
+                logger.warning(f"Unexpected scaler format for {key}: {value}")
+        
+        logger.info(f"Loaded scaler with {len(scaler)} entries from JSON")
+        return scaler
+
+    @staticmethod
+    def _load_long_term_means_safe(artifacts_dir: Path) -> Optional[Dict]:
+        """Load long_term_means from JSON format."""
+        means_path = artifacts_dir / "long_term_means.json"
+        
+        if not means_path.exists():
             return None
         
         with open(means_path, 'r') as f:
@@ -237,60 +324,32 @@ class FeatureProcessingArtifacts:
     
     @staticmethod
     def _detect_format(filepath: Path) -> str:
-        """Auto-detect the format based on file extensions."""
+        """Auto-detect the format based on file extensions and directory structure."""
+        # Check for hybrid format (directory structure)
+        artifacts_dir = filepath.parent / filepath.name
+        if artifacts_dir.exists() and (artifacts_dir / "metadata.json").exists():
+            return 'hybrid'
+        
+        # Check for single file formats
         if filepath.with_suffix('.joblib').exists():
             return 'joblib'
         elif filepath.with_suffix('.pkl').exists():
             return 'pickle'
-        elif (filepath.parent / f"{filepath.stem}_metadata.json").exists():
-            return 'hybrid'
         else:
             raise FileNotFoundError(f"No artifacts found at {filepath}")
-    
+
     @classmethod
     def _load_joblib(cls, filepath: Path) -> 'FeatureProcessingArtifacts':
         """Load from joblib file."""
         filepath = filepath.with_suffix('.joblib')
         return joblib.load(filepath)
-    
+
     @classmethod
     def _load_pickle(cls, filepath: Path) -> 'FeatureProcessingArtifacts':
         """Load from pickle file."""
         filepath = filepath.with_suffix('.pkl')
         with open(filepath, 'rb') as f:
             return pickle.load(f)
-    
-    @classmethod
-    def _load_hybrid(cls, filepath: Path) -> 'FeatureProcessingArtifacts':
-        """Load from hybrid format."""
-        base_path = filepath.parent / filepath.stem
-        artifacts = cls()
-        
-        # Load metadata
-        with open(f"{base_path}_metadata.json", 'r') as f:
-            metadata = json.load(f)
-        
-        artifacts.selected_features = metadata.get('selected_features')
-        artifacts.highly_correlated_features = metadata.get('highly_correlated_features')
-        artifacts.final_features = metadata.get('final_features')
-        artifacts.cat_features = metadata.get('cat_features')
-        artifacts.num_features = metadata.get('num_features')
-        artifacts.creation_timestamp = metadata.get('creation_timestamp')
-        artifacts.experiment_config_hash = metadata.get('experiment_config_hash')
-        artifacts.feature_count = metadata.get('feature_count')
-        
-        # Load sklearn objects
-        sklearn_path = f"{base_path}_sklearn.joblib"
-        if Path(sklearn_path).exists():
-            sklearn_objects = joblib.load(sklearn_path)
-            artifacts.imputer = sklearn_objects.get('imputer')
-            artifacts.scaler = sklearn_objects.get('scaler')
-            artifacts.feature_selector = sklearn_objects.get('feature_selector')
-        
-        # Load pandas objects from JSON (safe)
-        artifacts.long_term_means = cls._load_long_term_means_safe(base_path)
-        
-        return artifacts
     
     def get_info(self) -> Dict[str, Any]:
         """Get information about the artifacts."""
@@ -335,6 +394,7 @@ def process_training_data(
     df_processed = df_train.copy()
     
     # Separate numeric and categorical features early
+    
     artifacts.num_features = [col for col in features if df_train[col].dtype.kind in 'ifc']
     artifacts.cat_features = [col for col in features if col not in artifacts.num_features]
     
@@ -350,7 +410,7 @@ def process_training_data(
     df_processed, artifacts = _feature_selection_training(
         df_processed, target, experiment_config, artifacts
     )
-    
+
     # 3. Normalization (create scaler)
     df_processed, artifacts = _normalization_training(
         df_processed, target, experiment_config, artifacts
@@ -461,9 +521,12 @@ def process_test_data(
     df_processed = df_test.copy()
     
     # Apply the same preprocessing steps using training artifacts
-    df_processed = _apply_missing_value_handling(df_processed, artifacts, experiment_config)
-    df_processed = _apply_feature_selection(df_processed, artifacts)
-    df_processed = _apply_normalization(df_processed, artifacts, experiment_config)
+    df_processed = _apply_missing_value_handling(
+        df=df_processed, artifacts=artifacts, experiment_config=experiment_config)
+    df_processed = _apply_feature_selection(
+        df=df_processed, artifacts=artifacts)
+    df_processed = _apply_normalization(
+        df=df_processed, artifacts=artifacts, experiment_config=experiment_config)
     
     return df_processed
 
@@ -704,3 +767,59 @@ def _apply_normalization(
         df = du.apply_normalization(df, artifacts.scaler, numeric_features_to_scale)
     
     return df
+
+
+
+def post_process_target(
+    df_predictions: pd.DataFrame,
+    target: str,
+    artifacts: FeatureProcessingArtifacts,
+    experiment_config: Dict[str, Any],
+    prediction_column: str = 'Q_pred'
+    ) -> pd.DataFrame:
+
+    """
+    Simple implementation - reverse normalization of predictions using artifacts.
+    
+    Args:
+        df_predictions: DataFrame with predictions
+        target: Target variable name  
+        artifacts: FeatureProcessingArtifacts containing scaler
+        experiment_config: Configuration dictionary
+        prediction_column: Name of the prediction column to denormalize
+        
+    Returns:
+        DataFrame with denormalized predictions
+    """
+    df_predictions = df_predictions.copy()
+    
+    if not experiment_config.get('normalize', False) or artifacts.scaler is None:
+        return df_predictions
+    
+    if experiment_config.get('normalize_per_basin', False):
+        # Basin-specific denormalization
+        if 'code' not in df_predictions.columns:
+            logger.warning("Basin code column not found for per-basin denormalization")
+            return df_predictions
+            
+        for code in df_predictions['code'].unique():
+            if code in artifacts.scaler and target in artifacts.scaler[code]:
+                mean_, std_ = artifacts.scaler[code][target]
+                mask = df_predictions['code'] == code
+                df_predictions.loc[mask, prediction_column] = (
+                    df_predictions.loc[mask, prediction_column] * std_ + mean_
+                )
+            else:
+                logger.warning(f"No scaler found for basin {code} and target {target}")
+    else:
+        # Global denormalization
+        if target in artifacts.scaler:
+            mean_, std_ = artifacts.scaler[target]
+            df_predictions[prediction_column] = (
+                df_predictions[prediction_column] * std_ + mean_
+            )
+        else:
+            logger.warning(f"No scaler found for target {target}")
+    
+    logger.info(f"Applied denormalization to {prediction_column}")
+    return df_predictions

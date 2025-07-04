@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive test script for Linear Regression model including calibration, hindcasting, and operational forecasting.
+Test script for Linear Regression model including calibration, hindcasting, and operational forecasting.
 
 This script tests the complete Linear Regression workflow using synthetic data including:
 - Model initialization and configuration loading
