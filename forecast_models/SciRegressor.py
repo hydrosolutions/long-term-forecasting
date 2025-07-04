@@ -72,7 +72,7 @@ class SciRegressor(BaseForecastModel):
         
         # Get preprocessing configuration
         self.target = self.general_config.get('target', 'target')
-        self.missing_value_handling = self.general_config.get('missing_value_handling', 'drop')
+        self.missing_value_handling = self.general_config.get('handle_na', 'drop')
         self.normalization_type = self.general_config.get('normalization_type', None)
         self.normalize_per_basin = self.general_config.get('normalize_per_basin', False)
         self.use_pca = self.general_config.get('use_pca', False)

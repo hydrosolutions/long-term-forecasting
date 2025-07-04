@@ -98,7 +98,7 @@ GENERAL_CONFIG = {
     "model_name": "TestSciRegressor",
     "models": ["xgb", "rf", "catboost"],  # Multiple models for ensemble
     "target": "target",
-    "missing_value_handling": "long_term_mean",
+    "handle_na": "long_term_mean",
     "normalization_type": "standard",
     "normalize_per_basin": False,
     "use_pca": False,

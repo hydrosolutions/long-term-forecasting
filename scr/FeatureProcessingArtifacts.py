@@ -107,7 +107,7 @@ class FeatureProcessingArtifacts:
         if self.scaler is not None:
             self._save_scaler_safe(artifacts_dir)
         
-        # Save long_term_means as JSON
+        # Save long_term_means as Parquet
         if self.long_term_means is not None:
             self._save_long_term_means_safe(artifacts_dir)
     
@@ -154,21 +154,63 @@ class FeatureProcessingArtifacts:
 
     def _save_long_term_means_safe(self, artifacts_dir: Path) -> None:
         """
-        Save long_term_means in a safe, human-readable format.
+        Save long_term_means as a Parquet file.
         
-        The long_term_means is typically a nested dict like:
-        {
-            'basin_code': {
-                'feature_name': mean_value,
-                ...
-            },
-            ...
-        }
+        The long_term_means can be either:
+        1. A pandas DataFrame
+        2. A nested dict of DataFrames: {'basin_code': DataFrame, ...}
+        3. A nested dict of dicts: {'basin_code': {'feature': value, ...}, ...}
         """
         if self.long_term_means is None:
             return
+        
+        try:
+            # Case 1: Direct DataFrame
+            if isinstance(self.long_term_means, pd.DataFrame):
+                self.long_term_means.to_parquet(artifacts_dir / "long_term_means.parquet")
+                logger.info("Saved long_term_means DataFrame as Parquet")
+                return
             
-        # Convert to a flat structure that's JSON-serializable
+            # Case 2 & 3: Nested structure
+            if isinstance(self.long_term_means, dict):
+                # Convert nested structure to a single DataFrame
+                rows = []
+                
+                for basin_code, feature_data in self.long_term_means.items():
+                    if isinstance(feature_data, pd.DataFrame):
+                        # DataFrame case: add basin_code as a column
+                        df_temp = feature_data.copy()
+                        df_temp['code'] = basin_code
+                        rows.append(df_temp)
+                    elif isinstance(feature_data, pd.Series):
+                        # Series case: convert to DataFrame
+                        df_temp = feature_data.to_frame().T
+                        df_temp['code'] = basin_code
+                        rows.append(df_temp)
+                    elif isinstance(feature_data, dict):
+                        # Dict case: convert to DataFrame row
+                        row_data = feature_data.copy()
+                        row_data['code'] = basin_code
+                        rows.append(pd.DataFrame([row_data]))
+                    else:
+                        logger.warning(f"Unexpected type for basin {basin_code}: {type(feature_data)}")
+                
+                if rows:
+                    combined_df = pd.concat(rows, ignore_index=True)
+                    combined_df.to_parquet(artifacts_dir / "long_term_means.parquet")
+                    logger.info(f"Saved long_term_means for {len(self.long_term_means)} basins as Parquet")
+                else:
+                    logger.warning("No valid data found in long_term_means")
+            
+        except Exception as e:
+            logger.error(f"Failed to save long_term_means as Parquet: {e}")
+            # Fallback to JSON if Parquet fails
+            logger.info("Falling back to JSON format")
+            self._save_long_term_means_json_fallback(artifacts_dir)
+
+    def _save_long_term_means_json_fallback(self, artifacts_dir: Path) -> None:
+        """Fallback method to save as JSON if Parquet fails."""
+        # ...existing code... (keep the original JSON implementation as fallback)
         flattened_means = {}
         
         for basin_code, feature_means in self.long_term_means.items():
@@ -189,8 +231,8 @@ class FeatureProcessingArtifacts:
         with open(artifacts_dir / "long_term_means.json", 'w') as f:
             json.dump(flattened_means, f, indent=2)
         
-        logger.info(f"Saved long-term means for {len(self.long_term_means)} basins as JSON")
-    
+        logger.info("Saved long_term_means as JSON fallback")
+
     @classmethod
     def _load_hybrid(cls, filepath: Path) -> 'FeatureProcessingArtifacts':
         """Load from hybrid format with proper directory structure."""
@@ -227,7 +269,7 @@ class FeatureProcessingArtifacts:
         # Load scaler from JSON
         artifacts.scaler = cls._load_scaler_safe(artifacts_dir)
         
-        # Load long_term_means from JSON
+        # Load long_term_means from Parquet or JSON
         artifacts.long_term_means = cls._load_long_term_means_safe(artifacts_dir)
         
         return artifacts
@@ -267,35 +309,66 @@ class FeatureProcessingArtifacts:
 
     @staticmethod
     def _load_long_term_means_safe(artifacts_dir: Path) -> Optional[Dict]:
-        """Load long_term_means from JSON format."""
-        means_path = artifacts_dir / "long_term_means.json"
+        """Load long_term_means from Parquet or JSON format."""
+        parquet_path = artifacts_dir / "long_term_means.parquet"
+        json_path = artifacts_dir / "long_term_means.json"
         
-        if not means_path.exists():
-            return None
-        
-        with open(means_path, 'r') as f:
-            flattened_means = json.load(f)
-        
-        # Reconstruct the nested structure
-        long_term_means = {}
-        
-        for key, value in flattened_means.items():
-            if '_' not in key:
-                logger.warning(f"Unexpected key format: {key}")
-                continue
+        # Try Parquet first
+        if parquet_path.exists():
+            try:
+                df = pd.read_parquet(parquet_path)
                 
-            # Split basin_code and feature_name
-            parts = key.split('_', 1)  # Split only on first underscore
-            basin_code, feature_name = parts[0], parts[1]
-            
-            if basin_code not in long_term_means:
-                long_term_means[basin_code] = {}
-            
-            long_term_means[basin_code][feature_name] = value
+                # Convert back to nested structure
+                if 'code' in df.columns:
+                    long_term_means = {}
+                    
+                    for basin_code in df['code'].unique():
+                        basin_data = df[df['code'] == basin_code].drop('code', axis=1)
+                        
+                        if len(basin_data) == 1:
+                            # Single row: convert to dict
+                            long_term_means[basin_code] = basin_data.iloc[0].to_dict()
+                        else:
+                            # Multiple rows: keep as DataFrame
+                            long_term_means[basin_code] = basin_data.reset_index(drop=True)
+                    
+                    logger.info(f"Loaded long_term_means for {len(long_term_means)} basins from Parquet")
+                    return long_term_means
+                else:
+                    # Direct DataFrame case
+                    logger.info("Loaded long_term_means DataFrame from Parquet")
+                    return df.to_dict()
+                    
+            except Exception as e:
+                logger.warning(f"Failed to load Parquet file: {e}")
+                logger.info("Falling back to JSON format")
         
-        logger.info(f"Loaded long-term means for {len(long_term_means)} basins from JSON")
-        return long_term_means
-    
+        # Fallback to JSON
+        if json_path.exists():
+            with open(json_path, 'r') as f:
+                flattened_means = json.load(f)
+            
+            # Reconstruct the nested structure
+            long_term_means = {}
+            
+            for key, value in flattened_means.items():
+                if '_' not in key:
+                    logger.warning(f"Unexpected key format: {key}")
+                    continue
+                    
+                # Split basin_code and feature_name
+                parts = key.split('_', 1)  # Split only on first underscore
+                basin_code, feature_name = parts[0], parts[1]
+                
+                if basin_code not in long_term_means:
+                    long_term_means[basin_code] = {}
+                
+                long_term_means[basin_code][feature_name] = value
+            
+            logger.info(f"Loaded long_term_means for {len(long_term_means)} basins from JSON")
+            return long_term_means
+        
+        return None
     @classmethod
     def load(cls, filepath: Union[str, Path], format: str = 'auto') -> 'FeatureProcessingArtifacts':
         """
@@ -586,10 +659,13 @@ def _handle_missing_values_training(
     elif handle_na == 'long_term_mean':
         # Import here to avoid circular imports
         from scr import data_utils as du
-        artifacts.long_term_means = du.get_long_term_mean_per_basin(df, features=features)
-        df = du.apply_long_term_mean(df, long_term_mean=artifacts.long_term_means, features=features)
-        logger.info("Created long-term mean artifacts")
+        numeric_features = [col for col in features if df[col].dtype.kind in 'ifc']
         
+        artifacts.long_term_means = du.get_long_term_mean_per_basin(df, features=numeric_features)
+        df = du.apply_long_term_mean(df, long_term_mean=artifacts.long_term_means, features=numeric_features)
+        logger.info("Created long-term mean artifacts")
+        logger.info(f"Long Term Means: {artifacts.long_term_means}")
+
     elif handle_na == 'impute':
         impute_cols = [col for col in features if df[col].dtype.kind in 'ifc']
         
@@ -711,7 +787,7 @@ def _apply_missing_value_handling(
         df = du.apply_long_term_mean(
             df, 
             long_term_mean=artifacts.long_term_means, 
-            features=artifacts.num_features + artifacts.cat_features
+            features=artifacts.num_features
         )
         
     elif handle_na == 'impute' and artifacts.imputer is not None:
