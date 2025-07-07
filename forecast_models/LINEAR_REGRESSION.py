@@ -385,6 +385,10 @@ class LinearRegressionModel(BaseForecastModel):
                     continue
                 
             
+                # Get features for this code and period on the training data
+                   
+                features = self.get_highest_corr_features(code_period_df, 'target')
+                    
                 # Perform Leave-One-Year-Out CV on non-test years
                 for test_year in loocv_years:
                     # Training data: all years except current test year
@@ -405,10 +409,6 @@ class LinearRegressionModel(BaseForecastModel):
                         })
                         continue
 
-                    # Get features for this code and period on the training data
-                   
-                    features = self.get_highest_corr_features(train_data, 'target')
-                    
                     if not features:
                         failed_lr.append({
                             'code': code,

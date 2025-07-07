@@ -309,8 +309,7 @@ def loo_cv(
 
 def get_feature_importance(
     model,
-    feature_names: Optional[List[str]] = None,
-    save_path: Optional[str] = None
+    feature_names: Optional[List[str]] = None
 ) -> pd.DataFrame:
     """
     Extract and visualize feature importance from a trained model.
@@ -336,7 +335,13 @@ def get_feature_importance(
         importance = model.feature_importances_
         if feature_names is None:
             feature_names = model.booster_.feature_name()
+    elif hasattr(model, 'get_feature_importance') and hasattr(model, 'feature_names_'):
+        # CatBoost models
+        importance = model.get_feature_importance()
+        if feature_names is None:
+            feature_names = model.feature_names_
     elif hasattr(model, 'feature_importances_'):
+        # Generic models with feature_importances_ attribute
         importance = model.feature_importances_
         if feature_names is None:
             feature_names = [f'feature_{i}' for i in range(len(importance))]
@@ -350,78 +355,39 @@ def get_feature_importance(
         'importance': importance
     }).sort_values('importance', ascending=False)
     
-    # Plot feature importance
-    plt.figure(figsize=(10, 6))
-    sns.barplot(data=feature_importance.head(20), x='importance', y='feature')
-    plt.title('Top 20 Feature Importance')
-    plt.xlabel('Importance')
-    plt.ylabel('Feature')
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=250, bbox_inches='tight')
-    plt.show()
-    
     return feature_importance
 
-
 def optimize_hyperparams(
-    df: pd.DataFrame,
-    features: List[str],
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_val: pd.DataFrame,
+    y_val: pd.Series,
     model_type: str,
-    experiment_config: Dict[str, Any],
-    target: str = 'target',
+    cat_features: Optional[List[str]] = [],
     n_trials: int = 100,
-    pca_groups: Optional[Dict[str, List[str]]] = None,
-    variance_threshold: float = 0.95,
-    save_path: Optional[str] = None
+    save_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Optimize hyperparameters using Optuna.
     
     Args:
-        df: Input DataFrame
-        features: List of feature names
-        model_type: Type of model to optimize
-        experiment_config: Experiment configuration
-        target: Target column name
+        X_train: Training features
+        y_train: Training target values
+        X_val: Validation features
+        y_val: Validation target values
+        model_type: Type of model to optimize ('xgb', 'lgbm', 'catboost', 'mlp')
+        cat_features: List of categorical features for CatBoost
         n_trials: Number of optimization trials
-        pca_groups: Optional PCA configuration
-        variance_threshold: Variance threshold for PCA
-        save_path: Optional path to save optimization plots
+        save_path: Optional path to save optimization results and plots
         
     Returns:
         Dictionary of best hyperparameters
     """
-    df = df.copy()
-    df.dropna(subset=[target], inplace=True)
-    df['year'] = df['date'].dt.year
-    
-    # Limit years for hyperparameter tuning
-    year_limit = experiment_config.get('hyperparam_tuning_year_limit', df['year'].max())
-    df = df[df['year'] < year_limit]
-    
-    years = sorted(df['year'].unique())
-    num_train_years = int(len(years) * 0.8)
-    train_years = years[:num_train_years]
-    val_years = years[num_train_years:]
-    
-    logger.info(f"Train years: {train_years}")
-    logger.info(f"Validation years: {val_years}")
-    
-    # Split data
-    train_data = df[df['year'].isin(train_years)]
-    val_data = df[df['year'].isin(val_years)]
 
-    train_data, val_data, final_features, _ = process_features(
-        train_data, val_data, features, target, 
-        experiment_config, pca_groups, variance_threshold
-    )
-    
-    X_train = train_data[final_features]
-    y_train = train_data[target]
-    X_val = val_data[final_features]
-    y_val = val_data[target]
+    X_train = X_train.copy()
+    X_val = X_val.copy()
+    y_train = y_train.copy()
+    y_val = y_val.copy()
 
     # Define objective function based on model type
     def objective(trial):
@@ -430,7 +396,6 @@ def optimize_hyperparams(
         elif model_type == 'lgbm':
             return _objective_lgbm(trial, X_train, y_train, X_val, y_val)
         elif model_type == 'catboost':
-            cat_features = experiment_config.get('cat_features', [])
             return _objective_catboost(trial, X_train, y_train, X_val, y_val, cat_features)
         elif model_type == 'mlp':
             return _objective_mlp(trial, X_train, y_train, X_val, y_val)

@@ -84,6 +84,7 @@ class SciRegressor(BaseForecastModel):
         self.static_features = self.general_config.get('static_features', [])
         self.rivers_to_exclude = self.general_config.get('rivers_to_exclude', [])
         self.snow_vars = self.general_config.get('snow_vars', ['SWE'])
+        self.hparam_tuning_years = self.general_config.get('hparam_tuning_years', 3)
 
 
     def __preprocess_data__(self):
@@ -137,8 +138,10 @@ class SciRegressor(BaseForecastModel):
 
         # -------------- 5. Load LR predictors if configured ------------------------------
         if self.general_config['use_lr_predictors']:
-            lr_predictors = self.__load_lr_predictors__()
+            lr_predictors, lr_pred_cols = self.__load_lr_predictors__()
             self.data = pd.merge(self.data, lr_predictors, on=['date', 'code'], how='inner')
+        else:
+            lr_pred_cols = []
 
         # -------------- 6. Dummy encoding for categorical features ------------------------------
         self.data['basin'] = self.data['code']
@@ -151,10 +154,9 @@ class SciRegressor(BaseForecastModel):
         self.data = pd.merge(self.data, static_df_feat, on='code', how='inner')
 
         # -------------- 8. Prepare feature sets ------------------------------
-        lr_features = [col for col in self.data.columns if 'LR' in col]
         self.feature_set = [col + "_" for col in self.feature_cols] + \
         ['week_sin', 'week_cos','month_sin', 'month_cos'] + \
-        self.static_features + lr_features
+        self.static_features + lr_pred_cols
 
         self.feature_set = [col for col in self.data.columns
         if any([f in col for f in self.feature_set])]
@@ -205,7 +207,65 @@ class SciRegressor(BaseForecastModel):
         logger.debug('Feature extraction completed. Data shape: %s', self.data.shape)
 
     def __load_lr_predictors__(self) -> pd.DataFrame:
-        pass
+        """
+        Loads all the prediction df's from the path_config['path_to_lr_predictors'] directory.
+        Where the model name is the name of the folder the prediction.csv is located in.
+        """
+        path_list = self.path_config['path_to_lr_predictors']
+        models = []
+
+        all_predictions = None
+        pred_cols = []
+        for path in path_list:
+            model_name = os.path.basename(os.path.dirname(path))
+            df = pd.read_csv(path)
+            
+            df['date'] = pd.to_datetime(df['date'])
+            df['code'] = df['code'].astype(int)
+
+            pred_col = f"{model_name}"
+            #check if pred_col exists in df
+            if pred_col not in df.columns:
+                logger.warning(f"Prediction column '{pred_col}' not found in {model_name}. Skipping this model.")
+                continue
+
+            pred_cols.append(pred_col)
+
+            if all_predictions is None:
+                all_predictions = df[['date', 'code', pred_col]].copy()
+
+            else:
+                # Merge predictions on date and code
+                all_predictions = pd.merge(
+                    all_predictions, 
+                    df[['date', 'code', pred_col]], 
+                    on=['date', 'code'], 
+                    how='inner'
+                )
+            
+        
+        return all_predictions, pred_cols
+
+    def __filter_forecast_days__(self,) -> None:
+
+        forecast_days = self.general_config.get('forecast_days', [5, 10, 15, 20, 25, 'end'])
+        
+        # Filter data to include only the specified forecast days
+        if forecast_days:
+            day_conditions = []
+            for forecast_day in forecast_days:
+                if forecast_day == 'end':
+                    day_conditions.append(self.data['date'].dt.day == self.data['date'].dt.days_in_month)
+                else:
+                    day_conditions.append(self.data['date'].dt.day == forecast_day)
+            
+            # Combine all conditions with OR logic
+            combined_condition = day_conditions[0]
+            for condition in day_conditions[1:]:
+                combined_condition = combined_condition | condition
+            
+            self.data = self.data[combined_condition]
+
     def __post_process_data__(self, 
                               df: pd.DataFrame,
                               pred_cols : List[str],
@@ -416,7 +476,6 @@ class SciRegressor(BaseForecastModel):
 
         return [model, df_predictions, artifacts, final_features]
          
-
     def predict_operational(self) -> pd.DataFrame:
         """
         Predict in operational mode using global trained models.
@@ -476,8 +535,9 @@ class SciRegressor(BaseForecastModel):
         
         # Get configuration parameters
         num_test_years = self.general_config.get('num_test_years', 2)
-        forecast_days = self.general_config.get('forecast_days', [5, 10, 15, 20, 25, 'end'])
-        
+
+        self.__filter_forecast_days__()
+
         all_years = sorted(self.data['year'].unique())
         loocv_years = all_years[:-num_test_years]
         test_years = all_years[-num_test_years:]
@@ -505,7 +565,8 @@ class SciRegressor(BaseForecastModel):
                 #merge on date and code
                 df_predictions = df_predictions[['date', 'code', pred_col]]
                 hindcast_df = pd.merge(hindcast_df, df_predictions, on=['date', 'code'], how='inner')
-        
+
+
         ensemble_name = f"Q_{self.name}"
         hindcast_df[ensemble_name] = hindcast_df[all_pred_cols].mean(axis=1)
 
@@ -547,6 +608,9 @@ class SciRegressor(BaseForecastModel):
                 df_predictions = df_predictions[['date', 'code', pred_col]]
                 fit_on_all_predictions = pd.merge(fit_on_all_predictions, df_predictions, on=['date', 'code'], how='inner')
            
+            feature_importance = sci_utils.get_feature_importance(model)
+            #save the feature importance
+            fitted_models[model_type]['feature_importance'] = feature_importance
 
         # Add ensemble prediction
         fit_on_all_predictions[ensemble_name] = fit_on_all_predictions[all_pred_cols].mean(axis=1)
@@ -561,15 +625,111 @@ class SciRegressor(BaseForecastModel):
 
         # Save fitted models
         self.fitted_models = fitted_models
-        self.save_model()
+        self.save_model(is_fitted=True)
 
         return hindcast_df
     
-    def tune_hyperparameters(self, data: pd.DataFrame) -> Tuple[bool, str]:
-        return False, "Hyperparameter tuning is not implemented for SciRegressor. Please use the model_config dictionary to set hyperparameters."
+    def tune_hyperparameters(self) -> Tuple[bool, str]:
+        """
+        Tune the hyperparameters of the ensemble models with optuna.
+
+        Returns:
+            Tuple[bool, str]: A tuple containing a boolean indicating success and a message.
+        """
+        logger.info(f"Starting hyperparameter tuning for {self.name} with models: {self.models}")
+
+        self.__preprocess_data__()
+
+        if 'year' not in self.data.columns:
+            self.data['year'] = self.data['date'].dt.year
+
+        # Add day column if not present
+        if 'day' not in self.data.columns:
+            self.data['day'] = self.data['date'].dt.day
+        
+        # Get configuration parameters
+        num_hparam_tuning_years = self.hparam_tuning_years
+
+        self.__filter_forecast_days__()
+
+        all_years = sorted(self.data['year'].unique())
+        train_years = all_years[:-num_hparam_tuning_years]
+        val_years = all_years[-num_hparam_tuning_years:]
+
+        df_train = self.data[self.data['year'].isin(train_years)].copy()
+        df_val = self.data[self.data['year'].isin(val_years)].copy()
+
+        logger.info(f"Training years: {train_years}, Validation years: {val_years}")
+
+        # Dropna based on target
+        df_train = df_train.dropna(subset=[self.target]).copy()
+        df_val = df_val.dropna(subset=[self.target]).copy()
+
+        if df_train.empty or df_val.empty:
+            logger.error("Not enough data for hyperparameter tuning. Ensure that the dataset contains sufficient years of data.")
+            return False, "Not enough data for hyperparameter tuning. Ensure that the dataset contains sufficient years of data."
+        
+        for model_type, params in self.model_config.items():
+            logger.info(f"Tuning hparams for model {model_type}")
+
+            if 'catboost' in model_type:
+                if len(self.cat_features) > 0:
+                    this_feature_set = self.feature_set + self.cat_features
+                    logger.info(f"Using categorical features for {model_type}: {self.cat_features}")
+
+            else:
+                this_feature_set = self.feature_set
+
+
+            df_train_processed, artifacts = process_training_data(
+                df_train=df_train, 
+                features=this_feature_set, 
+                target=self.target, 
+                experiment_config=self.general_config
+            )
+
+            df_val_processed = process_test_data(
+                df_test=df_val, 
+                artifacts=artifacts, 
+                experiment_config=self.general_config
+            )
+            
+            final_features = artifacts.final_features
+
+            X_train = df_train_processed[final_features]
+            y_train = df_train_processed[self.target]
+            X_val = df_val_processed[final_features]
+            y_val = df_val_processed[self.target]
+
+
+            best_params = sci_utils.optimize_hyperparams(
+                X_train=X_train,
+                y_train=y_train,
+                X_val=X_val,
+                y_val=y_val,
+                model_type=model_type,
+                cat_features=self.cat_features,
+                n_trials=self.general_config.get('n_trials', 50),
+            )
+
+            if best_params is None:
+                logger.error(f"Hyperparameter tuning failed for model {model_type}.")
+                return False, f"Hyperparameter tuning failed for model {model_type}."
+            
+            logger.info(f"Best parameters for {model_type}: {best_params}")
+
+            # Update the model_config with the best parameters
+            self.model_config[model_type] = best_params
+
+
+        # Save the updated model configuration
+        self.save_model(is_fitted=False)
+
+        return True, "Hyperparameter tuning completed successfully. Updated model configuration saved."
 
     
-    def save_model(self) -> None:
+    def save_model(self, 
+                   is_fitted: bool = False) -> None:
         """
         Save all fitted models and preprocessing artifacts.
         """
@@ -578,24 +738,31 @@ class SciRegressor(BaseForecastModel):
         os.makedirs(save_path, exist_ok=True)
 
         # Save fitted models
-        for model_type, model_info in self.fitted_models.items():
-            model = model_info['model']
-            artifacts = model_info['artifacts']
-            final_features = model_info['final_features']
+        if is_fitted:
+            for model_type, model_info in self.fitted_models.items():
+                model = model_info['model']
+                artifacts = model_info['artifacts']
+                final_features = model_info['final_features']
+                feature_importance = model_info.get('feature_importance', None)
 
-            # Save the model
-            model_path = os.path.join(save_path, f"{model_type}_model.joblib")
-            joblib.dump(model, model_path)
+                # Save the model
+                model_path = os.path.join(save_path, f"{model_type}_model.joblib")
+                joblib.dump(model, model_path)
 
-            # Save artifacts
-            artifacts_path = os.path.join(save_path, f"{model_type}_artifacts")
-            artifacts.save(filepath=artifacts_path,
-                           format='hybrid')
+                # Save artifacts
+                artifacts_path = os.path.join(save_path, f"{model_type}_artifacts")
+                artifacts.save(filepath=artifacts_path,
+                            format='hybrid')
 
-            # Save final features
-            features_path = os.path.join(save_path, f"{model_type}_features.json")
-            with open(features_path, 'w') as f:
-                json.dump(final_features, f)
+                # Save final features
+                features_path = os.path.join(save_path, f"{model_type}_features.json")
+                with open(features_path, 'w') as f:
+                    json.dump(final_features, f)
+
+                if feature_importance is not None:
+                    #save as csv
+                    feature_importance_path = os.path.join(save_path, f"{model_type}_feature_importance.csv")
+                    feature_importance.to_csv(feature_importance_path, index=False)
 
         # Save general model configuration
         model_config_path = os.path.join(save_path, "model_config.json")

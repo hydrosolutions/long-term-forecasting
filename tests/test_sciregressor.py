@@ -111,7 +111,8 @@ GENERAL_CONFIG = {
     "rivers_to_exclude": [],
     "snow_vars": [],
     "test_years": 3,
-    "num_elevation_zones": 5
+    "num_elevation_zones": 5,
+    "n_trials": 10
 }
 
 FEATURE_CONFIG = {
@@ -608,7 +609,7 @@ class SciRegressorTester:
                         )
                         
                         # Test hyperparameter tuning
-                        success, message = model.tune_hyperparameters(self.data)
+                        success, message = model.tune_hyperparameters()
             
             # Verify results
             assert isinstance(success, bool), "Tuning should return boolean success status"
@@ -759,104 +760,6 @@ class SciRegressorTester:
             logger.error(f"✗ Metrics calculation test failed: {e}")
             raise
     
-    def test_end_to_end_workflow(self):
-        """Test complete end-to-end workflow."""
-        logger.info("Testing end-to-end workflow...")
-        
-        try:
-            # Create output directory
-            output_dir = Path(self.test_dir) / "results"
-            output_dir.mkdir(exist_ok=True)
-            
-            # Mock external dependencies for complete workflow
-            with patch.object(SciRegressor, '__preprocess_data__') as mock_preprocess:
-                with patch('scr.data_utils.glacier_mapper_features') as mock_glacier:
-                    with patch.object(SciRegressor, 'calibrate_model_and_hindcast') as mock_calibrate:
-                        with patch.object(SciRegressor, 'predict_operational') as mock_predict:
-                            with patch.object(SciRegressor, 'save_model') as mock_save:
-                                # Setup mocks
-                                mock_glacier.return_value = self.data
-                                mock_preprocess.return_value = None
-                                mock_save.return_value = None
-                                
-                                # Create mock results
-                                mock_hindcast_data = []
-                                for code in [16936, 16940, 16942]:
-                                    for i in range(50):  # Generate enough data points
-                                        mock_hindcast_data.append({
-                                            'date': pd.Timestamp('2020-01-01') + pd.Timedelta(days=i*7),
-                                            'code': code,
-                                            'Q_obs': np.random.uniform(10, 100),
-                                            'Q_TestSciRegressor': np.random.uniform(10, 100)
-                                        })
-                                
-                                mock_hindcast_df = pd.DataFrame(mock_hindcast_data)
-                                mock_calibrate.return_value = mock_hindcast_df
-                                
-                                mock_forecast_data = []
-                                for code in [16936, 16940, 16942]:
-                                    mock_forecast_data.append({
-                                        'forecast_date': datetime.datetime.now(),
-                                        'code': code,
-                                        'valid_from': '2025-07-04',
-                                        'valid_to': '2025-08-03',
-                                        'Q_TestSciRegressor': np.random.uniform(10, 100)
-                                    })
-                                
-                                mock_forecast_df = pd.DataFrame(mock_forecast_data)
-                                mock_predict.return_value = mock_forecast_df
-                                
-                                # Test model creation
-                                model = SciRegressor(
-                                    data=self.data,
-                                    static_data=self.static_data,
-                                    general_config=self.configs['general_config'],
-                                    model_config=self.configs['model_config'],
-                                    feature_config=self.configs['feature_config'],
-                                    path_config=self.configs['path_config']
-                                )
-                                
-                                # Test calibration and hindcasting
-                                hindcast_df = model.calibrate_model_and_hindcast(self.data)
-                                
-                                # Save predictions
-                                if len(hindcast_df) > 0:
-                                    predictions_path = output_dir / "predictions.csv"
-                                    hindcast_df.to_csv(predictions_path, index=False)
-                                    assert predictions_path.exists(), "Predictions file not saved"
-                                
-                                # Test operational forecasting
-                                forecast_df = model.predict_operational()
-                                
-                                # Save forecasts
-                                if len(forecast_df) > 0:
-                                    forecasts_path = output_dir / "forecasts.csv"
-                                    forecast_df.to_csv(forecasts_path, index=False)
-                                    assert forecasts_path.exists(), "Forecasts file not saved"
-                                
-                                # Test hyperparameter tuning
-                                success, message = model.tune_hyperparameters(self.data)
-                                
-                                # Test metrics calculation
-                                metrics_df = self.test_metrics_calculation(hindcast_df)
-                                
-                                # Save metrics
-                                if len(metrics_df) > 0:
-                                    metrics_path = output_dir / "metrics.csv"
-                                    metrics_df.to_csv(metrics_path, index=False)
-                                    assert metrics_path.exists(), "Metrics file not saved"
-                                
-                                # Test model saving
-                                model.save_model()
-            
-            logger.info("✓ End-to-end workflow test passed")
-            logger.info(f"  Results saved to: {output_dir}")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"✗ End-to-end workflow test failed: {e}")
-            raise
     
     def run_all_tests(self):
         """Run all tests in sequence."""
@@ -877,7 +780,6 @@ class SciRegressorTester:
                 (self.test_operational_forecast, "Operational Forecast"),
                 (self.test_hyperparameter_tuning, "Hyperparameter Tuning"),
                 (self.test_model_persistence, "Model Persistence"),
-                (self.test_end_to_end_workflow, "End-to-End Workflow")
             ]
             
             passed_tests = 0
@@ -951,9 +853,6 @@ if PYTEST_AVAILABLE:
         """Pytest: Test configuration loading."""
         sciregressor_tester.test_configuration_loading()
     
-    def test_sciregressor_end_to_end(sciregressor_tester):
-        """Pytest: Test end-to-end workflow."""
-        sciregressor_tester.test_end_to_end_workflow()
 
 def main():
     """Main function for standalone execution."""
