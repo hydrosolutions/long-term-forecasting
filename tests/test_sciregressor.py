@@ -168,7 +168,7 @@ PATH_CONFIG = {
     "HRU_HS": "/fake/path/hru_hs",
     "HRU_ROF": "/fake/path/hru_rof",
     "path_to_hru_shp": None,
-    "output_path" : "tests_output"
+    "model_home_path" : "tests_output"
 }
 
 DATA_CONFIG = {

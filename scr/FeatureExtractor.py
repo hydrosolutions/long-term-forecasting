@@ -199,6 +199,8 @@ class StreamflowFeatureExtractor:
                 if config['lags']:
                     for window_key, lag_list in config['lags'].items():
                         # Only apply lags for the matching window size
+                        window_key = int(window_key)
+                        window = int(window)
                         if window == window_key:
                             for lag in lag_list:
                                 # Create both positive (past) and negative (future) lags

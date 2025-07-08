@@ -1,17 +1,3 @@
-#!/usr/bin/env python3
-"""
-Standalone Hyperparameter Tuning Script for Monthly Forecasting Models
-
-This script provides a command-line interface for tuning hyperparameters of
-both LinearRegressionModel and SciRegressor models using Optuna optimization.
-
-Usage:
-    python tune_hyperparams.py --config_dir path/to/model/config --model_name ModelName [options]
-
-Example:
-    python tune_hyperparams.py --config_dir monthly_forecasting_models/LinearRegression_BasicFeatures --model_name LinearRegression_BasicFeatures --trials 100
-"""
-
 import os
 import sys
 import argparse
@@ -20,7 +6,8 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+import datetime
 
 # Add the project root to Python path
 project_root = Path(__file__).parent
@@ -30,6 +17,7 @@ sys.path.insert(0, str(project_root))
 from forecast_models.LINEAR_REGRESSION import LinearRegressionModel
 from forecast_models.SciRegressor import SciRegressor
 from scr import data_loading as dl
+from eval_scr import eval_helper, metric_functions
 
 # Setup logging
 from log_config import setup_logging
@@ -58,7 +46,7 @@ def load_configuration(config_dir: str) -> Dict[str, Any]:
         'model_config': 'model_config.json', 
         'feature_config': 'feature_config.json',
         'data_config': 'data_config.json',
-        'path_config': '../config/data_paths.json'  # Usually in parent config directory
+        'path_config': 'data_paths.json'  
     }
     
     configs = {}
@@ -101,47 +89,33 @@ def load_data(data_config: Dict[str, Any], path_config: Dict[str, Any]) -> tuple
     Returns:
         Tuple of (data, static_data)
     """
-    try:
-        # Try to use the existing data loading function
-        if 'data_loader_function' in data_config:
-            loader_func = data_config['data_loader_function']
-            # This would need to be implemented based on the specific data loading approach
-            logger.warning(f"Custom data loader {loader_func} not implemented. Using default approach.")
-        
-        # Default data loading approach
-        data_path = path_config.get('hydro_data_path', 'data/hydro_data.csv')
-        static_path = path_config.get('static_data_path', 'data/static_data.csv')
-        
-        if os.path.exists(data_path):
-            data = pd.read_csv(data_path)
-            logger.info(f"Loaded data from {data_path}: {len(data)} rows")
-        else:
-            raise FileNotFoundError(f"Data file not found: {data_path}")
-        
-        if os.path.exists(static_path):
-            static_data = pd.read_csv(static_path)
-            logger.info(f"Loaded static data from {static_path}: {len(static_data)} rows")
-        else:
-            logger.warning(f"Static data file not found: {static_path}. Using empty DataFrame.")
-            static_data = pd.DataFrame()
-        
-        # Ensure data has required columns
-        if 'date' in data.columns:
-            data['date'] = pd.to_datetime(data['date'])
-        else:
-            raise ValueError("Data must contain a 'date' column")
-        
-        if 'target' not in data.columns:
-            raise ValueError("Data must contain a 'target' column")
-        
-        if 'code' not in data.columns:
-            raise ValueError("Data must contain a 'code' column")
-        
-        return data, static_data
-        
-    except Exception as e:
-        logger.error(f"Failed to load data: {e}")
-        raise
+     # -------------- 1. Load Data ------------------------------
+    hydro_ca, static_df = dl.load_data(
+        path_discharge=path_config['path_discharge'],
+        path_forcing=path_config['path_forcing'],
+        path_static_data=path_config['path_static_data'],
+        path_to_sca=path_config['path_to_sca'],
+        path_to_swe=path_config['path_to_swe'],
+        path_to_hs=path_config['path_to_hs'],
+        path_to_rof=path_config['path_to_rof'],
+        HRU_SWE=path_config['HRU_SWE'],
+        HRU_HS=path_config['HRU_HS'],
+        HRU_ROF=path_config['HRU_ROF']
+    )
+
+    # if log_discharge in columns - drop
+    if 'log_discharge' in hydro_ca.columns:
+        hydro_ca.drop(columns=['log_discharge'], inplace=True)
+    
+    hydro_ca = hydro_ca.sort_values('date')
+    
+    hydro_ca['code'] = hydro_ca['code'].astype(int)
+    
+    if 'CODE' in static_df.columns:
+        static_df.rename(columns={'CODE': 'code'}, inplace=True)
+    static_df['code'] = static_df['code'].astype(int)
+
+    return hydro_ca, static_df
 
 
 def create_model(model_name: str, configs: Dict[str, Any], data: pd.DataFrame, static_data: pd.DataFrame):
@@ -162,23 +136,11 @@ def create_model(model_name: str, configs: Dict[str, Any], data: pd.DataFrame, s
     feature_config = configs['feature_config']
     path_config = configs['path_config']
     
-    # Determine model type based on configuration or name
-    model_type = general_config.get('model_type', 'auto')
+    # Set model name in general config
+    general_config['model_name'] = model_name
     
-    if model_type == 'auto':
-        # Infer model type from name or configuration
-        if 'linear' in model_name.lower() or 'lr' in model_name.lower():
-            model_type = 'linear_regression'
-        elif any(ml_type in model_name.lower() for ml_type in ['xgb', 'lgbm', 'catboost', 'tree', 'ml']):
-            model_type = 'sciregressor'
-        else:
-            # Check if models are specified in general_config
-            if 'models' in general_config and len(general_config['models']) > 0:
-                model_type = 'sciregressor'
-            else:
-                model_type = 'linear_regression'
-        
-        logger.info(f"Auto-detected model type: {model_type}")
+    # Determine model type based on configuration or name
+    model_type = general_config.get('model_type', 'linear_regression')
     
     # Create model instance
     if model_type == 'linear_regression':
@@ -203,46 +165,6 @@ def create_model(model_name: str, configs: Dict[str, Any], data: pd.DataFrame, s
         raise ValueError(f"Unknown model type: {model_type}")
     
     return model
-
-
-def tune_hyperparameters(model, args):
-    """
-    Run hyperparameter tuning for the model.
-    
-    Args:
-        model: Model instance
-        args: Command line arguments
-    """
-    logger.info(f"Starting hyperparameter tuning for {model.name}")
-    logger.info(f"Model type: {type(model).__name__}")
-    
-    # Update configuration with command line arguments
-    if args.trials:
-        model.general_config['hyperparam_tuning_trials'] = args.trials
-    
-    if args.tuning_years:
-        model.general_config['hyperparam_tuning_years'] = args.tuning_years
-    
-    # Run hyperparameter tuning
-    success, message = model.tune_hyperparameters(model.data)
-    
-    if success:
-        logger.info("Hyperparameter tuning completed successfully!")
-        logger.info(f"Results: {message}")
-        
-        # Save updated model configuration
-        if args.save_config:
-            config_dir = Path(args.config_dir)
-            updated_config_path = config_dir / 'model_config_tuned.json'
-            
-            with open(updated_config_path, 'w') as f:
-                json.dump(model.model_config, f, indent=4)
-            
-            logger.info(f"Updated model configuration saved to {updated_config_path}")
-    else:
-        logger.error("Hyperparameter tuning failed!")
-        logger.error(f"Error: {message}")
-        sys.exit(1)
 
 
 def main():
@@ -299,10 +221,17 @@ Examples:
         model = create_model(args.model_name, configs, data, static_data)
         
         # Run hyperparameter tuning
-        tune_hyperparameters(model, args)
-        
-        logger.info("Hyperparameter tuning script completed successfully!")
-        
+        success, message = model.tune_hyperparameters()
+
+        if success:
+            logger.info("Hyperparameter tuning completed successfully!")
+            logger.info(f"Results: {message}")
+
+        else:
+            logger.error("Hyperparameter tuning failed!")
+            logger.error(f"Error: {message}")
+            sys.exit(1)
+
     except KeyboardInterrupt:
         logger.info("Hyperparameter tuning interrupted by user")
         sys.exit(1)

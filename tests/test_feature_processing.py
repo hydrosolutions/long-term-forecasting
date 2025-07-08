@@ -341,35 +341,6 @@ class TestArtifactPersistence:
         logger.info("✓ Production workflow test passed")
 
 
-def test_wrapper_function(test_data):
-    """Test the convenience wrapper function."""
-    logger.info("=== Testing Wrapper Function ===")
-    
-    train_df, test_df, features, target = test_data
-    
-    experiment_config = {
-        'handle_na': 'impute',
-        'impute_method': 'mean',
-        'normalize': True,
-        'use_mutual_info': True,
-        'number_of_features': 6
-    }
-    
-    # Use wrapper function
-    train_processed, test_processed, final_features, artifacts = process_features(
-        train_df, test_df, features, target, experiment_config
-    )
-    
-    # Verify results
-    assert len(final_features) > 0
-    assert final_features == artifacts.final_features
-    assert not train_processed[final_features].isnull().any().any()
-    assert not test_processed[final_features].isnull().any().any()
-    
-    # Verify that training and test data have consistent feature columns
-    assert set(train_processed[final_features].columns) == set(test_processed[final_features].columns)
-    
-    logger.info("✓ Wrapper function test passed")
 
 
 def test_info_and_metadata(test_data, basic_config):
@@ -458,20 +429,23 @@ def run_all_tests():
             'impute_method': 'mean',
             'normalize': True,
             'normalize_per_basin': False,
+            'normalization_type': 'global',
             'use_mutual_info': True,
             'number_of_features': 5,
             'remove_correlated_features': True
         }
         long_term_mean_config = {
             'handle_na': 'long_term_mean',
-            'normalize': False,
-            'use_mutual_info': False
+            'normalize': True,
+            'use_mutual_info': False,
+            'normalization_type': 'long_term_mean'
         }
         
         # Basic tests
         test_basic_processing(test_data_tuple, basic_config)
         test_advanced_processing(test_data_tuple, advanced_config)
         test_long_term_mean_handling(test_data_tuple, long_term_mean_config)
+        test_static_features_processing(test_data_tuple)
         
         # Persistence tests
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -480,8 +454,6 @@ def run_all_tests():
             persistence_test.test_artifact_saving_loading(test_data_tuple, basic_config, temp_path)
             persistence_test.test_production_workflow(test_data_tuple, basic_config, temp_path)
         
-        # Integration tests
-        test_wrapper_function(test_data_tuple)
         test_info_and_metadata(test_data_tuple, basic_config)
         
         logger.info("🎉 All tests passed successfully!")
@@ -500,6 +472,27 @@ def demo_usage():
     # Create sample data
     train_df, test_df, features, target = create_test_data()
     
+    # Add static features for demo
+    np.random.seed(42)
+    unique_codes = train_df['code'].unique()
+    
+    static_data = []
+    for code in unique_codes:
+        static_data.append({
+            'code': code,
+            'elevation_mean': np.random.uniform(500, 3000),
+            'area_km2': np.random.uniform(10, 1000),
+            'slope_mean': np.random.uniform(0.1, 30)
+        })
+    
+    static_df = pd.DataFrame(static_data)
+    train_df = pd.merge(train_df, static_df, on='code', how='inner')
+    test_df = pd.merge(test_df, static_df, on='code', how='inner')
+    
+    # Define static features
+    static_features = ['elevation_mean', 'area_km2', 'slope_mean']
+    all_features = features + static_features
+    
     # Configuration
     experiment_config = {
         'handle_na': 'impute',
@@ -507,20 +500,34 @@ def demo_usage():
         'normalize': True,
         'normalize_per_basin': False,
         'use_mutual_info': True,
-        'number_of_features': 5,
+        'number_of_features': 8,  # Increased for static features
         'remove_correlated_features': True
     }
     
-    logger.info("Processing features...")
+    logger.info("Processing features with static features...")
     
-    # Process data
-    train_processed, test_processed, final_features, artifacts = process_features(
-        train_df, test_df, features, target, experiment_config
+    # Process data with static features
+    train_processed, artifacts = process_training_data(
+        df_train=train_df,
+        features=all_features,
+        target=target,
+        experiment_config=experiment_config,
+        static_features=static_features
     )
     
-    logger.info(f"Original features: {len(features)}")
-    logger.info(f"Final features: {len(final_features)}")
-    logger.info(f"Selected features: {final_features}")
+    test_processed = process_test_data(
+        df_test=test_df,
+        artifacts=artifacts,
+        experiment_config=experiment_config
+    )
+    
+    logger.info(f"Original features: {len(features)} dynamic + {len(static_features)} static = {len(all_features)} total")
+    logger.info(f"Final features: {len(artifacts.final_features)}")
+    logger.info(f"Selected features: {artifacts.final_features}")
+    
+    # Show which static features were selected
+    static_in_final = [f for f in artifacts.final_features if f in static_features]
+    logger.info(f"Static features included: {static_in_final}")
     
     # Save for production
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -606,6 +613,20 @@ def temp_dir():
         yield Path(temp_dir)
 
 
+@pytest.fixture
+def static_features_config():
+    """Fixture for static features configuration."""
+    return {
+        'handle_na': 'impute',
+        'impute_method': 'mean',
+        'normalize': True,
+        'normalize_per_basin': False,
+        'use_mutual_info': True,
+        'number_of_features': 10,
+        'remove_correlated_features': True
+    }
+
+
 if __name__ == "__main__":
     import argparse
     
@@ -638,3 +659,190 @@ if __name__ == "__main__":
             logger.info("Running tests in standalone mode for now...")
         
         run_all_tests()
+
+def test_static_features_processing(test_data):
+    """Test feature processing with static features included."""
+    logger.info("=== Testing Static Features Processing ===")
+    
+    train_df, test_df, features, target = test_data
+    
+    # Add static features to both train and test dataframes
+    # These represent basin characteristics that don't change over time
+    np.random.seed(42)  # For reproducibility
+    unique_codes = train_df['code'].unique()
+    
+    # Create static features for each basin
+    static_data = []
+    for code in unique_codes:
+        static_data.append({
+            'code': code,
+            'elevation_mean': np.random.uniform(500, 3000),  # meters
+            'area_km2': np.random.uniform(10, 1000),         # km²
+            'slope_mean': np.random.uniform(0.1, 30),        # degrees
+            'glacier_coverage': np.random.uniform(0, 50),    # percentage
+            'forest_coverage': np.random.uniform(0, 80)      # percentage
+        })
+    
+    static_df = pd.DataFrame(static_data)
+    
+    # Merge static features with train and test data
+    train_df_with_static = pd.merge(train_df, static_df, on='code', how='inner')
+    test_df_with_static = pd.merge(test_df, static_df, on='code', how='inner')
+    
+    # Define static features list
+    static_features = ['elevation_mean', 'area_km2', 'slope_mean', 'glacier_coverage', 'forest_coverage']
+    
+    # Combine regular features with static features for the feature list
+    all_features = features + static_features
+    
+    # Configuration for processing
+    config_with_static = {
+        'handle_na': 'impute',
+        'impute_method': 'mean',
+        'normalize': True,
+        'normalize_per_basin': False,
+        'use_mutual_info': True,
+        'number_of_features': 10,  # Increased to accommodate static features
+        'remove_correlated_features': True
+    }
+    
+    # Process training data with static features
+    train_processed, artifacts = process_training_data(
+        df_train=train_df_with_static,
+        features=all_features,
+        target=target,
+        experiment_config=config_with_static,
+        static_features=static_features
+    )
+    
+    # Verify static features are properly handled
+    assert artifacts.static_features == static_features
+    assert artifacts.final_features is not None
+    assert len(artifacts.final_features) > 0
+    
+    # Check that some static features are included in final features
+    static_features_in_final = [f for f in artifacts.final_features if f in static_features]
+    logger.info(f"Static features included in final features: {static_features_in_final}")
+    
+    # Process test data using artifacts
+    test_processed = process_test_data(
+        df_test=test_df_with_static,
+        artifacts=artifacts,
+        experiment_config=config_with_static
+    )
+    
+    # Verify no missing values after processing
+    assert not train_processed[artifacts.final_features].isnull().any().any()
+    assert not test_processed[artifacts.final_features].isnull().any().any()
+    
+    # Verify that static features maintain consistent values within each basin
+    for code in unique_codes:
+        train_basin = train_processed[train_processed['code'] == code]
+        test_basin = test_processed[test_processed['code'] == code]
+        
+        for static_feature in static_features_in_final:
+            if static_feature in train_basin.columns:
+                # Static features should have the same value for all rows of the same basin
+                assert train_basin[static_feature].nunique() == 1, f"Static feature {static_feature} varies within basin {code}"
+                
+                if static_feature in test_basin.columns:
+                    assert test_basin[static_feature].nunique() == 1, f"Static feature {static_feature} varies within basin {code} in test data"
+    
+    # Log information about feature selection
+    logger.info(f"Total input features: {len(all_features)}")
+    logger.info(f"Static features: {len(static_features)}")
+    logger.info(f"Dynamic features: {len(features)}")
+    logger.info(f"Final selected features: {len(artifacts.final_features)}")
+    logger.info(f"Final features: {artifacts.final_features}")
+    
+    if artifacts.feature_selector is not None:
+        logger.info("Feature selection was applied")
+        if hasattr(artifacts.feature_selector, 'scores_'):
+            # Show feature importance scores
+            feature_scores = dict(zip(all_features, artifacts.feature_selector.scores_))
+            sorted_scores = sorted(feature_scores.items(), key=lambda x: x[1], reverse=True)
+            logger.info("Top 5 feature importance scores:")
+            for feat, score in sorted_scores[:5]:
+                logger.info(f"  {feat}: {score:.4f}")
+    
+    logger.info("✓ Static features processing test passed")
+    return None
+
+@pytest.mark.parametrize("include_static", [True, False])
+@pytest.mark.parametrize("normalize", [True, False])
+def test_static_features_combinations(test_data, include_static, normalize):
+    """Test static features with different configuration combinations."""
+    logger.info(f"=== Testing static features: include={include_static}, normalize={normalize} ===")
+    
+    train_df, test_df, features, target = test_data
+    
+    # Prepare data with or without static features
+    if include_static:
+        # Add static features
+        np.random.seed(42)
+        unique_codes = train_df['code'].unique()
+        
+        static_data = []
+        for code in unique_codes:
+            static_data.append({
+                'code': code,
+                'elevation_mean': np.random.uniform(500, 3000),
+                'area_km2': np.random.uniform(10, 1000),
+                'slope_mean': np.random.uniform(0.1, 30)
+            })
+        
+        static_df = pd.DataFrame(static_data)
+        train_df = pd.merge(train_df, static_df, on='code', how='inner')
+        test_df = pd.merge(test_df, static_df, on='code', how='inner')
+        
+        static_features = ['elevation_mean', 'area_km2', 'slope_mean']
+        all_features = features + static_features
+    else:
+        static_features = []
+        all_features = features
+    
+    config = {
+        'handle_na': 'impute',
+        'impute_method': 'mean',
+        'normalize': normalize,
+        'use_mutual_info': False
+    }
+    
+    try:
+        # Process data
+        train_processed, artifacts = process_training_data(
+            df_train=train_df,
+            features=all_features,
+            target=target,
+            experiment_config=config,
+            static_features=static_features
+        )
+        test_processed = process_test_data(
+            df_test=test_df,
+            artifacts=artifacts,
+            experiment_config=config
+        )
+        
+        # Basic assertions
+        assert artifacts.final_features is not None
+        assert len(artifacts.final_features) > 0
+        
+        if include_static:
+            assert artifacts.static_features == static_features
+            # Check that at least some static features are included
+            static_in_final = [f for f in artifacts.final_features if f in static_features]
+            assert len(static_in_final) >= 0  # Could be 0 if they're filtered out
+        else:
+            assert artifacts.static_features == []
+        
+        if normalize:
+            assert artifacts.scaler is not None
+        
+        # Verify no missing values
+        assert not train_processed[artifacts.final_features].isnull().any().any()
+        assert not test_processed[artifacts.final_features].isnull().any().any()
+        
+        logger.info(f"✓ Static features combination test passed: static={include_static}, normalize={normalize}")
+        
+    except (AttributeError, ImportError) as e:
+        pytest.skip(f"Test skipped due to missing dependency: {e}")

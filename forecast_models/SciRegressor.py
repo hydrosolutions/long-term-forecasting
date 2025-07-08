@@ -16,7 +16,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from sklearn.metrics import mean_squared_error, r2_score
 
 from scr import FeatureExtractor as FE
-from scr.FeatureProcessingArtifacts import process_training_data, process_test_data, post_process_target
+from scr.FeatureProcessingArtifacts import process_training_data, process_test_data, post_process_predictions
 from scr.FeatureProcessingArtifacts import FeatureProcessingArtifacts
 from scr import data_utils as du
 from scr import sci_utils
@@ -67,18 +67,9 @@ class SciRegressor(BaseForecastModel):
         # Initialize model-specific attributes
         self.models = self.general_config.get('models', ['xgboost'])  # List of model types
         self.fitted_models = {}  # Will store fitted model objects per period
-        self.scalers = {}  # Will store scalers per period
-        self.feature_sets = {}  # Will store feature sets per period
         
         # Get preprocessing configuration
         self.target = self.general_config.get('target', 'target')
-        self.missing_value_handling = self.general_config.get('handle_na', 'drop')
-        self.normalization_type = self.general_config.get('normalization_type', None)
-        self.normalize_per_basin = self.general_config.get('normalize_per_basin', False)
-        self.use_pca = self.general_config.get('use_pca', False)
-        self.use_lr_predictors = self.general_config.get('use_lr_predictors', False)
-        self.use_temporal_features = self.general_config.get('use_temporal_features', True)
-        self.use_static_features = self.general_config.get('use_static_features', True)
         self.cat_features = self.general_config.get('cat_features', ['code_str'])
         self.feature_cols = self.general_config.get('feature_cols', ['discharge', 'P', 'T',])
         self.static_features = self.general_config.get('static_features', [])
@@ -158,8 +149,14 @@ class SciRegressor(BaseForecastModel):
         ['week_sin', 'week_cos','month_sin', 'month_cos'] + \
         self.static_features + lr_pred_cols
 
+        self.dynamic_features = [col + "_" for col in self.feature_cols] + \
+        ['week_sin', 'week_cos','month_sin', 'month_cos'] + lr_pred_cols
+
         self.feature_set = [col for col in self.data.columns
         if any([f in col for f in self.feature_set])]
+
+        logger.info(f"Feature set for {self.name}: {self.feature_set}")
+
 
         #check if the cat_features are in the columns
         for cat_feature in self.cat_features:
@@ -323,7 +320,11 @@ class SciRegressor(BaseForecastModel):
             # Create artifacts
             # This handles nan imputation, scaling and variable selection
             train_processed, artifacts = process_training_data(
-                df_train, features, self.target, self.general_config
+                df_train=df_train,
+                features=features,
+                target=self.target,
+                experiment_config=self.general_config,
+                static_features=self.static_features
             )
 
             final_features = artifacts.final_features
@@ -332,7 +333,7 @@ class SciRegressor(BaseForecastModel):
             test_processed = process_test_data(
                 df_test=df_test, 
                 artifacts=artifacts, 
-                experiment_config=self.general_config
+                experiment_config=self.general_config,
             )
 
             # Prepare data
@@ -362,12 +363,12 @@ class SciRegressor(BaseForecastModel):
                 how='inner'
             )
             
-            df_predictions_year = post_process_target(
+            df_predictions_year = post_process_predictions(
                 df_predictions=df_predictions_year, 
-                target=self.target, 
                 artifacts=artifacts, 
                 experiment_config=self.general_config,
-                prediction_column=pred_col 
+                prediction_column=pred_col,
+                target=self.target
             )
             
             df_predictions = pd.concat([df_predictions, df_predictions_year])
@@ -421,7 +422,8 @@ class SciRegressor(BaseForecastModel):
             df_train=train_data, 
             features=features, 
             target=self.target, 
-            experiment_config=self.general_config
+            experiment_config=self.general_config,
+            static_features=self.static_features
         )
 
         final_features = artifacts.final_features
@@ -461,12 +463,12 @@ class SciRegressor(BaseForecastModel):
                 on=['date', 'code'],
                 how='inner'
             )
-            df_predictions = post_process_target(
+            df_predictions = post_process_predictions(
                 df_predictions=df_predictions, 
-                target=self.target, 
                 artifacts=artifacts, 
                 experiment_config=self.general_config,
-                prediction_column=pred_col
+                prediction_column=pred_col,
+                target=self.target, 
             )
 
             # Rename columns
@@ -638,6 +640,7 @@ class SciRegressor(BaseForecastModel):
         """
         logger.info(f"Starting hyperparameter tuning for {self.name} with models: {self.models}")
 
+        # Apply the same preprocessing as other methods
         self.__preprocess_data__()
 
         if 'year' not in self.data.columns:
@@ -672,11 +675,13 @@ class SciRegressor(BaseForecastModel):
         for model_type, params in self.model_config.items():
             logger.info(f"Tuning hparams for model {model_type}")
 
+            # Use the same feature set logic as other methods
             if 'catboost' in model_type:
                 if len(self.cat_features) > 0:
                     this_feature_set = self.feature_set + self.cat_features
                     logger.info(f"Using categorical features for {model_type}: {self.cat_features}")
-
+                else:
+                    this_feature_set = self.feature_set
             else:
                 this_feature_set = self.feature_set
 
@@ -685,13 +690,15 @@ class SciRegressor(BaseForecastModel):
                 df_train=df_train, 
                 features=this_feature_set, 
                 target=self.target, 
-                experiment_config=self.general_config
+                experiment_config=self.general_config,
+                static_features=self.static_features
             )
 
             df_val_processed = process_test_data(
                 df_test=df_val, 
                 artifacts=artifacts, 
-                experiment_config=self.general_config
+                experiment_config=self.general_config,
+                scale_target=True # Scale target as well so we can use it for hyperparameter tuning
             )
             
             final_features = artifacts.final_features
@@ -726,15 +733,14 @@ class SciRegressor(BaseForecastModel):
         self.save_model(is_fitted=False)
 
         return True, "Hyperparameter tuning completed successfully. Updated model configuration saved."
-
-    
+ 
     def save_model(self, 
                    is_fitted: bool = False) -> None:
         """
         Save all fitted models and preprocessing artifacts.
         """
         logger.info(f"Saving {self.name} models")
-        save_path = os.path.join(self.path_config['output_path'], f"{self.name}_models")
+        save_path = os.path.join(self.path_config['model_home_path'], f"{self.name}")
         os.makedirs(save_path, exist_ok=True)
 
         # Save fitted models
@@ -779,13 +785,12 @@ class SciRegressor(BaseForecastModel):
         
         logger.info(f"Models and artifacts saved to {save_path}")
 
-
     def load_model(self) -> None:
         """
         Load all fitted models and preprocessing artifacts.
         """
         logger.info(f"Loading {self.name}  models")
-        load_path = os.path.join(self.path_config['output_path'], f"{self.name}_models")
+        load_path = os.path.join(self.path_config['model_home_path'], f"{self.name}")
 
         if not os.path.exists(load_path):
             logger.error(f"Model path {load_path} does not exist. Cannot load models.")

@@ -298,6 +298,19 @@ def normalize_features(df_train, df_test, features, target):
     
     return df_train_normalized, df_test_normalized, scaler
 
+def inverse_normalization(df : pd.DataFrame, 
+                          scaler : dict, 
+                          var_to_scale : str, 
+                          var_used_for_scaling : str):
+    df = df.copy()
+    if var_to_scale in df.columns and var_used_for_scaling in df.columns:
+        df[var_to_scale] = df[var_to_scale].astype(float)
+        mean_val, std_val = scaler[var_used_for_scaling]
+        df[var_to_scale] = df[var_to_scale] * std_val + mean_val
+
+    return df
+
+
 def get_normalization_params_per_basin(df_train, features, target):
     """
     Calculate normalization parameters per basin from training data.
@@ -366,6 +379,24 @@ def apply_normalization_per_basin(df, scaler, features):
                     mean_val, std_val = scaler[code][col]
                     df.loc[basin_mask, col] = (df.loc[basin_mask, col] - mean_val) / std_val
     
+    return df
+
+def apply_inverse_normalization_per_basin(df : pd.DataFrame, 
+                                          scaler : dict, 
+                                          col_to_scale : str, 
+                                          var_used_for_scaling : str):
+    
+    df = df.copy()
+
+    for code in df.code.unique():
+        if code in scaler:
+            basin_mask = df['code'] == code
+
+            if col_to_scale in df.columns and var_used_for_scaling in df.columns:
+                df.loc[basin_mask, col_to_scale] = df.loc[basin_mask, col_to_scale].astype(float)
+                mean_val, std_val = scaler[code][var_used_for_scaling]
+                df.loc[basin_mask, col_to_scale] = (df.loc[basin_mask, col_to_scale] - mean_val) / std_val
+
     return df
 
 def normalize_features_per_basin(df_train, df_test, features, target):
@@ -442,6 +473,119 @@ def apply_long_term_mean(df, long_term_mean, features):
     drop_cols = [f'{feat}_mean' for feat in features]
     
     return df.drop(columns=drop_cols)
+
+
+def apply_long_term_mean_scaling(df, long_term_mean, features):
+    """
+    Apply long-term mean to the DataFrame in a vectorized way:
+      - merge on basin code and month
+      - scale the features by deviding by the corresponding long-term mean
+    """
+    df = df.copy()
+    df['month'] = df['date'].dt.month  # ensure month col exists
+
+    # --- 1) flatten multi-index columns if needed ---
+    ltm = long_term_mean.copy()
+    if isinstance(ltm.columns, pd.MultiIndex):
+        # after agg(['mean']), cols look like (feature, 'mean')
+        ltm.columns = [
+            'code', 'month'
+        ] + [f'{feat}_mean' for feat in features]
+    else:
+        # if you already ran grouped.mean(), you just need to rename
+        rename_map = {
+            feat: f'{feat}_mean' for feat in features
+        }
+        ltm = ltm.rename(columns=rename_map)
+
+    # --- 2) merge the long-term means back onto the original ---
+    df = df.merge(ltm, on=['code', 'month'], how='left')
+
+    # --- 3) fill in missing values from the long-term mean ---
+    for feat in features:
+        mean_col = f'{feat}_mean'
+        long_term_mean = df[mean_col]
+        # replace 0 with 1 to avoid division by zero
+        long_term_mean = long_term_mean.replace(0, 1)
+        # Check if we have duplicate columns that cause df[mean_col] to return a DataFrame
+        if isinstance(long_term_mean, pd.DataFrame):
+            # Use the first occurrence of the column
+            df[feat] = df[feat] / long_term_mean.iloc[:, 0]
+        else:
+            # Normal case - mean_col is a Series
+            df[feat] = df[feat] / long_term_mean
+
+    # --- 4) drop helper columns and return ---
+    drop_cols = [f'{feat}_mean' for feat in features]
+    
+    return df.drop(columns=drop_cols)
+
+
+def apply_inverse_long_term_mean_scaling(df : pd.DataFrame, 
+                                         long_term_mean : pd.DataFrame, 
+                                         var_to_scale : str, 
+                                         var_used_for_scaling : list):
+    """
+    Inverse long-term mean scaling: multiply the features by the corresponding long-term mean.
+    
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        DataFrame with features to inverse scale
+    long_term_mean : pd.DataFrame
+        DataFrame with long-term means for each feature per basin and month
+    features : list
+        List of feature columns to inverse scale
+        
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with features inverse scaled
+    """
+    df = df.copy()
+    df['month'] = df['date'].dt.month  # ensure month col exists
+
+    # check if var_used_for_scaling is a single string or a list
+    if isinstance(var_used_for_scaling, str):
+        var_used_for_scaling = [var_used_for_scaling]
+
+    # --- 1) flatten multi-index columns if needed ---
+    ltm = long_term_mean.copy()
+    if isinstance(ltm.columns, pd.MultiIndex):
+        ltm.columns = [
+            'code', 'month'
+        ] + [f'{feat}_mean' for feat in var_used_for_scaling]
+    else:
+        rename_map = {
+            feat: f'{feat}_mean' for feat in var_used_for_scaling
+        }
+        ltm = ltm.rename(columns=rename_map)
+
+    # --- 2) merge the long-term means back onto the original ---
+    df = df.merge(ltm, on=['code', 'month'], how='left')
+
+    # --- 3) multiply the features by the long-term mean ---
+    for feat in var_used_for_scaling:
+        mean_col = f'{feat}_mean'
+        long_term_mean = df[mean_col]
+        # replace 0 with 1 to avoid division by zero
+        long_term_mean = long_term_mean.replace(0, 1)
+        # Check if we have duplicate columns that cause df[mean_col] to return a DataFrame
+        if isinstance(long_term_mean, pd.DataFrame):
+            # Use the first occurrence of the column
+            df[var_to_scale] = df[feat] * long_term_mean.iloc[:, 0]
+        else:
+            # Normal case - mean_col is a Series
+            df[var_to_scale] = df[feat] * long_term_mean
+
+    # --- 4) drop helper columns and return ---
+    drop_cols = [f'{feat}_mean' for feat in var_used_for_scaling]
+    
+    return df.drop(columns=drop_cols)
+
+    
+
+
 
 def calculate_elevation_band_areas(gdf_path):
     """

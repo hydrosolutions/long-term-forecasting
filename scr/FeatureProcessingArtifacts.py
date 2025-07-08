@@ -24,6 +24,7 @@ class FeatureProcessingArtifacts:
     def __init__(self):
         self.imputer = None
         self.scaler = None
+        self.static_scaler = None  # Static features scaler
         self.long_term_means = None
         self.feature_selector = None
         self.selected_features = None
@@ -31,9 +32,11 @@ class FeatureProcessingArtifacts:
         self.final_features = None
         self.cat_features = None
         self.num_features = None
+        self.static_features = None
         self.creation_timestamp = None
         self.experiment_config_hash = None
         self.feature_count = None
+        self.target_col = None
         
     def save(self, filepath: Union[str, Path], format: str = 'joblib') -> None:
         """
@@ -85,6 +88,7 @@ class FeatureProcessingArtifacts:
             'final_features': self.final_features,
             'cat_features': self.cat_features,
             'num_features': self.num_features,
+            'static_features': self.static_features,
             'creation_timestamp': self.creation_timestamp,
             'experiment_config_hash': self.experiment_config_hash,
             'feature_count': self.feature_count
@@ -105,13 +109,16 @@ class FeatureProcessingArtifacts:
         
         # Save scaler as JSON (it's a dict, not sklearn object)
         if self.scaler is not None:
-            self._save_scaler_safe(artifacts_dir)
-        
+            self._save_scaler_safe(artifacts_dir, 'scaler')
+
+        if self.static_scaler is not None:
+            self._save_scaler_safe(artifacts_dir, 'static_scaler')
+
         # Save long_term_means as Parquet
         if self.long_term_means is not None:
             self._save_long_term_means_safe(artifacts_dir)
     
-    def _save_scaler_safe(self, artifacts_dir: Path) -> None:
+    def _save_scaler_safe(self, artifacts_dir: Path, scaler_name: str = 'scaler') -> None:
         """
         Save scaler dictionary in a safe, human-readable format.
         
@@ -147,10 +154,11 @@ class FeatureProcessingArtifacts:
                 logger.warning(f"Unexpected scaler format for {key}: {value}")
         
         # Save as JSON
-        with open(artifacts_dir / "scaler.json", 'w') as f:
+        scaler_path = artifacts_dir / f"{scaler_name}.json"
+        with open(scaler_path, 'w') as f:
             json.dump(scaler_data, f, indent=2)
-        
-        logger.info(f"Saved scaler with {len(scaler_data)} entries as JSON")
+
+        logger.info(f"Saved {scaler_name} with {len(scaler_data)} entries as JSON")
 
     def _save_long_term_means_safe(self, artifacts_dir: Path) -> None:
         """
@@ -267,7 +275,9 @@ class FeatureProcessingArtifacts:
             artifacts.feature_selector = sklearn_objects.get('feature_selector')
         
         # Load scaler from JSON
-        artifacts.scaler = cls._load_scaler_safe(artifacts_dir)
+        artifacts.scaler = cls._load_scaler_safe(artifacts_dir, 'scaler')
+
+        artifacts.static_scaler = cls._load_scaler_safe(artifacts_dir, 'static_scaler') 
         
         # Load long_term_means from Parquet or JSON
         artifacts.long_term_means = cls._load_long_term_means_safe(artifacts_dir)
@@ -275,10 +285,10 @@ class FeatureProcessingArtifacts:
         return artifacts
     
     @staticmethod
-    def _load_scaler_safe(artifacts_dir: Path) -> Optional[Dict]:
+    def _load_scaler_safe(artifacts_dir: Path, scaler_name: str = 'scaler') -> Optional[Dict]:
         """Load scaler from JSON format."""
-        scaler_path = artifacts_dir / "scaler.json"
-        
+        scaler_path = artifacts_dir / f"{scaler_name}.json"
+
         if not scaler_path.exists():
             return None
         
@@ -447,6 +457,7 @@ def process_training_data(
     target: str,
     experiment_config: Dict[str, Any],
     pca_groups: Optional[Dict[str, List[str]]] = None,
+    static_features: Optional[List[str]] = [],
     variance_threshold: float = 0.95
 ) -> Tuple[pd.DataFrame, FeatureProcessingArtifacts]:
     """
@@ -466,13 +477,31 @@ def process_training_data(
     artifacts = FeatureProcessingArtifacts()
     df_processed = df_train.copy()
     
-    # Separate numeric and categorical features early
-    
+    # Separate numeric, categorical and static features early
     artifacts.num_features = [col for col in features if df_train[col].dtype.kind in 'ifc']
     artifacts.cat_features = [col for col in features if col not in artifacts.num_features]
-    
+    artifacts.static_features = static_features if static_features else []
+    artifacts.target_col = target
+
     logger.info(f"Numeric features: {len(artifacts.num_features)}")
     logger.info(f"Categorical features: {len(artifacts.cat_features)}")
+    logger.info(f"Static features: {len(artifacts.static_features)}")
+
+
+    # We scale the static features globally
+    static_scaler = {}
+    if artifacts.static_features:
+        # Calculate global mean and std for static features
+        for feature in artifacts.static_features:
+            if feature in df_processed.columns:
+                mean = df_processed[feature].mean()
+                std = df_processed[feature].std()
+                static_scaler[feature] = (mean, std)
+                logger.info(f"Static feature {feature} - mean: {mean}, std: {std}")
+            else:
+                logger.warning(f"Static feature {feature} not found in training data")
+    
+    artifacts.static_scaler = static_scaler
     
     # 1. Handle missing values and create imputation artifacts
     df_processed, artifacts = _handle_missing_values_training(
@@ -578,7 +607,8 @@ def load_artifacts_for_production(
 def process_test_data(
     df_test: pd.DataFrame,
     artifacts: FeatureProcessingArtifacts,
-    experiment_config: Dict[str, Any]
+    experiment_config: Dict[str, Any],
+    scale_target: bool = False
 ) -> pd.DataFrame:
     """
     Apply preprocessing artifacts to test data for consistent processing.
@@ -592,6 +622,15 @@ def process_test_data(
         Processed test DataFrame
     """
     df_processed = df_test.copy()
+
+    for stat_feature in artifacts.static_features:
+        if stat_feature in df_processed.columns:
+            # Apply static feature scaling
+            mean, std = artifacts.static_scaler.get(stat_feature, (None, None))
+            if mean is not None and std is not None:
+                df_processed[stat_feature] = (df_processed[stat_feature] - mean) / std
+        else:
+            logger.warning(f"Static feature {stat_feature} not found in test data")
     
     # Apply the same preprocessing steps using training artifacts
     df_processed = _apply_missing_value_handling(
@@ -599,44 +638,9 @@ def process_test_data(
     df_processed = _apply_feature_selection(
         df=df_processed, artifacts=artifacts)
     df_processed = _apply_normalization(
-        df=df_processed, artifacts=artifacts, experiment_config=experiment_config)
+        df=df_processed, artifacts=artifacts, experiment_config=experiment_config, scale_target=scale_target)
     
     return df_processed
-
-
-def process_features(
-    df_train: pd.DataFrame,
-    df_test: pd.DataFrame,
-    features: List[str],
-    target: str,
-    experiment_config: Dict[str, Any],
-    pca_groups: Optional[Dict[str, List[str]]] = None,
-    variance_threshold: float = 0.95
-) -> Tuple[pd.DataFrame, pd.DataFrame, List[str], FeatureProcessingArtifacts]:
-    """
-    Wrapper function that processes both training and test data consistently.
-    
-    Args:
-        df_train: Training DataFrame
-        df_test: Test DataFrame
-        features: List of feature names
-        target: Target variable name
-        experiment_config: Configuration dictionary containing processing parameters
-        pca_groups: Optional PCA grouping configuration
-        variance_threshold: Variance threshold for PCA
-        
-    Returns:
-        Tuple of (processed_train, processed_test, final_features, artifacts)
-    """
-    # Process training data and create artifacts
-    df_train_processed, artifacts = process_training_data(
-        df_train, features, target, experiment_config, pca_groups, variance_threshold
-    )
-    
-    # Apply artifacts to test data
-    df_test_processed = process_test_data(df_test, artifacts, experiment_config)
-    
-    return df_train_processed, df_test_processed, artifacts.final_features, artifacts
 
 
 # Helper functions for training phase
@@ -745,25 +749,92 @@ def _normalization_training(
     numeric_features_to_scale = [
         col for col in artifacts.selected_features 
         if col in artifacts.num_features
+        and col not in artifacts.static_features
     ]
     
-    if experiment_config.get('normalize_per_basin', False):
+    normalization_process = experiment_config.get('normalization_type', 'global')
+
+    if normalization_process not in ['global', 'per_basin', 'long_term_mean']:
+        raise ValueError(f"Unknown normalization type: {normalization_process}. "
+                         "Use 'global', 'per_basin', or 'long_term_mean'.")
+
+    if normalization_process == 'per_basin':
         artifacts.scaler = du.get_normalization_params_per_basin(
             df, numeric_features_to_scale, target
         )  
         df = du.apply_normalization_per_basin(
-            df, artifacts.scaler, numeric_features_to_scale
+            df, artifacts.scaler, numeric_features_to_scale + [target]
         )
-    else:
+    elif normalization_process == 'global':
         artifacts.scaler = du.get_normalization_params(
             df, numeric_features_to_scale, target
         )
         df = du.apply_normalization(
-            df, artifacts.scaler, numeric_features_to_scale
+            df, artifacts.scaler, numeric_features_to_scale + [target]
             )
+    elif normalization_process == 'long_term_mean':
+
+        if artifacts.long_term_means is None:
+            long_term_means = du.get_long_term_mean_per_basin(
+                df, features=numeric_features_to_scale + [target]
+            )
+        else:
+            long_term_means = artifacts.long_term_means
+       
+        artifacts.long_term_means = long_term_means
+        artifacts.scaler = long_term_means.to_dict()
+
+        df = du.apply_long_term_mean_scaling(
+            df, long_term_mean=long_term_means, 
+            features=numeric_features_to_scale + [target]
+        )
+    else:
+        raise ValueError(f"Unknown normalization process: {normalization_process}. "
+                         "Use 'global', 'per_basin', or 'long_term_mean'.")
 
     logger.info("Created normalization scaler")
     return df, artifacts
+
+
+def process_features(
+    df_train: pd.DataFrame,
+    df_test: pd.DataFrame,
+    features: List[str],
+    target: str,
+    experiment_config: Dict[str, Any],
+    static_features: Optional[List[str]] = None
+) -> Tuple[pd.DataFrame, pd.DataFrame, List[str], FeatureProcessingArtifacts]:
+    """
+    Convenience wrapper function for complete feature processing workflow.
+    
+    Args:
+        df_train: Training DataFrame
+        df_test: Test DataFrame  
+        features: List of feature names
+        target: Target variable name
+        experiment_config: Configuration dictionary
+        static_features: Optional list of static feature names
+        
+    Returns:
+        Tuple of (processed_train_df, processed_test_df, final_features, artifacts)
+    """
+    # Process training data and create artifacts
+    df_train_processed, artifacts = process_training_data(
+        df_train=df_train,
+        features=features,
+        target=target,
+        experiment_config=experiment_config,
+        static_features=static_features or []
+    )
+    
+    # Apply artifacts to test data
+    df_test_processed = process_test_data(
+        df_test=df_test,
+        artifacts=artifacts,
+        experiment_config=experiment_config
+    )
+    
+    return df_train_processed, df_test_processed, artifacts.final_features, artifacts
 
 
 # Helper functions for applying artifacts to test data
@@ -821,7 +892,8 @@ def _apply_feature_selection(
 def _apply_normalization(
     df: pd.DataFrame,
     artifacts: FeatureProcessingArtifacts,
-    experiment_config: Dict[str, Any]
+    experiment_config: Dict[str, Any],
+    scale_target: bool = False
 ) -> pd.DataFrame:
     """Apply normalization using training artifacts."""
     
@@ -835,23 +907,41 @@ def _apply_normalization(
     numeric_features_to_scale = [
         col for col in artifacts.selected_features 
         if col in artifacts.num_features and col in df.columns
+        and col not in artifacts.static_features
     ]
+
+    normalization_process = experiment_config.get('normalization_type', 'global')
+
+
+
+    if normalization_process not in ['global', 'per_basin', 'long_term_mean']:
+        raise ValueError(f"Unknown normalization type: {normalization_process}. "
+                         "Use 'global', 'per_basin', or 'long_term_mean'.")
     
-    if experiment_config.get('normalize_per_basin', False):
+    if scale_target and artifacts.target_col in df.columns:
+        numeric_features_to_scale.append(artifacts.target_col)
+
+    if normalization_process == 'long_term_mean':
+        df = du.apply_long_term_mean_scaling(
+            df, long_term_mean=artifacts.long_term_means, features=numeric_features_to_scale
+        )
+    elif normalization_process == 'per_basin':
         df = du.apply_normalization_per_basin(df, artifacts.scaler, numeric_features_to_scale)
-    else:
+    elif normalization_process == 'global':
         df = du.apply_normalization(df, artifacts.scaler, numeric_features_to_scale)
-    
+    else:
+        raise ValueError(f"Unknown normalization process: {normalization_process}. "
+                         "Use 'global', 'per_basin', or 'long_term_mean'.")
     return df
 
 
 
-def post_process_target(
+def post_process_predictions(
     df_predictions: pd.DataFrame,
-    target: str,
     artifacts: FeatureProcessingArtifacts,
     experiment_config: Dict[str, Any],
-    prediction_column: str = 'Q_pred'
+    prediction_column: str,
+    target: str
     ) -> pd.DataFrame:
 
     """
@@ -867,35 +957,79 @@ def post_process_target(
     Returns:
         DataFrame with denormalized predictions
     """
+    # Import here to avoid circular imports
+    from scr import data_utils as du
+
     df_predictions = df_predictions.copy()
     
     if not experiment_config.get('normalize', False) or artifacts.scaler is None:
         return df_predictions
     
-    if experiment_config.get('normalize_per_basin', False):
-        # Basin-specific denormalization
+    normalization_process = experiment_config.get('normalization_type', 'global')
+
+    if normalization_process not in ['global', 'per_basin', 'long_term_mean']:
+        raise ValueError(f"Unknown normalization type: {normalization_process}. "
+                         "Use 'global', 'per_basin', or 'long_term_mean'.")
+    
+    if prediction_column not in df_predictions.columns:
+        logger.warning(f"Prediction column '{prediction_column}' not found in DataFrame")
+        return df_predictions
+    
+    if normalization_process == 'long_term_mean':
+        if artifacts.long_term_means is None:
+            logger.warning("Long-term means not available for denormalization")
+            return df_predictions
+        
+        df_predictions = du.apply_inverse_long_term_mean_scaling(
+            df = df_predictions,
+            long_term_mean=artifacts.long_term_means,
+            var_to_scale=prediction_column,
+            var_used_for_scaling=target
+        )
+
+        logger.info(f"Applied long-term mean denormalization to {prediction_column}")
+
+    elif normalization_process == 'per_basin':
+        if artifacts.scaler is None:
+            logger.warning("Per-basin scaler not available for denormalization")
+            return df_predictions
+        
+        # Check if 'code' column exists for per-basin denormalization
         if 'code' not in df_predictions.columns:
             logger.warning("Basin code column not found for per-basin denormalization")
             return df_predictions
-            
-        for code in df_predictions['code'].unique():
-            if code in artifacts.scaler and target in artifacts.scaler[code]:
-                mean_, std_ = artifacts.scaler[code][target]
-                mask = df_predictions['code'] == code
-                df_predictions.loc[mask, prediction_column] = (
-                    df_predictions.loc[mask, prediction_column] * std_ + mean_
-                )
-            else:
-                logger.warning(f"No scaler found for basin {code} and target {target}")
+        
+        df_predictions = du.apply_inverse_normalization_per_basin(
+            df=df_predictions,
+            scaler=artifacts.scaler,
+            var_to_scale=prediction_column,
+            var_used_for_scaling=target
+        )
+        
+        logger.info(f"Applied per-basin denormalization to {prediction_column}")
+
+    elif normalization_process == 'global':
+        if artifacts.scaler is None:
+            logger.warning("Global scaler not available for denormalization")
+            return df_predictions
+        
+        # Check if target exists in scaler
+        if target not in artifacts.scaler:
+            logger.warning(f"Target {target} not found in global scaler")
+            return df_predictions
+        
+        df_predictions = du.inverse_normalization(
+            df=df_predictions,
+            scaler=artifacts.scaler,
+            var_to_scale=prediction_column,
+            var_used_for_scaling=target
+        )
+       
     else:
-        # Global denormalization
-        if target in artifacts.scaler:
-            mean_, std_ = artifacts.scaler[target]
-            df_predictions[prediction_column] = (
-                df_predictions[prediction_column] * std_ + mean_
-            )
-        else:
-            logger.warning(f"No scaler found for target {target}")
+        raise ValueError(f"Unknown normalization process: {normalization_process}. "
+                         "Use 'global', 'per_basin', or 'long_term_mean'.")
+    
     
     logger.info(f"Applied denormalization to {prediction_column}")
+    
     return df_predictions
