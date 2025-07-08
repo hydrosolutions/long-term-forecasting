@@ -5,8 +5,8 @@
 set -e  # Exit on any error
 
 # Configuration
-CONFIG_DIR="../monthly_forecasting_models/BaseCase/ShortTermLR"  # Path to model configuration directory
-MODEL_NAME="ShortTermLR"  # Model name
+CONFIG_DIR="../monthly_forecasting_models/BaseCase/PerBasinScalingLR"  # Path to model configuration directory
+MODEL_NAME="PerBasinScalingLR"  # Model name
 INPUT_FAMILY="BaseCase"  # Input family for the model
 LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
 

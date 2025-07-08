@@ -1,0 +1,10 @@
+2025-07-08 21:01:10,029 - comprehensive_test_utils - INFO - Created test directory: /var/folders/41/6zdzv5wn1fq6nj4hhmk75zhh0000gn/T/comprehensive_test_xgb_no_normalization_pkhhwqe_
+2025-07-08 21:01:10,370 - comprehensive_test_utils - INFO - Generated comprehensive synthetic data: 27963 records for 3 basins
+2025-07-08 21:01:10,370 - comprehensive_test_utils - INFO - Preprocessing method: no_normalization
+2025-07-08 21:01:10,370 - comprehensive_test_utils - INFO - Date range: 2000-01-01 00:00:00 to 2025-07-08 00:00:00
+2025-07-08 21:01:10,371 - comprehensive_test_utils - INFO - Generated comprehensive static data for 3 basins
+2025-07-08 21:01:10,371 - comprehensive_test_utils - INFO - Preprocessing method: no_normalization
+2025-07-08 21:01:10,372 - comprehensive_test_utils - INFO - Created configuration files in /var/folders/41/6zdzv5wn1fq6nj4hhmk75zhh0000gn/T/comprehensive_test_xgb_no_normalization_pkhhwqe_/config
+2025-07-08 21:01:10,372 - comprehensive_test_utils - INFO - Test environment setup complete for xgb with no_normalization
+2025-07-08 21:01:10,372 - comprehensive_test_utils - INFO - Model initialization validation passed for xgb with no_normalization
+2025-07-08 21:01:10,372 - comprehensive_test_utils - INFO - Cleaned up test directory: /var/folders/41/6zdzv5wn1fq6nj4hhmk75zhh0000gn/T/comprehensive_test_xgb_no_normalization_pkhhwqe_

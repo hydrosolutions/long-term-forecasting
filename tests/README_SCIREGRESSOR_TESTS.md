@@ -4,8 +4,35 @@ This directory contains comprehensive tests for the SciRegressor forecasting mod
 
 ## Files
 
-- `test_sciregressor.py` - Main test suite with comprehensive tests
+- `test_sciregressor.py` - Main test suite with comprehensive tests (64 total tests)
+- `comprehensive_test_configs.py` - Configuration constants for comprehensive testing
+- `comprehensive_test_utils.py` - Utility functions for comprehensive testing
 - `run_sciregressor_tests.py` - Simple runner script (no pytest required)
+
+## Test Coverage
+
+### Comprehensive Testing (64 Total Tests)
+
+This test suite provides comprehensive coverage for **3 models** × **4 preprocessing methods** × **4 workflow components** + **12 complete workflow tests** + **4 multi-model integration tests** = **64 total tests**.
+
+#### Models Tested
+- **XGBoost** (`xgb`) - Gradient boosting trees
+- **LightGBM** (`lgbm`) - Light gradient boosting machine  
+- **CatBoost** (`catboost`) - Categorical boosting
+
+#### Preprocessing Methods Tested
+- **No Normalization** - Raw data without scaling
+- **Global Normalization** - Standard scaling across all basins
+- **Per-Basin Normalization** - Basin-specific scaling
+- **Long-term Mean Scaling** - Seasonal normalization based on historical means
+
+#### Workflow Components Tested
+1. **Hyperparameter Tuning** - Optuna-based optimization (12 tests)
+2. **Calibration** - Leave-One-Year-Out cross-validation (12 tests)
+3. **Hindcast** - Historical validation (12 tests)
+4. **Operational Prediction** - Real-time forecasting (12 tests)
+5. **Complete Workflow** - End-to-end pipeline testing (12 tests)
+6. **Multi-Model Integration** - Cross-model ensemble testing (4 tests)
 
 ## Features Tested
 
@@ -13,7 +40,7 @@ This directory contains comprehensive tests for the SciRegressor forecasting mod
 - Proper loading of configurations with ensemble model support
 - Feature extraction from synthetic data
 - Model instance creation and validation
-- Multiple model types (XGBoost, Random Forest, etc.)
+- Multiple model types (XGBoost, LightGBM, CatBoost)
 
 ### 2. Feature Processing
 - Feature extraction based on configuration
@@ -131,34 +158,62 @@ The tests use enhanced synthetic hydro-meteorological data with complex relation
 
 ## Running the Tests
 
-### Option 1: Simple Runner (Recommended)
+### Option 1: Comprehensive Tests (Recommended)
 ```bash
+# From the tests directory
+python test_sciregressor.py --comprehensive
+
+# Run with only failure details shown
+python test_sciregressor.py --comprehensive --only-failures
+
+# Run with verbose logging
+python test_sciregressor.py --comprehensive --verbose
+```
+
+### Option 2: Original Basic Tests
+```bash
+# From the tests directory
+python test_sciregressor.py
+
 # From the monthly_forecasting directory
 python run_sciregressor_tests.py
 ```
 
-### Option 2: Direct Execution
-```bash
-# From the tests directory
-cd tests
-python test_sciregressor.py
-```
-
 ### Option 3: With pytest (if available)
+
+#### Run All Comprehensive Tests (64 tests)
 ```bash
 # From the monthly_forecasting directory
 pytest tests/test_sciregressor.py -v
 
-# Run specific test
-pytest tests/test_sciregressor.py::test_sciregressor_calibration_hindcast -v
+# Run specific comprehensive test
+pytest tests/test_sciregressor.py::test_xgb_hyperparameter_tuning_no_normalization -v
+
+# Run all XGBoost tests
+pytest tests/test_sciregressor.py -k "xgb" -v
+
+# Run all global normalization tests
+pytest tests/test_sciregressor.py -k "global_normalization" -v
+
+# Run all hyperparameter tuning tests
+pytest tests/test_sciregressor.py -k "hyperparameter_tuning" -v
 
 # With coverage
 pytest tests/test_sciregressor.py --cov=forecast_models.SciRegressor
 ```
 
+#### Run Original Basic Tests (6 tests)
+```bash
+pytest tests/test_sciregressor.py::test_sciregressor_initialization -v
+pytest tests/test_sciregressor.py::test_sciregressor_calibration_hindcast -v
+```
+
 ### Command Line Options
 
 ```bash
+# Comprehensive testing mode
+python tests/test_sciregressor.py --comprehensive
+
 # Verbose logging (DEBUG level)
 python tests/test_sciregressor.py --verbose
 
@@ -168,56 +223,86 @@ python tests/test_sciregressor.py --only-failures
 # Custom log file
 python tests/test_sciregressor.py --log-file debug_sciregressor.log
 
-# Combined options
-python tests/test_sciregressor.py --verbose --only-failures --log-file detailed_test.log
+# Combined options for comprehensive testing
+python tests/test_sciregressor.py --comprehensive --verbose --only-failures --log-file detailed_test.log
 ```
 
 ## Expected Output
 
-The test suite will output:
+### Comprehensive Test Output (64 tests)
+The comprehensive test suite will output:
 1. **Setup Information**: Data generation details and test environment setup
-2. **Test Progress**: Individual test results with ✓/✗ indicators
-3. **Model Performance**: Metrics and statistics from calibration
+2. **Test Progress**: Individual test results with ✓/✗ indicators for all 64 tests
+3. **Model Performance**: Validation for each model and preprocessing combination
 4. **Summary**: Overall test results and success/failure count
 
-### Sample Output
+### Sample Comprehensive Output
+```
+============================================================
+STARTING COMPREHENSIVE SCIREGRESSOR TESTS
+============================================================
+
+[1/64] xgb_hyperparameter_tuning_no_normalization...
+✓ xgb_hyperparameter_tuning_no_normalization passed (0.34s)
+
+[2/64] xgb_hyperparameter_tuning_global_normalization...
+✓ xgb_hyperparameter_tuning_global_normalization passed (0.30s)
+
+[3/64] xgb_hyperparameter_tuning_per_basin_normalization...
+✓ xgb_hyperparameter_tuning_per_basin_normalization passed (0.38s)
+
+[4/64] xgb_hyperparameter_tuning_long_term_mean_scaling...
+✓ xgb_hyperparameter_tuning_long_term_mean_scaling passed (0.38s)
+
+[5/64] lgbm_hyperparameter_tuning_no_normalization...
+✓ lgbm_hyperparameter_tuning_no_normalization passed (0.35s)
+
+... (continues for all 64 tests)
+
+[64/64] multi_model_ensemble_long_term_mean_scaling...
+✓ multi_model_ensemble_long_term_mean_scaling passed (0.42s)
+
+============================================================
+COMPREHENSIVE TEST SUMMARY
+============================================================
+Total tests run: 64
+Tests passed: 64
+Tests failed: 0
+🎉 ALL COMPREHENSIVE TESTS PASSED!
+```
+
+### Basic Test Output (6 tests)
+The basic test suite will output:
 ```
 ======================================================================
 STARTING SCIREGRESSOR MODEL TESTS
 ======================================================================
 
-[1/8] Model Initialization...
+[1/6] Model Initialization...
 ✓ Model Initialization passed
 
-[2/8] Feature Extraction...
+[2/6] Feature Extraction...
 ✓ Feature Extraction passed
 
-[3/8] Configuration Loading...
+[3/6] Configuration Loading...
 ✓ Configuration Loading passed
 
-[4/8] Calibration and Hindcast...
+[4/6] Calibration and Hindcast...
 ✓ Calibration and Hindcast passed
   Generated 1000 predictions for 3 basins
 
-[5/8] Operational Forecast...
+[5/6] Operational Forecast...
 ✓ Operational Forecast passed
   Generated forecasts for 3 basins
 
-[6/8] Hyperparameter Tuning...
+[6/6] Hyperparameter Tuning...
 ✓ Hyperparameter Tuning passed
   Tuning result: True, Message: Hyperparameters tuned successfully
-
-[7/8] Model Persistence...
-✓ Model Persistence passed
-
-[8/8] End-to-End Workflow...
-✓ End-to-End Workflow passed
-  Results saved to: /tmp/sciregressor_test_xyz/results
 
 ======================================================================
 TEST SUMMARY
 ======================================================================
-Tests passed: 8/8
+Tests passed: 6/6
 🎉 ALL TESTS PASSED!
 ```
 
@@ -266,6 +351,39 @@ To add new tests:
 1. Add a new method to the `SciRegressorTester` class
 2. Add the method to the `test_suite` list in `run_all_tests()`
 3. Create a corresponding pytest function if using pytest
+
+## Comprehensive Test Structure
+
+### Test Organization
+The comprehensive test suite is organized into logical phases:
+
+1. **Phase 1: Individual Component Tests (48 tests)**
+   - Tests each workflow component separately
+   - Validates each model type with each preprocessing method
+   - Ensures individual components work correctly in isolation
+
+2. **Phase 2: Complete Workflow Tests (12 tests)**
+   - Tests end-to-end workflows: tuning → calibration → operational prediction
+   - Validates complete model lifecycle
+   - Ensures workflow components integrate properly
+
+3. **Phase 3: Multi-Model Integration Tests (4 tests)**
+   - Tests ensemble functionality across different models
+   - Validates cross-model compatibility
+   - Ensures model combinations work correctly
+
+### Test Naming Convention
+All comprehensive tests follow a consistent naming pattern:
+- `test_{model_type}_{component}_{preprocessing_method}()`
+- Examples: `test_xgb_hyperparameter_tuning_no_normalization()`
+- Makes it easy to identify which combination is being tested
+
+### Test Execution Features
+- **Timeout Protection**: Each test has appropriate timeout limits
+- **Error Handling**: Comprehensive error reporting with detailed logs
+- **Environment Isolation**: Each test runs in a clean, isolated environment
+- **Resource Cleanup**: Automatic cleanup of temporary files and directories
+- **Progress Tracking**: Real-time progress indicators during execution
 
 ## SciRegressor-Specific Features
 
