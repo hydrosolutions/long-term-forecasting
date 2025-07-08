@@ -410,7 +410,7 @@ class ComprehensiveSciRegressorTester:
             env.teardown()
             raise e
     
-    def test_hyperparameter_tuning(self, model_type: str, preprocessing_method: str) -> bool:
+    def test_specific_hyperparameter_tuning(self, model_type: str, preprocessing_method: str) -> bool:
         """Test hyperparameter tuning for specific model and preprocessing method."""
         model, env = self._create_model_instance(model_type, preprocessing_method)
         
@@ -436,7 +436,7 @@ class ComprehensiveSciRegressorTester:
         finally:
             env.teardown()
     
-    def test_calibration(self, model_type: str, preprocessing_method: str) -> bool:
+    def test_specific_calibration(self, model_type: str, preprocessing_method: str) -> bool:
         """Test calibration for specific model and preprocessing method."""
         model, env = self._create_model_instance(model_type, preprocessing_method)
         
@@ -463,7 +463,7 @@ class ComprehensiveSciRegressorTester:
         finally:
             env.teardown()
     
-    def test_hindcast(self, model_type: str, preprocessing_method: str) -> bool:
+    def test_specific_hindcast(self, model_type: str, preprocessing_method: str) -> bool:
         """Test hindcast for specific model and preprocessing method."""
         model, env = self._create_model_instance(model_type, preprocessing_method)
         
@@ -490,7 +490,7 @@ class ComprehensiveSciRegressorTester:
         finally:
             env.teardown()
     
-    def test_operational_prediction(self, model_type: str, preprocessing_method: str) -> bool:
+    def test_specific_operational_prediction(self, model_type: str, preprocessing_method: str) -> bool:
         """Test operational prediction for specific model and preprocessing method."""
         model, env = self._create_model_instance(model_type, preprocessing_method)
         
@@ -527,7 +527,7 @@ class ComprehensiveSciRegressorTester:
         finally:
             env.teardown()
     
-    def test_complete_workflow(self, model_type: str, preprocessing_method: str) -> bool:
+    def test_specific_complete_workflow(self, model_type: str, preprocessing_method: str) -> bool:
         """Test complete workflow for specific model and preprocessing method."""
         model, env = self._create_model_instance(model_type, preprocessing_method)
         
@@ -576,7 +576,7 @@ class ComprehensiveSciRegressorTester:
         finally:
             env.teardown()
     
-    def test_multi_model_ensemble(self, preprocessing_method: str) -> bool:
+    def test_specific_multi_model_ensemble(self, preprocessing_method: str) -> bool:
         """Test multi-model ensemble for specific preprocessing method."""
         models = {}
         envs = []
@@ -626,10 +626,10 @@ class ComprehensiveSciRegressorTester:
         
         # Phase 1: Individual Component Tests (48 tests)
         component_tests = {
-            "hyperparameter_tuning": (self.test_hyperparameter_tuning, TEST_TIMEOUTS["hyperparameter_tuning"]),
-            "calibration": (self.test_calibration, TEST_TIMEOUTS["calibration"]),
-            "hindcast": (self.test_hindcast, TEST_TIMEOUTS["hindcast"]),
-            "operational_prediction": (self.test_operational_prediction, TEST_TIMEOUTS["operational_prediction"])
+            "hyperparameter_tuning": (self.test_specific_hyperparameter_tuning, TEST_TIMEOUTS["hyperparameter_tuning"]),
+            "calibration": (self.test_specific_calibration, TEST_TIMEOUTS["calibration"]),
+            "hindcast": (self.test_specific_hindcast, TEST_TIMEOUTS["hindcast"]),
+            "operational_prediction": (self.test_specific_operational_prediction, TEST_TIMEOUTS["operational_prediction"])
         }
         
         for component, (test_func, timeout) in component_tests.items():
@@ -651,7 +651,7 @@ class ComprehensiveSciRegressorTester:
                 test_name = f"{model_type}_complete_workflow_{preprocessing_method}"
                 
                 def test_wrapper():
-                    return self.test_complete_workflow(model_type, preprocessing_method)
+                    return self.test_specific_complete_workflow(model_type, preprocessing_method)
                 
                 print(f"\n[{len(self.test_results)+1}/{total_tests}] {test_name}...")
                 self._run_single_test(test_wrapper, test_name, TEST_TIMEOUTS["complete_workflow"])
@@ -662,7 +662,7 @@ class ComprehensiveSciRegressorTester:
             test_name = f"multi_model_ensemble_{preprocessing_method}"
             
             def test_wrapper():
-                return self.test_multi_model_ensemble(preprocessing_method)
+                return self.test_specific_multi_model_ensemble(preprocessing_method)
             
             print(f"\n[{len(self.test_results)+1}/{total_tests}] {test_name}...")
             self._run_single_test(test_wrapper, test_name, TEST_TIMEOUTS["multi_model_ensemble"])
@@ -1241,264 +1241,265 @@ if PYTEST_AVAILABLE:
     # 1.1 Hyperparameter Tuning Tests (12 functions)
     def test_xgb_hyperparameter_tuning_no_normalization(comprehensive_tester):
         """Test XGBoost hyperparameter tuning with no normalization."""
-        assert comprehensive_tester.test_hyperparameter_tuning("xgb", "no_normalization")
+        tester = comprehensive_tester
+        assert tester.test_specific_hyperparameter_tuning("xgb", "no_normalization")
     
     def test_xgb_hyperparameter_tuning_global_normalization(comprehensive_tester):
         """Test XGBoost hyperparameter tuning with global normalization."""
-        assert comprehensive_tester.test_hyperparameter_tuning("xgb", "global_normalization")
+        assert comprehensive_tester.test_specific_hyperparameter_tuning("xgb", "global_normalization")
     
     def test_xgb_hyperparameter_tuning_per_basin_normalization(comprehensive_tester):
         """Test XGBoost hyperparameter tuning with per-basin normalization."""
-        assert comprehensive_tester.test_hyperparameter_tuning("xgb", "per_basin_normalization")
+        assert comprehensive_tester.test_specific_hyperparameter_tuning("xgb", "per_basin_normalization")
     
     def test_xgb_hyperparameter_tuning_long_term_mean_scaling(comprehensive_tester):
         """Test XGBoost hyperparameter tuning with long-term mean scaling."""
-        assert comprehensive_tester.test_hyperparameter_tuning("xgb", "long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_hyperparameter_tuning("xgb", "long_term_mean_scaling")
     
     def test_lgbm_hyperparameter_tuning_no_normalization(comprehensive_tester):
         """Test LightGBM hyperparameter tuning with no normalization."""
-        assert comprehensive_tester.test_hyperparameter_tuning("lgbm", "no_normalization")
+        assert comprehensive_tester.test_specific_hyperparameter_tuning("lgbm", "no_normalization")
     
     def test_lgbm_hyperparameter_tuning_global_normalization(comprehensive_tester):
         """Test LightGBM hyperparameter tuning with global normalization."""
-        assert comprehensive_tester.test_hyperparameter_tuning("lgbm", "global_normalization")
+        assert comprehensive_tester.test_specific_hyperparameter_tuning("lgbm", "global_normalization")
     
     def test_lgbm_hyperparameter_tuning_per_basin_normalization(comprehensive_tester):
         """Test LightGBM hyperparameter tuning with per-basin normalization."""
-        assert comprehensive_tester.test_hyperparameter_tuning("lgbm", "per_basin_normalization")
+        assert comprehensive_tester.test_specific_hyperparameter_tuning("lgbm", "per_basin_normalization")
     
     def test_lgbm_hyperparameter_tuning_long_term_mean_scaling(comprehensive_tester):
         """Test LightGBM hyperparameter tuning with long-term mean scaling."""
-        assert comprehensive_tester.test_hyperparameter_tuning("lgbm", "long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_hyperparameter_tuning("lgbm", "long_term_mean_scaling")
     
     def test_catboost_hyperparameter_tuning_no_normalization(comprehensive_tester):
         """Test CatBoost hyperparameter tuning with no normalization."""
-        assert comprehensive_tester.test_hyperparameter_tuning("catboost", "no_normalization")
+        assert comprehensive_tester.test_specific_hyperparameter_tuning("catboost", "no_normalization")
     
     def test_catboost_hyperparameter_tuning_global_normalization(comprehensive_tester):
         """Test CatBoost hyperparameter tuning with global normalization."""
-        assert comprehensive_tester.test_hyperparameter_tuning("catboost", "global_normalization")
+        assert comprehensive_tester.test_specific_hyperparameter_tuning("catboost", "global_normalization")
     
     def test_catboost_hyperparameter_tuning_per_basin_normalization(comprehensive_tester):
         """Test CatBoost hyperparameter tuning with per-basin normalization."""
-        assert comprehensive_tester.test_hyperparameter_tuning("catboost", "per_basin_normalization")
+        assert comprehensive_tester.test_specific_hyperparameter_tuning("catboost", "per_basin_normalization")
     
     def test_catboost_hyperparameter_tuning_long_term_mean_scaling(comprehensive_tester):
         """Test CatBoost hyperparameter tuning with long-term mean scaling."""
-        assert comprehensive_tester.test_hyperparameter_tuning("catboost", "long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_hyperparameter_tuning("catboost", "long_term_mean_scaling")
     
     # 1.2 Calibration Tests (12 functions)
     def test_xgb_calibration_no_normalization(comprehensive_tester):
         """Test XGBoost calibration with no normalization."""
-        assert comprehensive_tester.test_calibration("xgb", "no_normalization")
+        assert comprehensive_tester.test_specific_calibration("xgb", "no_normalization")
     
     def test_xgb_calibration_global_normalization(comprehensive_tester):
         """Test XGBoost calibration with global normalization."""
-        assert comprehensive_tester.test_calibration("xgb", "global_normalization")
+        assert comprehensive_tester.test_specific_calibration("xgb", "global_normalization")
     
     def test_xgb_calibration_per_basin_normalization(comprehensive_tester):
         """Test XGBoost calibration with per-basin normalization."""
-        assert comprehensive_tester.test_calibration("xgb", "per_basin_normalization")
+        assert comprehensive_tester.test_specific_calibration("xgb", "per_basin_normalization")
     
     def test_xgb_calibration_long_term_mean_scaling(comprehensive_tester):
         """Test XGBoost calibration with long-term mean scaling."""
-        assert comprehensive_tester.test_calibration("xgb", "long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_calibration("xgb", "long_term_mean_scaling")
     
     def test_lgbm_calibration_no_normalization(comprehensive_tester):
         """Test LightGBM calibration with no normalization."""
-        assert comprehensive_tester.test_calibration("lgbm", "no_normalization")
+        assert comprehensive_tester.test_specific_calibration("lgbm", "no_normalization")
     
     def test_lgbm_calibration_global_normalization(comprehensive_tester):
         """Test LightGBM calibration with global normalization."""
-        assert comprehensive_tester.test_calibration("lgbm", "global_normalization")
+        assert comprehensive_tester.test_specific_calibration("lgbm", "global_normalization")
     
     def test_lgbm_calibration_per_basin_normalization(comprehensive_tester):
         """Test LightGBM calibration with per-basin normalization."""
-        assert comprehensive_tester.test_calibration("lgbm", "per_basin_normalization")
+        assert comprehensive_tester.test_specific_calibration("lgbm", "per_basin_normalization")
     
     def test_lgbm_calibration_long_term_mean_scaling(comprehensive_tester):
         """Test LightGBM calibration with long-term mean scaling."""
-        assert comprehensive_tester.test_calibration("lgbm", "long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_calibration("lgbm", "long_term_mean_scaling")
     
     def test_catboost_calibration_no_normalization(comprehensive_tester):
         """Test CatBoost calibration with no normalization."""
-        assert comprehensive_tester.test_calibration("catboost", "no_normalization")
+        assert comprehensive_tester.test_specific_calibration("catboost", "no_normalization")
     
     def test_catboost_calibration_global_normalization(comprehensive_tester):
         """Test CatBoost calibration with global normalization."""
-        assert comprehensive_tester.test_calibration("catboost", "global_normalization")
+        assert comprehensive_tester.test_specific_calibration("catboost", "global_normalization")
     
     def test_catboost_calibration_per_basin_normalization(comprehensive_tester):
         """Test CatBoost calibration with per-basin normalization."""
-        assert comprehensive_tester.test_calibration("catboost", "per_basin_normalization")
+        assert comprehensive_tester.test_specific_calibration("catboost", "per_basin_normalization")
     
     def test_catboost_calibration_long_term_mean_scaling(comprehensive_tester):
         """Test CatBoost calibration with long-term mean scaling."""
-        assert comprehensive_tester.test_calibration("catboost", "long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_calibration("catboost", "long_term_mean_scaling")
     
     # 1.3 Hindcast Tests (12 functions)
     def test_xgb_hindcast_no_normalization(comprehensive_tester):
         """Test XGBoost hindcast with no normalization."""
-        assert comprehensive_tester.test_hindcast("xgb", "no_normalization")
+        assert comprehensive_tester.test_specific_hindcast("xgb", "no_normalization")
     
     def test_xgb_hindcast_global_normalization(comprehensive_tester):
         """Test XGBoost hindcast with global normalization."""
-        assert comprehensive_tester.test_hindcast("xgb", "global_normalization")
+        assert comprehensive_tester.test_specific_hindcast("xgb", "global_normalization")
     
     def test_xgb_hindcast_per_basin_normalization(comprehensive_tester):
         """Test XGBoost hindcast with per-basin normalization."""
-        assert comprehensive_tester.test_hindcast("xgb", "per_basin_normalization")
+        assert comprehensive_tester.test_specific_hindcast("xgb", "per_basin_normalization")
     
     def test_xgb_hindcast_long_term_mean_scaling(comprehensive_tester):
         """Test XGBoost hindcast with long-term mean scaling."""
-        assert comprehensive_tester.test_hindcast("xgb", "long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_hindcast("xgb", "long_term_mean_scaling")
     
     def test_lgbm_hindcast_no_normalization(comprehensive_tester):
         """Test LightGBM hindcast with no normalization."""
-        assert comprehensive_tester.test_hindcast("lgbm", "no_normalization")
+        assert comprehensive_tester.test_specific_hindcast("lgbm", "no_normalization")
     
     def test_lgbm_hindcast_global_normalization(comprehensive_tester):
         """Test LightGBM hindcast with global normalization."""
-        assert comprehensive_tester.test_hindcast("lgbm", "global_normalization")
+        assert comprehensive_tester.test_specific_hindcast("lgbm", "global_normalization")
     
     def test_lgbm_hindcast_per_basin_normalization(comprehensive_tester):
         """Test LightGBM hindcast with per-basin normalization."""
-        assert comprehensive_tester.test_hindcast("lgbm", "per_basin_normalization")
+        assert comprehensive_tester.test_specific_hindcast("lgbm", "per_basin_normalization")
     
     def test_lgbm_hindcast_long_term_mean_scaling(comprehensive_tester):
         """Test LightGBM hindcast with long-term mean scaling."""
-        assert comprehensive_tester.test_hindcast("lgbm", "long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_hindcast("lgbm", "long_term_mean_scaling")
     
     def test_catboost_hindcast_no_normalization(comprehensive_tester):
         """Test CatBoost hindcast with no normalization."""
-        assert comprehensive_tester.test_hindcast("catboost", "no_normalization")
+        assert comprehensive_tester.test_specific_hindcast("catboost", "no_normalization")
     
     def test_catboost_hindcast_global_normalization(comprehensive_tester):
         """Test CatBoost hindcast with global normalization."""
-        assert comprehensive_tester.test_hindcast("catboost", "global_normalization")
+        assert comprehensive_tester.test_specific_hindcast("catboost", "global_normalization")
     
     def test_catboost_hindcast_per_basin_normalization(comprehensive_tester):
         """Test CatBoost hindcast with per-basin normalization."""
-        assert comprehensive_tester.test_hindcast("catboost", "per_basin_normalization")
+        assert comprehensive_tester.test_specific_hindcast("catboost", "per_basin_normalization")
     
     def test_catboost_hindcast_long_term_mean_scaling(comprehensive_tester):
         """Test CatBoost hindcast with long-term mean scaling."""
-        assert comprehensive_tester.test_hindcast("catboost", "long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_hindcast("catboost", "long_term_mean_scaling")
     
     # 1.4 Operational Prediction Tests (12 functions)
     def test_xgb_operational_prediction_no_normalization(comprehensive_tester):
         """Test XGBoost operational prediction with no normalization."""
-        assert comprehensive_tester.test_operational_prediction("xgb", "no_normalization")
+        assert comprehensive_tester.test_specific_operational_prediction("xgb", "no_normalization")
     
     def test_xgb_operational_prediction_global_normalization(comprehensive_tester):
         """Test XGBoost operational prediction with global normalization."""
-        assert comprehensive_tester.test_operational_prediction("xgb", "global_normalization")
+        assert comprehensive_tester.test_specific_operational_prediction("xgb", "global_normalization")
     
     def test_xgb_operational_prediction_per_basin_normalization(comprehensive_tester):
         """Test XGBoost operational prediction with per-basin normalization."""
-        assert comprehensive_tester.test_operational_prediction("xgb", "per_basin_normalization")
+        assert comprehensive_tester.test_specific_operational_prediction("xgb", "per_basin_normalization")
     
     def test_xgb_operational_prediction_long_term_mean_scaling(comprehensive_tester):
         """Test XGBoost operational prediction with long-term mean scaling."""
-        assert comprehensive_tester.test_operational_prediction("xgb", "long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_operational_prediction("xgb", "long_term_mean_scaling")
     
     def test_lgbm_operational_prediction_no_normalization(comprehensive_tester):
         """Test LightGBM operational prediction with no normalization."""
-        assert comprehensive_tester.test_operational_prediction("lgbm", "no_normalization")
+        assert comprehensive_tester.test_specific_operational_prediction("lgbm", "no_normalization")
     
     def test_lgbm_operational_prediction_global_normalization(comprehensive_tester):
         """Test LightGBM operational prediction with global normalization."""
-        assert comprehensive_tester.test_operational_prediction("lgbm", "global_normalization")
+        assert comprehensive_tester.test_specific_operational_prediction("lgbm", "global_normalization")
     
     def test_lgbm_operational_prediction_per_basin_normalization(comprehensive_tester):
         """Test LightGBM operational prediction with per-basin normalization."""
-        assert comprehensive_tester.test_operational_prediction("lgbm", "per_basin_normalization")
+        assert comprehensive_tester.test_specific_operational_prediction("lgbm", "per_basin_normalization")
     
     def test_lgbm_operational_prediction_long_term_mean_scaling(comprehensive_tester):
         """Test LightGBM operational prediction with long-term mean scaling."""
-        assert comprehensive_tester.test_operational_prediction("lgbm", "long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_operational_prediction("lgbm", "long_term_mean_scaling")
     
     def test_catboost_operational_prediction_no_normalization(comprehensive_tester):
         """Test CatBoost operational prediction with no normalization."""
-        assert comprehensive_tester.test_operational_prediction("catboost", "no_normalization")
+        assert comprehensive_tester.test_specific_operational_prediction("catboost", "no_normalization")
     
     def test_catboost_operational_prediction_global_normalization(comprehensive_tester):
         """Test CatBoost operational prediction with global normalization."""
-        assert comprehensive_tester.test_operational_prediction("catboost", "global_normalization")
+        assert comprehensive_tester.test_specific_operational_prediction("catboost", "global_normalization")
     
     def test_catboost_operational_prediction_per_basin_normalization(comprehensive_tester):
         """Test CatBoost operational prediction with per-basin normalization."""
-        assert comprehensive_tester.test_operational_prediction("catboost", "per_basin_normalization")
+        assert comprehensive_tester.test_specific_operational_prediction("catboost", "per_basin_normalization")
     
     def test_catboost_operational_prediction_long_term_mean_scaling(comprehensive_tester):
         """Test CatBoost operational prediction with long-term mean scaling."""
-        assert comprehensive_tester.test_operational_prediction("catboost", "long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_operational_prediction("catboost", "long_term_mean_scaling")
     
     # Phase 2: Complete Workflow Tests (12 functions)
     def test_xgb_complete_workflow_no_normalization(comprehensive_tester):
         """Test XGBoost complete workflow with no normalization."""
-        assert comprehensive_tester.test_complete_workflow("xgb", "no_normalization")
+        assert comprehensive_tester.test_specific_complete_workflow("xgb", "no_normalization")
     
     def test_xgb_complete_workflow_global_normalization(comprehensive_tester):
         """Test XGBoost complete workflow with global normalization."""
-        assert comprehensive_tester.test_complete_workflow("xgb", "global_normalization")
+        assert comprehensive_tester.test_specific_complete_workflow("xgb", "global_normalization")
     
     def test_xgb_complete_workflow_per_basin_normalization(comprehensive_tester):
         """Test XGBoost complete workflow with per-basin normalization."""
-        assert comprehensive_tester.test_complete_workflow("xgb", "per_basin_normalization")
+        assert comprehensive_tester.test_specific_complete_workflow("xgb", "per_basin_normalization")
     
     def test_xgb_complete_workflow_long_term_mean_scaling(comprehensive_tester):
         """Test XGBoost complete workflow with long-term mean scaling."""
-        assert comprehensive_tester.test_complete_workflow("xgb", "long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_complete_workflow("xgb", "long_term_mean_scaling")
     
     def test_lgbm_complete_workflow_no_normalization(comprehensive_tester):
         """Test LightGBM complete workflow with no normalization."""
-        assert comprehensive_tester.test_complete_workflow("lgbm", "no_normalization")
+        assert comprehensive_tester.test_specific_complete_workflow("lgbm", "no_normalization")
     
     def test_lgbm_complete_workflow_global_normalization(comprehensive_tester):
         """Test LightGBM complete workflow with global normalization."""
-        assert comprehensive_tester.test_complete_workflow("lgbm", "global_normalization")
+        assert comprehensive_tester.test_specific_complete_workflow("lgbm", "global_normalization")
     
     def test_lgbm_complete_workflow_per_basin_normalization(comprehensive_tester):
         """Test LightGBM complete workflow with per-basin normalization."""
-        assert comprehensive_tester.test_complete_workflow("lgbm", "per_basin_normalization")
+        assert comprehensive_tester.test_specific_complete_workflow("lgbm", "per_basin_normalization")
     
     def test_lgbm_complete_workflow_long_term_mean_scaling(comprehensive_tester):
         """Test LightGBM complete workflow with long-term mean scaling."""
-        assert comprehensive_tester.test_complete_workflow("lgbm", "long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_complete_workflow("lgbm", "long_term_mean_scaling")
     
     def test_catboost_complete_workflow_no_normalization(comprehensive_tester):
         """Test CatBoost complete workflow with no normalization."""
-        assert comprehensive_tester.test_complete_workflow("catboost", "no_normalization")
+        assert comprehensive_tester.test_specific_complete_workflow("catboost", "no_normalization")
     
     def test_catboost_complete_workflow_global_normalization(comprehensive_tester):
         """Test CatBoost complete workflow with global normalization."""
-        assert comprehensive_tester.test_complete_workflow("catboost", "global_normalization")
+        assert comprehensive_tester.test_specific_complete_workflow("catboost", "global_normalization")
     
     def test_catboost_complete_workflow_per_basin_normalization(comprehensive_tester):
         """Test CatBoost complete workflow with per-basin normalization."""
-        assert comprehensive_tester.test_complete_workflow("catboost", "per_basin_normalization")
+        assert comprehensive_tester.test_specific_complete_workflow("catboost", "per_basin_normalization")
     
     def test_catboost_complete_workflow_long_term_mean_scaling(comprehensive_tester):
         """Test CatBoost complete workflow with long-term mean scaling."""
-        assert comprehensive_tester.test_complete_workflow("catboost", "long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_complete_workflow("catboost", "long_term_mean_scaling")
     
     # Phase 3: Cross-Model Integration Tests (4 functions)
     def test_multi_model_ensemble_no_normalization(comprehensive_tester):
         """Test multi-model ensemble with no normalization."""
-        assert comprehensive_tester.test_multi_model_ensemble("no_normalization")
+        assert comprehensive_tester.test_specific_multi_model_ensemble("no_normalization")
     
     def test_multi_model_ensemble_global_normalization(comprehensive_tester):
         """Test multi-model ensemble with global normalization."""
-        assert comprehensive_tester.test_multi_model_ensemble("global_normalization")
+        assert comprehensive_tester.test_specific_multi_model_ensemble("global_normalization")
     
     def test_multi_model_ensemble_per_basin_normalization(comprehensive_tester):
         """Test multi-model ensemble with per-basin normalization."""
-        assert comprehensive_tester.test_multi_model_ensemble("per_basin_normalization")
+        assert comprehensive_tester.test_specific_multi_model_ensemble("per_basin_normalization")
     
     def test_multi_model_ensemble_long_term_mean_scaling(comprehensive_tester):
         """Test multi-model ensemble with long-term mean scaling."""
-        assert comprehensive_tester.test_multi_model_ensemble("long_term_mean_scaling")
+        assert comprehensive_tester.test_specific_multi_model_ensemble("long_term_mean_scaling")
     
     # Comprehensive test runner
     def test_run_all_comprehensive_tests(comprehensive_tester):
