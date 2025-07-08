@@ -179,7 +179,7 @@ class SciRegressor(BaseForecastModel):
         extractor = FE.StreamflowFeatureExtractor(
             feature_configs=self.feature_config,
             prediction_horizon=self.general_config['prediction_horizon'],
-            offset=self.general_config.get('offset', 0),
+            offset=self.general_config.get('offset', self.general_config['prediction_horizon']),
         )
 
         self.data = extractor.create_all_features(self.data)
@@ -216,12 +216,18 @@ class SciRegressor(BaseForecastModel):
         pred_cols = []
         for path in path_list:
             model_name = os.path.basename(os.path.dirname(path))
+            #check if path ends with .csv
+            if not path.endswith('.csv'):
+                #add the prediction.csv to the path
+                path = os.path.join(path, 'predictions.csv')
+            
             df = pd.read_csv(path)
             
             df['date'] = pd.to_datetime(df['date'])
             df['code'] = df['code'].astype(int)
 
-            pred_col = f"{model_name}"
+            pred_col = f"Q_{model_name}"
+            
             #check if pred_col exists in df
             if pred_col not in df.columns:
                 logger.warning(f"Prediction column '{pred_col}' not found in {model_name}. Skipping this model.")
@@ -241,6 +247,11 @@ class SciRegressor(BaseForecastModel):
                     how='inner'
                 )
             
+
+        for code in all_predictions['code'].unique():
+            area = self.static_data[self.static_data['code'] == code]['area_km2'].values[0]
+            all_predictions.loc[all_predictions['code'] == code, pred_cols] = \
+                all_predictions.loc[all_predictions['code'] == code, pred_cols] * area / 86.4
         
         return all_predictions, pred_cols
 

@@ -69,7 +69,10 @@ def get_model(model_type: str, params: Dict[str, Any], cat_features: Optional[Li
             **p
         ),
         'svr': lambda p: SVR(**p),
-        'catboost': lambda p: CatBoostRegressor(**p, cat_features=cat_features or []),
+        'catboost': lambda p: CatBoostRegressor(
+            **p, cat_features=cat_features or [],
+            verbose=0,  # Suppress CatBoost output),
+        ),
         'rf': lambda p: RandomForestRegressor(**p),
         'gradient_boosting': lambda p: GradientBoostingRegressor(**p),
         'mlp': lambda p: MLPRegressor(**p),
@@ -312,7 +315,7 @@ def _objective_mlp(trial, X_train, y_train, X_val, y_val):
         'solver': trial.suggest_categorical('solver', ['adam', 'lbfgs']),
         'alpha': trial.suggest_float('alpha', 1e-5, 1e-1, log=True),
         'learning_rate': trial.suggest_categorical('learning_rate', ['constant', 'adaptive']),
-        'max_iter': trial.suggest_int('max_iter', 100, 2000),
+        'max_iter': trial.suggest_int('max_iter', 100, 1000),
         'random_state': 42
     }
     
