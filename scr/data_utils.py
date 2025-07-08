@@ -526,9 +526,17 @@ def apply_long_term_mean_scaling(df, long_term_mean, features):
     ltm = long_term_mean.copy()
     if isinstance(ltm.columns, pd.MultiIndex):
         # after agg(['mean']), cols look like (feature, 'mean')
-        ltm.columns = [
-            'code', 'month'
-        ] + [f'{feat}_mean' for feat in features]
+        # We need to flatten the MultiIndex properly
+        new_columns = []
+        for col in ltm.columns:
+            if col[1] == '':  # This is for 'code' and 'month' columns
+                new_columns.append(col[0])
+            elif col[1] == 'mean':  # This is for feature columns
+                new_columns.append(f'{col[0]}_mean')
+            else:
+                # Handle any other column structure
+                new_columns.append('_'.join(str(x) for x in col if x))
+        ltm.columns = new_columns
     else:
         # if you already ran grouped.mean(), you just need to rename
         rename_map = {

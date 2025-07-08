@@ -549,5 +549,116 @@ class TestLongTermMeanFunctions:
         assert result_na_count <= original_na_count
 
 
+class TestLongTermMeanScaling:
+    """Test long-term mean scaling functions."""
+    
+    def test_apply_long_term_mean_scaling_column_mismatch_issue(self):
+        """Test that reproduces the exact issue described in GitHub issue #8."""
+        # Create test data that mimics the scenario where we have 42 columns but 35 expected
+        # This happens when the DataFrame has extra columns that aren't in the features list
+        np.random.seed(42)
+        
+        # Create features list with 33 features (as mentioned in the issue)
+        features = [f'feature_{i}' for i in range(33)]
+        
+        # Create test DataFrame with additional columns that would be in the real data
+        df = pd.DataFrame({
+            'code': [1, 1, 2, 2] * 10,
+            'date': pd.date_range('2020-01-01', periods=40, freq='D'),
+            **{feat: np.random.randn(40) for feat in features}
+        })
+        
+        # Create long-term mean using get_long_term_mean_per_basin
+        long_term_mean = du.get_long_term_mean_per_basin(df, features)
+        
+        # Now modify the long_term_mean to have extra columns that would cause the mismatch
+        # Add 7 extra columns to make it 42 total (35 expected + 7 extra)
+        extra_columns = [f'extra_{i}' for i in range(7)]
+        for col in extra_columns:
+            long_term_mean[(col, 'mean')] = np.random.randn(len(long_term_mean))
+        
+        # Debug: print the structure to understand the issue
+        print(f"long_term_mean columns: {long_term_mean.columns}")
+        print(f"long_term_mean shape: {long_term_mean.shape}")
+        print(f"Expected columns: {['code', 'month'] + [f'{feat}_mean' for feat in features]}")
+        print(f"Expected column count: {len(['code', 'month'] + [f'{feat}_mean' for feat in features])}")
+        
+        # This should now work without raising a ValueError after the fix
+        result = du.apply_long_term_mean_scaling(df, long_term_mean, features)
+        
+        # Check that result is a DataFrame
+        assert isinstance(result, pd.DataFrame)
+        
+        # Check that all original features are present
+        for feat in features:
+            assert feat in result.columns
+            
+        # Check that the function handled the extra columns gracefully
+        print("Test passed - the issue is fixed!")
+    
+    def test_apply_long_term_mean_scaling_multiindex_columns(self):
+        """Test that apply_long_term_mean_scaling handles MultiIndex columns correctly."""
+        # Create test data with realistic feature count (33 features)
+        np.random.seed(42)
+        features = [f'feature_{i}' for i in range(33)]
+        
+        # Create test DataFrame
+        df = pd.DataFrame({
+            'code': [1, 1, 2, 2] * 10,
+            'date': pd.date_range('2020-01-01', periods=40, freq='D'),
+            **{feat: np.random.randn(40) for feat in features}
+        })
+        
+        # Create long-term mean using get_long_term_mean_per_basin
+        long_term_mean = du.get_long_term_mean_per_basin(df, features)
+        
+        # This should not raise a ValueError
+        result = du.apply_long_term_mean_scaling(df, long_term_mean, features)
+        
+        # Check that result is a DataFrame
+        assert isinstance(result, pd.DataFrame)
+        
+        # Check that all features are present
+        for feat in features:
+            assert feat in result.columns
+            
+        # Check that scaling was applied (values should be different from original)
+        for feat in features:
+            # At least some values should be different (unless all long-term means are 1)
+            assert not np.allclose(df[feat].values, result[feat].values, equal_nan=True)
+    
+    def test_apply_long_term_mean_scaling_regular_columns(self):
+        """Test that apply_long_term_mean_scaling handles regular columns correctly."""
+        # Create test data with a few features
+        features = ['feature_1', 'feature_2', 'feature_3']
+        
+        df = pd.DataFrame({
+            'code': [1, 1, 2, 2] * 5,
+            'date': pd.date_range('2020-01-01', periods=20, freq='D'),
+            'feature_1': np.random.randn(20),
+            'feature_2': np.random.randn(20),
+            'feature_3': np.random.randn(20)
+        })
+        
+        # Create long-term mean with regular columns (not MultiIndex)
+        long_term_mean = pd.DataFrame({
+            'code': [1, 2],
+            'month': [1, 1],
+            'feature_1': [1.0, 2.0],
+            'feature_2': [1.5, 2.5],
+            'feature_3': [2.0, 3.0]
+        })
+        
+        # This should not raise a ValueError
+        result = du.apply_long_term_mean_scaling(df, long_term_mean, features)
+        
+        # Check that result is a DataFrame
+        assert isinstance(result, pd.DataFrame)
+        
+        # Check that all features are present
+        for feat in features:
+            assert feat in result.columns
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
