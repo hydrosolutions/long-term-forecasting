@@ -94,11 +94,13 @@ def glacier_mapper_features(
 
 
     for code in df['code'].unique():
+
         area = static.loc[static['code'] == code, 'area_km2'].values[0]
         gl_fr = static.loc[static['code'] == code, 'gl_fr'].values[0]
         glacier_area = area * gl_fr
         h_min = static.loc[static['code'] == code, 'h_min'].values[0]
         h_max = static.loc[static['code'] == code, 'h_max'].values[0]
+        
         df.loc[df['code'] == code, 'gla_area_below_sl50'] /= glacier_area
         df.loc[df['code'] == code, 'gla_area_below_sl50'] *= 100
         df.loc[df['code'] == code, 'gla_fsc_total'] *= 100
@@ -225,44 +227,109 @@ def calculate_percentile_snow_bands(hydro_df, elevation_band_df, num_bands=3, co
     
     return hydro_df
 
+def get_normalization_params(df_train, features, target):
+    """
+    Calculate normalization parameters (mean and std) from training data.
+    
+    Parameters:
+    -----------
+    df_train : pd.DataFrame
+        Training dataframe
+    features : list
+        List of feature columns to normalize
+    target : str
+        Target column to normalize
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing mean and std for each column
+    """
+    scaler = {}
+    cols_to_normalize = features + [target]
+    
+    for col in cols_to_normalize:
+        mean_ = df_train[col].astype(float).mean()
+        std_ = df_train[col].astype(float).std()
+        std_ = 1 if std_ == 0 else std_  # Avoid division by zero
+        scaler[col] = (mean_, std_)
+    
+    return scaler
+
+def apply_normalization(df, scaler, features):
+    """
+    Apply normalization using pre-computed parameters.
+    
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        Dataframe to normalize
+    scaler : dict
+        Dictionary containing (mean, std) for each column
+    features : list
+        List of feature columns to normalize
+        
+    Returns:
+    --------
+    pd.DataFrame
+        Normalized dataframe
+    """
+    df = df.copy()
+    
+    for col in features:
+        if col in scaler:
+            df[col] = df[col].astype(float)
+            mean_, std_ = scaler[col]
+            df[col] = (df[col] - mean_) / std_
+    
+    return df
 
 def normalize_features(df_train, df_test, features, target):
     """
     Normalize features and target using mean and standard deviation from training data.
     """
-    df_train = df_train.copy()
-    df_test = df_test.copy()
+    # Get normalization parameters from training data
+    scaler = get_normalization_params(df_train, features, target)
     
-    scaler = {}
-    # Pre-convert columns to float to avoid dtype warnings
+    # Apply normalization to both datasets
     cols_to_normalize = features + [target]
-    for col in cols_to_normalize:
-        df_train[col] = df_train[col].astype(float)
-        df_test[col] = df_test[col].astype(float)
+    df_train_normalized = apply_normalization(df_train, scaler, cols_to_normalize)
+    df_test_normalized = apply_normalization(df_test, scaler, cols_to_normalize)
+    
+    return df_train_normalized, df_test_normalized, scaler
+
+def inverse_normalization(df : pd.DataFrame, 
+                          scaler : dict, 
+                          var_to_scale : str, 
+                          var_used_for_scaling : str):
+    df = df.copy()
+    if var_to_scale in df.columns and var_used_for_scaling in df.columns:
+        df[var_to_scale] = df[var_to_scale].astype(float)
+        mean_val, std_val = scaler[var_used_for_scaling]
+        df[var_to_scale] = df[var_to_scale] * std_val + mean_val
+
+    return df
+
+
+def get_normalization_params_per_basin(df_train, features, target):
+    """
+    Calculate normalization parameters per basin from training data.
+    
+    Parameters:
+    -----------
+    df_train : pd.DataFrame
+        Training dataframe with 'code' column for basin identification
+    features : list
+        List of feature columns to normalize
+    target : str
+        Target column to normalize
         
-        mean_ = df_train[col].mean()
-        std_ = df_train[col].std()
-        std_ = 1 if std_ == 0 else std_
-        scaler[col] = (mean_, std_)
-
-        df_train[col] = (df_train[col] - mean_) / std_
-        df_test[col] = (df_test[col] - mean_) / std_
-    
-    return df_train, df_test, scaler
-
-def normalize_features_per_basin(df_train, df_test, features, target):
+    Returns:
+    --------
+    dict
+        Nested dictionary: {basin_code: {column: (mean, std)}}
     """
-    Fast normalization of features and target per basin using vectorized operations.
-    """
-    
-    df_train = df_train.copy()
-    df_test = df_test.copy()
-    
-    # Pre-convert columns to float to avoid dtype warnings
     cols_to_normalize = features + [target]
-    for col in cols_to_normalize:
-        df_train[col] = df_train[col].astype(float)
-        df_test[col] = df_test[col].astype(float)
     
     # Pre-compute statistics for all basins at once
     basin_stats = df_train.groupby('code')[cols_to_normalize].agg(['mean', 'std'])
@@ -271,37 +338,80 @@ def normalize_features_per_basin(df_train, df_test, features, target):
     basin_stats.loc[:, (slice(None), 'std')] = basin_stats.loc[:, (slice(None), 'std')].replace(0, 1)
     
     # Initialize scaler dictionary
-    scaler = {code: {} for code in df_train.code.unique()}
+    scaler = {}
     
-    # Faster implementation using vectorized operations
     for code in df_train.code.unique():
-        # Get masks for this basin
-        train_mask = df_train['code'] == code
-        test_mask = df_test['code'] == code
-        
-        # Get all statistics for this basin
-        means = basin_stats.loc[code, (slice(None), 'mean')].values
-        stds = basin_stats.loc[code, (slice(None), 'std')].values
-        
-        # Store in scaler dictionary
-        for i, col in enumerate(cols_to_normalize):
-            scaler[code][col] = (means[i], stds[i])
-        
-        # Apply normalization to all columns at once for training data
-        for i, col in enumerate(cols_to_normalize):
-            mean_val = means[i]
-            std_val = stds[i]
-            df_train.loc[train_mask, col] = (df_train.loc[train_mask, col] - mean_val) / std_val
-        
-        # Apply normalization to all columns at once for test data
-        for i, col in enumerate(cols_to_normalize):
-            mean_val = means[i]
-            std_val = stds[i]
-            if test_mask.any():  # Check if test set has this basin
-                df_test.loc[test_mask, col] = (df_test.loc[test_mask, col] - mean_val) / std_val
+        scaler[code] = {}
+        for col in cols_to_normalize:
+            mean_val = basin_stats.loc[code, (col, 'mean')]
+            std_val = basin_stats.loc[code, (col, 'std')]
+            scaler[code][col] = (mean_val, std_val)
     
-    return df_train, df_test, scaler
+    return scaler
 
+def apply_normalization_per_basin(df, scaler, features):
+    """
+    Apply per-basin normalization using pre-computed parameters.
+    
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        Dataframe to normalize with 'code' column for basin identification
+    scaler : dict
+        Nested dictionary: {basin_code: {column: (mean, std)}}
+    features : list
+        List of feature columns to normalize
+        
+    Returns:
+    --------
+    pd.DataFrame
+        Normalized dataframe
+    """
+    df = df.copy()
+    
+    for code in df.code.unique():
+        if code in scaler:
+            basin_mask = df['code'] == code
+            
+            for col in features:
+                if col in scaler[code]:
+                    df.loc[basin_mask, col] = df.loc[basin_mask, col].astype(float)
+                    mean_val, std_val = scaler[code][col]
+                    df.loc[basin_mask, col] = (df.loc[basin_mask, col] - mean_val) / std_val
+    
+    return df
+
+def apply_inverse_normalization_per_basin(df : pd.DataFrame, 
+                                          scaler : dict, 
+                                          col_to_scale : str, 
+                                          var_used_for_scaling : str):
+    
+    df = df.copy()
+
+    for code in df.code.unique():
+        if code in scaler:
+            basin_mask = df['code'] == code
+
+            if col_to_scale in df.columns and var_used_for_scaling in df.columns:
+                df.loc[basin_mask, col_to_scale] = df.loc[basin_mask, col_to_scale].astype(float)
+                mean_val, std_val = scaler[code][var_used_for_scaling]
+                df.loc[basin_mask, col_to_scale] = (df.loc[basin_mask, col_to_scale] - mean_val) / std_val
+
+    return df
+
+def normalize_features_per_basin(df_train, df_test, features, target):
+    """
+    Fast normalization of features and target per basin using vectorized operations.
+    """
+    # Get normalization parameters from training data
+    scaler = get_normalization_params_per_basin(df_train, features, target)
+    
+    # Apply normalization to both datasets
+    cols_to_normalize = features + [target]
+    df_train_normalized = apply_normalization_per_basin(df_train, scaler, cols_to_normalize)
+    df_test_normalized = apply_normalization_per_basin(df_test, scaler, cols_to_normalize)
+    
+    return df_train_normalized, df_test_normalized, scaler
 
 
 def get_long_term_mean_per_basin(df, features):
@@ -363,6 +473,119 @@ def apply_long_term_mean(df, long_term_mean, features):
     drop_cols = [f'{feat}_mean' for feat in features]
     
     return df.drop(columns=drop_cols)
+
+
+def apply_long_term_mean_scaling(df, long_term_mean, features):
+    """
+    Apply long-term mean to the DataFrame in a vectorized way:
+      - merge on basin code and month
+      - scale the features by deviding by the corresponding long-term mean
+    """
+    df = df.copy()
+    df['month'] = df['date'].dt.month  # ensure month col exists
+
+    # --- 1) flatten multi-index columns if needed ---
+    ltm = long_term_mean.copy()
+    if isinstance(ltm.columns, pd.MultiIndex):
+        # after agg(['mean']), cols look like (feature, 'mean')
+        ltm.columns = [
+            'code', 'month'
+        ] + [f'{feat}_mean' for feat in features]
+    else:
+        # if you already ran grouped.mean(), you just need to rename
+        rename_map = {
+            feat: f'{feat}_mean' for feat in features
+        }
+        ltm = ltm.rename(columns=rename_map)
+
+    # --- 2) merge the long-term means back onto the original ---
+    df = df.merge(ltm, on=['code', 'month'], how='left')
+
+    # --- 3) fill in missing values from the long-term mean ---
+    for feat in features:
+        mean_col = f'{feat}_mean'
+        long_term_mean = df[mean_col]
+        # replace 0 with 1 to avoid division by zero
+        long_term_mean = long_term_mean.replace(0, 1)
+        # Check if we have duplicate columns that cause df[mean_col] to return a DataFrame
+        if isinstance(long_term_mean, pd.DataFrame):
+            # Use the first occurrence of the column
+            df[feat] = df[feat] / long_term_mean.iloc[:, 0]
+        else:
+            # Normal case - mean_col is a Series
+            df[feat] = df[feat] / long_term_mean
+
+    # --- 4) drop helper columns and return ---
+    drop_cols = [f'{feat}_mean' for feat in features]
+    
+    return df.drop(columns=drop_cols)
+
+
+def apply_inverse_long_term_mean_scaling(df : pd.DataFrame, 
+                                         long_term_mean : pd.DataFrame, 
+                                         var_to_scale : str, 
+                                         var_used_for_scaling : list):
+    """
+    Inverse long-term mean scaling: multiply the features by the corresponding long-term mean.
+    
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        DataFrame with features to inverse scale
+    long_term_mean : pd.DataFrame
+        DataFrame with long-term means for each feature per basin and month
+    features : list
+        List of feature columns to inverse scale
+        
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with features inverse scaled
+    """
+    df = df.copy()
+    df['month'] = df['date'].dt.month  # ensure month col exists
+
+    # check if var_used_for_scaling is a single string or a list
+    if isinstance(var_used_for_scaling, str):
+        var_used_for_scaling = [var_used_for_scaling]
+
+    # --- 1) flatten multi-index columns if needed ---
+    ltm = long_term_mean.copy()
+    if isinstance(ltm.columns, pd.MultiIndex):
+        ltm.columns = [
+            'code', 'month'
+        ] + [f'{feat}_mean' for feat in var_used_for_scaling]
+    else:
+        rename_map = {
+            feat: f'{feat}_mean' for feat in var_used_for_scaling
+        }
+        ltm = ltm.rename(columns=rename_map)
+
+    # --- 2) merge the long-term means back onto the original ---
+    df = df.merge(ltm, on=['code', 'month'], how='left')
+
+    # --- 3) multiply the features by the long-term mean ---
+    for feat in var_used_for_scaling:
+        mean_col = f'{feat}_mean'
+        long_term_mean = df[mean_col]
+        # replace 0 with 1 to avoid division by zero
+        long_term_mean = long_term_mean.replace(0, 1)
+        # Check if we have duplicate columns that cause df[mean_col] to return a DataFrame
+        if isinstance(long_term_mean, pd.DataFrame):
+            # Use the first occurrence of the column
+            df[var_to_scale] = df[feat] * long_term_mean.iloc[:, 0]
+        else:
+            # Normal case - mean_col is a Series
+            df[var_to_scale] = df[feat] * long_term_mean
+
+    # --- 4) drop helper columns and return ---
+    drop_cols = [f'{feat}_mean' for feat in var_used_for_scaling]
+    
+    return df.drop(columns=drop_cols)
+
+    
+
+
 
 def calculate_elevation_band_areas(gdf_path):
     """
@@ -462,31 +685,6 @@ def create_lag_features(df, features, lags):
                 df.loc[mask, f'{feature}_lag_{lag}'] = df.loc[mask, feature].shift(lag)
 
     return df
-
-
-def create_fourier_features(
-    df_train : pd.DataFrame,
-    df_test : pd.DataFrame,
-    features : list,
-    n_harmonics : int = 4,
-    fit_on_month : bool = True):
-
-    df_train = df_train.copy()
-    df_test = df_test.copy()
-
-    for code in df_train.code.unique():
-        mask_train = df_train.code == code
-        mask_test = df_test.code == code
-
-        for feature in features:
-            ff = FF.FourierFeatures(target_col = feature, n_harmonics=n_harmonics, fit_on_month=fit_on_month)
-            ff.fit(df_train[mask_train])
-            df_train.loc[mask_train, f'{feature}_fourier'] = ff.transform(df_train[mask_train])
-            df_train.loc[mask_train, f'{feature}_anomaly'] = ff.get_anomaly(df_train[mask_train])
-            df_test.loc[mask_test, f'{feature}_fourier'] = ff.transform(df_test[mask_test])
-            df_test.loc[mask_test, f'{feature}_anomaly'] = ff.get_anomaly(df_test[mask_test])
-
-    return df_train, df_test
 
 
 def agg_with_min_obs(x, func='mean', min_obs=15):

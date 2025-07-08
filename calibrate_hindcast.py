@@ -29,7 +29,7 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 # Import forecast models
-from forecast_models.Linear_Regression import LinearRegressionModel
+from forecast_models.LINEAR_REGRESSION import LinearRegressionModel
 from forecast_models.SciRegressor import SciRegressor
 from scr import data_loading as dl
 from eval_scr import eval_helper, metric_functions

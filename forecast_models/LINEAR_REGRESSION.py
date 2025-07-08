@@ -216,9 +216,15 @@ class LinearRegressionModel(BaseForecastModel):
         today = datetime.datetime.now()
         today_day = today.day
         today_month = today.month
-        is_last_day_of_month = today_day == today_month.days_in_month
+
+        is_last_day_of_month = today.day == pd.Timestamp(today).days_in_month
+
         period_suffix = "_end" if is_last_day_of_month else str(today_day)
         period_name = f"{today_month}-{period_suffix}"
+
+        logger.debug(f"Predicting operational data for period: {period_name}")
+        logger.debug(f"Today's date: {today.strftime('%Y-%m-%d')}")
+        logger.debug(f"Latest date of data: {self.data['date'].max().strftime('%Y-%m-%d')}")
 
         self.__get_periods__()
 
@@ -247,6 +253,9 @@ class LinearRegressionModel(BaseForecastModel):
 
         codes_to_predict = operational_data['code'].unique()
         
+        # Convert today to pandas Timestamp for consistent comparison
+        today_pd = pd.Timestamp(today.date())
+
         for code in codes_to_predict:
             
             # Filter the data for the current code
@@ -256,11 +265,16 @@ class LinearRegressionModel(BaseForecastModel):
             features = self.get_highest_corr_features(code_data, 'target')
             logger.debug(f"Features for {code}: {features}")
 
-            calibration_data = code_data[code_data['date'].dt.normalize() < today].copy()
-            prediction_data = code_data[code_data['date'].dt.normalize() == today].copy()
-            
-            logger.debug(f"Prediction data for {code}: {len(prediction_data)}")
+            logger.debug(f"filtering data for code {code} with {len(code_data)} samples.")
+            logger.debug(f"Latest date of data for code {code}: {code_data['date'].max().strftime('%Y-%m-%d')}")
+            logger.debug(f"Today is {today_pd.strftime('%Y-%m-%d')}")
+            logger.debug(f"Type of date and today: {type(code_data['date'].max())}, {type(today_pd)}")
+            calibration_data = code_data[code_data['date'] < today_pd].copy()
+            prediction_data = code_data[code_data['date'] == today_pd].copy()
 
+            logger.debug(f"Length Prediction data for {code}: {len(prediction_data)}")
+            logger.debug(f"Length Calibration data for {code}: {len(calibration_data)}")
+            
             calibration_target_mean = calibration_data['target'].mean()
             if pd.isna(calibration_target_mean):
                 calibration_target_mean = 0
@@ -272,10 +286,10 @@ class LinearRegressionModel(BaseForecastModel):
                 features=features,
                 target='target'
             )   
-            
+
             if predictions[0] is not np.nan:
-                predictions = np.clip(predictions, 0, None)  # Ensure predictions are non-negative
                 predictions = np.round(predictions, 2)  # Round to 2 decimal places
+                predictions = np.maximum(predictions, 0)  # Ensure non-negative predictions
 
                 logger.debug(f"Predictions for {code}: {predictions[0]} m3/s")
                 logger.debug(f"Prediction for {code} relative to long-term mean: {predictions[0] / calibration_target_mean}")
@@ -371,6 +385,10 @@ class LinearRegressionModel(BaseForecastModel):
                     continue
                 
             
+                # Get features for this code and period on the training data
+                   
+                features = self.get_highest_corr_features(code_period_df, 'target')
+                    
                 # Perform Leave-One-Year-Out CV on non-test years
                 for test_year in loocv_years:
                     # Training data: all years except current test year
@@ -391,9 +409,6 @@ class LinearRegressionModel(BaseForecastModel):
                         })
                         continue
 
-                    # Get features for this code and period on the training data
-                    features = self.get_highest_corr_features(train_data, 'target')
-                    
                     if not features:
                         failed_lr.append({
                             'code': code,
@@ -428,6 +443,7 @@ class LinearRegressionModel(BaseForecastModel):
                     
 
         logger.debug(f"Failed linear regression for {len(failed_lr)} cases: {failed_lr}")
+        
         
         # Convert to DataFrame
         if all_predictions:
