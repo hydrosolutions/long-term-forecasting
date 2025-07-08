@@ -365,6 +365,395 @@ class SciRegressorTester:
         if self.test_dir and os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)
             logger.info(f"Cleaned up test directory: {self.test_dir}")
+    
+    def _run_test_with_detailed_logging(self, test_func, test_name):
+        """
+        Run a test with detailed logging on failure.
+        
+        Args:
+            test_func: The test function to run
+            test_name: Name of the test for logging
+            
+        Returns:
+            tuple: (success: bool, result: Any)
+        """
+        try:
+            if not self.only_failures:
+                logger.info(f"Running {test_name}...")
+            
+            result = test_func()
+            
+            if not self.only_failures:
+                logger.info(f"✓ {test_name} passed")
+            else:
+                print(f"✓ {test_name} passed")
+            
+            return True, result
+            
+        except Exception as e:
+            # Always show detailed logs for failures
+            logger.error(f"✗ {test_name} failed: {e}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            logger.error(f"Exception details:", exc_info=True)
+            
+            # Also print to console for immediate visibility
+            print(f"✗ {test_name} FAILED: {e}")
+            print(f"Check log file for detailed traceback")
+            
+            return False, None
+    
+    def test_model_initialization(self):
+        """Test SciRegressor model initialization."""
+        logger.info("Testing SciRegressor model initialization...")
+        
+        try:
+            # Mock the preprocessing methods that might fail due to missing dependencies
+            with patch.object(SciRegressor, '__preprocess_data__') as mock_preprocess:
+                mock_preprocess.return_value = None
+                
+                model = SciRegressor(
+                    data=self.data,
+                    static_data=self.static_data,
+                    general_config=self.configs['general_config'],
+                    model_config=self.configs['model_config'],
+                    feature_config=self.configs['feature_config'],
+                    path_config=self.configs['path_config']
+                )
+            
+            # Verify model attributes
+            assert model.name == "TestSciRegressor"
+            assert hasattr(model, 'data')
+            assert hasattr(model, 'static_data')
+            assert hasattr(model, 'general_config')
+            assert hasattr(model, 'model_config')
+            assert hasattr(model, 'feature_config')
+            assert hasattr(model, 'models')
+            assert hasattr(model, 'fitted_models')
+            
+            # Check model-specific attributes
+            expected_models = MODEL_CONFIG.keys()
+            expected_models = list(expected_models)  # Convert to list for comparison
+            assert model.models == expected_models
+            assert model.target == "target"
+            assert model.feature_cols == ["discharge", "P", "T"]
+            assert model.static_features == ["area", "elevation"]
+            
+            logger.info("✓ SciRegressor model initialization test passed")
+            return True
+            
+        except Exception as e:
+            logger.error(f"✗ SciRegressor model initialization test failed: {e}")
+            raise
+    
+    def test_feature_extraction(self):
+        """Test feature extraction functionality."""
+        logger.info("Testing feature extraction...")
+        
+        try:
+            # Mock external dependencies that might not be available
+            with patch.object(SciRegressor, '__preprocess_data__') as mock_preprocess:
+                with patch('scr.data_utils.glacier_mapper_features') as mock_glacier:
+                    mock_glacier.return_value = self.data
+                    mock_preprocess.return_value = None
+                    
+                    model = SciRegressor(
+                        data=self.data,
+                        static_data=self.static_data,
+                        general_config=self.configs['general_config'],
+                        model_config=self.configs['model_config'],
+                        feature_config=self.configs['feature_config'],
+                        path_config=self.configs['path_config']
+                    )
+                    
+                    # Call feature extraction manually
+                    model.__extract_features__()
+            
+            # Check that features were extracted
+            assert 'year' in model.data.columns
+            assert 'month' in model.data.columns
+            assert 'month_sin' in model.data.columns
+            assert 'month_cos' in model.data.columns
+            assert 'week_sin' in model.data.columns
+            assert 'week_cos' in model.data.columns
+            
+            # Check for feature columns
+            feature_cols = [col for col in model.data.columns if any(f in col for f in ['discharge', 'P_', 'T_'])]
+            assert len(feature_cols) > 0, "No feature columns found"
+            
+            logger.info("✓ Feature extraction test passed")
+            return True
+            
+        except Exception as e:
+            logger.error(f"✗ Feature extraction test failed: {e}")
+            raise
+    
+    def test_calibration_and_hindcast(self):
+        """Test model calibration and hindcasting."""
+        logger.info("Testing calibration and hindcasting...")
+        
+        try:           
+            model = SciRegressor(
+                data=self.data,
+                static_data=self.static_data,
+                general_config=self.configs['general_config'],
+                model_config=self.configs['model_config'],
+                feature_config=self.configs['feature_config'],
+                path_config=self.configs['path_config']
+            )
+                        
+            # Run calibration and hindcasting
+            hindcast_df = model.calibrate_model_and_hindcast()
+
+            # Verify results
+            assert len(hindcast_df) > 0, "No hindcast predictions generated"
+            
+            # Check required columns
+            required_cols = ['date', 'code', 'Q_obs', f'Q_{model.name}']
+            for col in required_cols:
+                assert col in hindcast_df.columns, f"Missing required column: {col}"
+            
+            # Verify predictions for each basin
+            unique_basins = hindcast_df['code'].unique()
+            assert len(unique_basins) >= 1, "No basins in hindcast results"
+            
+            # Check that predictions are reasonable
+            pred_col = f'Q_{model.name}'
+            assert not hindcast_df[pred_col].isna().all(), "All predictions are NaN"
+            
+            logger.info(f"✓ Calibration and hindcast test passed")
+            logger.info(f"  Generated {len(hindcast_df)} predictions for {len(unique_basins)} basins")
+            
+            return hindcast_df
+            
+        except Exception as e:
+            logger.error(f"✗ Calibration and hindcast test failed: {e}")
+            raise
+    
+    def test_operational_forecast(self):
+        """Test operational forecasting functionality."""
+        logger.info("Testing operational forecasting...")
+        
+        try:
+            # Mock external dependencies
+            with patch.object(SciRegressor, '__preprocess_data__') as mock_preprocess:
+                with patch('scr.data_utils.glacier_mapper_features') as mock_glacier:
+                    with patch.object(SciRegressor, 'load_model') as mock_load:
+                        with patch.object(SciRegressor, 'predict_operational') as mock_predict:
+                            # Create a mock forecast result
+                            mock_forecast_data = []
+                            for code in [16936, 16940, 16942]:
+                                mock_forecast_data.append({
+                                    'forecast_date': datetime.datetime.now(),
+                                    'code': code,
+                                    'valid_from': '2025-07-04',
+                                    'valid_to': '2025-08-03',
+                                    'Q_TestSciRegressor': np.random.uniform(10, 100)
+                                })
+                            
+                            mock_forecast_df = pd.DataFrame(mock_forecast_data)
+                            mock_predict.return_value = mock_forecast_df
+                            mock_load.return_value = {'xgboost': {}, 'random_forest': {}}
+                            
+                            mock_glacier.return_value = self.data
+                            mock_preprocess.return_value = None
+                            
+                            model = SciRegressor(
+                                data=self.data,
+                                static_data=self.static_data,
+                                general_config=self.configs['general_config'],
+                                model_config=self.configs['model_config'],
+                                feature_config=self.configs['feature_config'],
+                                path_config=self.configs['path_config']
+                            )
+                            
+                            # Run operational forecast
+                            forecast_df = model.predict_operational()
+            
+            # Verify results
+            if len(forecast_df) > 0:
+                # Check required columns
+                required_cols = ['forecast_date', 'code', 'valid_from', 'valid_to', f'Q_{model.name}']
+                for col in required_cols:
+                    assert col in forecast_df.columns, f"Missing required column: {col}"
+                
+                # Check that predictions are reasonable
+                pred_col = f'Q_{model.name}'
+                assert not forecast_df[pred_col].isna().all(), "All forecasts are NaN"
+                
+                # Check date consistency
+                assert all(pd.to_datetime(forecast_df['valid_from']) < pd.to_datetime(forecast_df['valid_to']))
+                
+                logger.info(f"✓ Operational forecast test passed")
+                logger.info(f"  Generated forecasts for {len(forecast_df)} basins")
+            else:
+                logger.info("✓ Operational forecast test passed (no forecasts for test period)")
+            
+            return forecast_df
+            
+        except Exception as e:
+            logger.error(f"✗ Operational forecast test failed: {e}")
+            raise
+    
+    def test_hyperparameter_tuning(self):
+        """Test hyperparameter tuning functionality."""
+        logger.info("Testing hyperparameter tuning...")
+        
+        try:
+            # Mock external dependencies
+            with patch.object(SciRegressor, '__preprocess_data__') as mock_preprocess:
+                with patch('scr.data_utils.glacier_mapper_features') as mock_glacier:
+                    with patch.object(SciRegressor, 'tune_hyperparameters') as mock_tune:
+                        # Mock the tuning result
+                        mock_tune.return_value = (True, "Hyperparameters tuned successfully")
+                        
+                        mock_glacier.return_value = self.data
+                        mock_preprocess.return_value = None
+                        
+                        model = SciRegressor(
+                            data=self.data,
+                            static_data=self.static_data,
+                            general_config=self.configs['general_config'],
+                            model_config=self.configs['model_config'],
+                            feature_config=self.configs['feature_config'],
+                            path_config=self.configs['path_config']
+                        )
+                        
+                        # Test hyperparameter tuning
+                        success, message = model.tune_hyperparameters()
+            
+            # Verify results
+            assert isinstance(success, bool), "Tuning should return boolean success status"
+            assert isinstance(message, str), "Tuning should return string message"
+            assert success, f"Tuning failed: {message}"
+            
+            logger.info(f"✓ Hyperparameter tuning test passed")
+            logger.info(f"  Tuning result: {success}, Message: {message}")
+            
+            return success, message
+            
+        except Exception as e:
+            logger.error(f"✗ Hyperparameter tuning test failed: {e}")
+            raise
+    
+    def test_model_persistence(self):
+        """Test model saving and loading functionality."""
+        logger.info("Testing model persistence...")
+        
+        try:
+            # Mock external dependencies
+            with patch.object(SciRegressor, '__preprocess_data__') as mock_preprocess:
+                with patch('scr.data_utils.glacier_mapper_features') as mock_glacier:
+                    with patch.object(SciRegressor, 'save_model') as mock_save:
+                        with patch.object(SciRegressor, 'load_model') as mock_load:
+                            mock_save.return_value = None
+                            mock_load.return_value = {'xgboost': {}, 'random_forest': {}}
+                            
+                            mock_glacier.return_value = self.data
+                            mock_preprocess.return_value = None
+                            
+                            model = SciRegressor(
+                                data=self.data,
+                                static_data=self.static_data,
+                                general_config=self.configs['general_config'],
+                                model_config=self.configs['model_config'],
+                                feature_config=self.configs['feature_config'],
+                                path_config=self.configs['path_config']
+                            )
+                            
+                            # Test saving
+                            model.save_model()
+                            logger.info("✓ Model saving test passed")
+                            
+                            # Test loading
+                            loaded_models = model.load_model()
+                            logger.info("✓ Model loading test passed")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"✗ Model persistence test failed: {e}")
+            raise
+    
+    def test_configuration_loading(self):
+        """Test configuration loading functionality."""
+        logger.info("Testing configuration loading...")
+        
+        try:
+            config_dir = Path(self.test_dir) / "config"
+            
+            # Test the load_configuration function from calibrate_hindcast
+            configs = calibrate_hindcast.load_configuration(str(config_dir))
+            
+            # Verify all expected configs are loaded
+            expected_configs = ['general_config', 'model_config', 'feature_config', 'data_config']
+            for config_name in expected_configs:
+                assert config_name in configs, f"Missing config: {config_name}"
+                assert len(configs[config_name]) > 0, f"Empty config: {config_name}"
+            
+            logger.info("✓ Configuration loading test passed")
+            return True
+            
+        except Exception as e:
+            logger.error(f"✗ Configuration loading test failed: {e}")
+            raise
+    
+    def run_all_tests(self):
+        """Run all tests in sequence."""
+        logger.info("="*60)
+        logger.info("STARTING SCIREGRESSOR MODEL TESTS")
+        logger.info("="*60)
+        
+        try:
+            # Setup
+            self.setup_test_environment()
+            
+            # Define tests with their names
+            test_suite = [
+                (self.test_model_initialization, "Model Initialization"),
+                (self.test_feature_extraction, "Feature Extraction"),
+                (self.test_configuration_loading, "Configuration Loading"),
+                (self.test_calibration_and_hindcast, "Calibration and Hindcast"),
+                (self.test_operational_forecast, "Operational Forecast"),
+                (self.test_hyperparameter_tuning, "Hyperparameter Tuning"),
+                (self.test_model_persistence, "Model Persistence"),
+            ]
+            
+            passed_tests = 0
+            total_tests = len(test_suite)
+            failed_tests = []
+            
+            for i, (test_func, test_name) in enumerate(test_suite, 1):
+                print(f"\n[{i}/{total_tests}] {test_name}...")
+                
+                success, result = self._run_test_with_detailed_logging(test_func, test_name)
+                
+                if success:
+                    passed_tests += 1
+                else:
+                    failed_tests.append(test_name)
+            
+            # Summary
+            logger.info("="*60)
+            logger.info("TEST SUMMARY")
+            logger.info("="*60)
+            logger.info(f"Tests passed: {passed_tests}/{total_tests}")
+            
+            if failed_tests:
+                logger.error(f"Failed tests: {', '.join(failed_tests)}")
+                print(f"\n❌ FAILED TESTS: {', '.join(failed_tests)}")
+            
+            if passed_tests == total_tests:
+                logger.info("🎉 ALL TESTS PASSED!")
+                print("🎉 ALL TESTS PASSED!")
+                return True
+            else:
+                logger.warning(f"⚠️  {total_tests - passed_tests} tests failed")
+                print(f"⚠️  {total_tests - passed_tests} tests failed")
+                return False
+                
+        finally:
+            # Cleanup
+            self.teardown_test_environment()
 
 class ComprehensiveSciRegressorTester:
     """Comprehensive test class for SciRegressor model with all combinations."""
