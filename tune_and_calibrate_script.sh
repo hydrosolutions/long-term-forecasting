@@ -5,8 +5,8 @@
 set -e  # Exit on any error
 
 # Configuration
-CONFIG_DIR="../monthly_forecasting_models/BaseCase/ShortTerm_Features"  # Path to model configuration directory
-MODEL_NAME="ShortTerm_Features"  # Model name
+CONFIG_DIR="../monthly_forecasting_models/BaseCase/ShortTermLR"  # Path to model configuration directory
+MODEL_NAME="ShortTermLR"  # Model name
 INPUT_FAMILY="BaseCase"  # Input family for the model
 LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
 
@@ -85,9 +85,7 @@ run_hyperparameter_tuning() {
     print_step "Starting hyperparameter tuning..."
     print_status "Model: $MODEL_NAME"
     print_status "Configuration directory: $CONFIG_DIR"
-    print_status "Trials: $TRIALS"
-    print_status "Tuning years: $TUNING_YEARS"
-    
+
     # Check if tuning script exists
     TUNING_SCRIPT="tune_hyperparams.py"
     check_python_script "$TUNING_SCRIPT"

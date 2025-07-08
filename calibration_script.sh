@@ -6,9 +6,9 @@
 set -e  # Exit on any error
 
 # Configuration
-CONFIG_DIR="../monthly_forecasting_models/SCA_Based/LR_Q_SCA"
-MODEL_NAME="LR_Q_SCA"  # Model name
-INPUT_FAMILY="SCA_Based"
+CONFIG_DIR="../monthly_forecasting_models/BaseCase/LR_Q_T_P"
+MODEL_NAME="LR_Q_T_P"  # Model name
+INPUT_FAMILY="BaseCase"
 LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
 
 # Environment configuration - Choose one of the following:
