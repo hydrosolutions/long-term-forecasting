@@ -170,6 +170,11 @@ def optimize_hyperparams(
     cat_features: Optional[List[str]] = [],
     n_trials: int = 100,
     save_path: Optional[str] = None,
+    artifacts: Optional[Any] = None,
+    experiment_config: Optional[Dict[str, Any]] = None,
+    target: Optional[str] = None,
+    basin_codes: Optional[pd.Series] = None,
+    val_dates: Optional[pd.Series] = None
 ) -> Dict[str, Any]:
     """
     Optimize hyperparameters using Optuna without early stopping.
@@ -183,6 +188,11 @@ def optimize_hyperparams(
         cat_features: List of categorical features for CatBoost
         n_trials: Number of optimization trials
         save_path: Optional path to save optimization results and plots
+        artifacts: Optional FeatureProcessingArtifacts for inverse scaling
+        experiment_config: Optional experiment configuration for normalization settings
+        target: Optional target column name for inverse scaling
+        basin_codes: Optional Series of basin codes for per-basin normalization
+        val_dates: Optional Series of dates for validation data (needed for long_term_mean normalization)
         
     Returns:
         Dictionary of best hyperparameters
@@ -196,13 +206,17 @@ def optimize_hyperparams(
     # Define objective function based on model type
     def objective(trial):
         if model_type == 'xgb':
-            return _objective_xgb(trial, X_train, y_train, X_val, y_val)
+            return _objective_xgb(trial, X_train, y_train, X_val, y_val, 
+                                artifacts, experiment_config, target, basin_codes, val_dates)
         elif model_type == 'lgbm':
-            return _objective_lgbm(trial, X_train, y_train, X_val, y_val)
+            return _objective_lgbm(trial, X_train, y_train, X_val, y_val,
+                                 artifacts, experiment_config, target, basin_codes, val_dates)
         elif model_type == 'catboost':
-            return _objective_catboost(trial, X_train, y_train, X_val, y_val, cat_features)
+            return _objective_catboost(trial, X_train, y_train, X_val, y_val, cat_features,
+                                     artifacts, experiment_config, target, basin_codes, val_dates)
         elif model_type == 'mlp':
-            return _objective_mlp(trial, X_train, y_train, X_val, y_val)
+            return _objective_mlp(trial, X_train, y_train, X_val, y_val,
+                                artifacts, experiment_config, target, basin_codes, val_dates)
         else:
             raise ValueError(f"Hyperparameter optimization not supported for model type: {model_type}")
 
@@ -237,7 +251,8 @@ def optimize_hyperparams(
 
 
 # Objective functions for different models
-def _objective_xgb(trial, X_train, y_train, X_val, y_val):
+def _objective_xgb(trial, X_train, y_train, X_val, y_val, 
+                   artifacts=None, experiment_config=None, target=None, basin_codes=None, val_dates=None):
     """Optuna objective function for XGBoost without early stopping."""
     params = {
         'n_estimators': trial.suggest_int('n_estimators', 50, 1000),
@@ -256,11 +271,51 @@ def _objective_xgb(trial, X_train, y_train, X_val, y_val):
     model = XGBRegressor(**params)
     model.fit(X_train, y_train)
     
-    y_pred = model.predict(X_val)
-    return r2_score(y_val, y_pred)
+    y_pred_scaled = model.predict(X_val)
+    
+    # If normalization is enabled and artifacts are provided, inverse transform for R2 calculation
+    if (experiment_config and experiment_config.get('normalize', False) and 
+        artifacts is not None and target is not None):
+        
+        # Import here to avoid circular imports
+        from scr.FeatureProcessingArtifacts import post_process_predictions
+        
+        # Create temporary DataFrame for post-processing
+        df_temp = pd.DataFrame({
+            'prediction': y_pred_scaled,
+            target: y_val.values if hasattr(y_val, 'values') else y_val
+        })
+        
+        # Add code column if needed for per-basin normalization
+        if experiment_config.get('normalization_type') == 'per_basin' and basin_codes is not None:
+            df_temp['code'] = basin_codes.values if hasattr(basin_codes, 'values') else basin_codes
+        
+        # Add date column for long_term_mean normalization
+        if experiment_config.get('normalization_type') == 'long_term_mean':
+            if val_dates is not None:
+                df_temp['date'] = val_dates.values if hasattr(val_dates, 'values') else val_dates
+            else:
+                # Fallback to dummy dates if actual dates not available
+                df_temp['date'] = pd.date_range(start='2020-01-01', periods=len(df_temp), freq='D')
+        
+        # Apply inverse transformation
+        df_temp = post_process_predictions(
+            df_predictions=df_temp,
+            artifacts=artifacts,
+            experiment_config=experiment_config,
+            prediction_column='prediction',
+            target=target
+        )
+        
+        # Calculate R2 on original scale
+        return r2_score(df_temp[target], df_temp['prediction'])
+    else:
+        # No normalization, calculate R2 directly on scaled values
+        return r2_score(y_val, y_pred_scaled)
 
 
-def _objective_lgbm(trial, X_train, y_train, X_val, y_val):
+def _objective_lgbm(trial, X_train, y_train, X_val, y_val,
+                    artifacts=None, experiment_config=None, target=None, basin_codes=None, val_dates=None):
     """Optuna objective function for LightGBM without early stopping."""
     params = {
         'objective': 'regression',
@@ -282,11 +337,51 @@ def _objective_lgbm(trial, X_train, y_train, X_val, y_val):
     model = LGBMRegressor(**params)
     model.fit(X_train, y_train)
     
-    y_pred = model.predict(X_val)
-    return r2_score(y_val, y_pred)
+    y_pred_scaled = model.predict(X_val)
+    
+    # If normalization is enabled and artifacts are provided, inverse transform for R2 calculation
+    if (experiment_config and experiment_config.get('normalize', False) and 
+        artifacts is not None and target is not None):
+        
+        # Import here to avoid circular imports
+        from scr.FeatureProcessingArtifacts import post_process_predictions
+        
+        # Create temporary DataFrame for post-processing
+        df_temp = pd.DataFrame({
+            'prediction': y_pred_scaled,
+            target: y_val.values if hasattr(y_val, 'values') else y_val
+        })
+        
+        # Add code column if needed for per-basin normalization
+        if experiment_config.get('normalization_type') == 'per_basin' and basin_codes is not None:
+            df_temp['code'] = basin_codes.values if hasattr(basin_codes, 'values') else basin_codes
+        
+        # Add date column for long_term_mean normalization
+        if experiment_config.get('normalization_type') == 'long_term_mean':
+            if val_dates is not None:
+                df_temp['date'] = val_dates.values if hasattr(val_dates, 'values') else val_dates
+            else:
+                # Fallback to dummy dates if actual dates not available
+                df_temp['date'] = pd.date_range(start='2020-01-01', periods=len(df_temp), freq='D')
+        
+        # Apply inverse transformation
+        df_temp = post_process_predictions(
+            df_predictions=df_temp,
+            artifacts=artifacts,
+            experiment_config=experiment_config,
+            prediction_column='prediction',
+            target=target
+        )
+        
+        # Calculate R2 on original scale
+        return r2_score(df_temp[target], df_temp['prediction'])
+    else:
+        # No normalization, calculate R2 directly on scaled values
+        return r2_score(y_val, y_pred_scaled)
 
 
-def _objective_catboost(trial, X_train, y_train, X_val, y_val, cat_features):
+def _objective_catboost(trial, X_train, y_train, X_val, y_val, cat_features,
+                        artifacts=None, experiment_config=None, target=None, basin_codes=None, val_dates=None):
     """Optuna objective function for CatBoost without early stopping."""
     params = {
         'iterations': trial.suggest_int('iterations', 50, 1000),
@@ -302,12 +397,52 @@ def _objective_catboost(trial, X_train, y_train, X_val, y_val, cat_features):
     model = CatBoostRegressor(**params, cat_features=cat_features)
     model.fit(X_train, y_train)
     
-    y_pred = model.predict(X_val)
-    return r2_score(y_val, y_pred)
+    y_pred_scaled = model.predict(X_val)
+    
+    # If normalization is enabled and artifacts are provided, inverse transform for R2 calculation
+    if (experiment_config and experiment_config.get('normalize', False) and 
+        artifacts is not None and target is not None):
+        
+        # Import here to avoid circular imports
+        from scr.FeatureProcessingArtifacts import post_process_predictions
+        
+        # Create temporary DataFrame for post-processing
+        df_temp = pd.DataFrame({
+            'prediction': y_pred_scaled,
+            target: y_val.values if hasattr(y_val, 'values') else y_val
+        })
+        
+        # Add code column if needed for per-basin normalization
+        if experiment_config.get('normalization_type') == 'per_basin' and basin_codes is not None:
+            df_temp['code'] = basin_codes.values if hasattr(basin_codes, 'values') else basin_codes
+        
+        # Add date column for long_term_mean normalization
+        if experiment_config.get('normalization_type') == 'long_term_mean':
+            if val_dates is not None:
+                df_temp['date'] = val_dates.values if hasattr(val_dates, 'values') else val_dates
+            else:
+                # Fallback to dummy dates if actual dates not available
+                df_temp['date'] = pd.date_range(start='2020-01-01', periods=len(df_temp), freq='D')
+        
+        # Apply inverse transformation
+        df_temp = post_process_predictions(
+            df_predictions=df_temp,
+            artifacts=artifacts,
+            experiment_config=experiment_config,
+            prediction_column='prediction',
+            target=target
+        )
+        
+        # Calculate R2 on original scale
+        return r2_score(df_temp[target], df_temp['prediction'])
+    else:
+        # No normalization, calculate R2 directly on scaled values
+        return r2_score(y_val, y_pred_scaled)
 
 
 
-def _objective_mlp(trial, X_train, y_train, X_val, y_val):
+def _objective_mlp(trial, X_train, y_train, X_val, y_val,
+                   artifacts=None, experiment_config=None, target=None, basin_codes=None, val_dates=None):
     """Optuna objective function for MLP without early stopping."""
     params = {
         'hidden_layer_sizes': (trial.suggest_int('hidden_layer_sizes', 50, 200),),
@@ -321,5 +456,44 @@ def _objective_mlp(trial, X_train, y_train, X_val, y_val):
     
     model = MLPRegressor(**params)
     model.fit(X_train, y_train)
-    y_pred = model.predict(X_val)
-    return r2_score(y_val, y_pred)
+    y_pred_scaled = model.predict(X_val)
+    
+    # If normalization is enabled and artifacts are provided, inverse transform for R2 calculation
+    if (experiment_config and experiment_config.get('normalize', False) and 
+        artifacts is not None and target is not None):
+        
+        # Import here to avoid circular imports
+        from scr.FeatureProcessingArtifacts import post_process_predictions
+        
+        # Create temporary DataFrame for post-processing
+        df_temp = pd.DataFrame({
+            'prediction': y_pred_scaled,
+            target: y_val.values if hasattr(y_val, 'values') else y_val
+        })
+        
+        # Add code column if needed for per-basin normalization
+        if experiment_config.get('normalization_type') == 'per_basin' and basin_codes is not None:
+            df_temp['code'] = basin_codes.values if hasattr(basin_codes, 'values') else basin_codes
+        
+        # Add date column for long_term_mean normalization
+        if experiment_config.get('normalization_type') == 'long_term_mean':
+            if val_dates is not None:
+                df_temp['date'] = val_dates.values if hasattr(val_dates, 'values') else val_dates
+            else:
+                # Fallback to dummy dates if actual dates not available
+                df_temp['date'] = pd.date_range(start='2020-01-01', periods=len(df_temp), freq='D')
+        
+        # Apply inverse transformation
+        df_temp = post_process_predictions(
+            df_predictions=df_temp,
+            artifacts=artifacts,
+            experiment_config=experiment_config,
+            prediction_column='prediction',
+            target=target
+        )
+        
+        # Calculate R2 on original scale
+        return r2_score(df_temp[target], df_temp['prediction'])
+    else:
+        # No normalization, calculate R2 directly on scaled values
+        return r2_score(y_val, y_pred_scaled)

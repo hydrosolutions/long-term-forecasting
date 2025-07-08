@@ -310,6 +310,40 @@ def inverse_normalization(df : pd.DataFrame,
 
     return df
 
+def apply_inverse_normalization(df: pd.DataFrame, 
+                              scaler: dict, 
+                              var_to_scale: str,
+                              var_used_for_scaling: str) -> pd.DataFrame:
+    """
+    Apply inverse normalization (denormalization) using global scaling parameters.
+    Transforms scaled values back to original scale: x_original = x_scaled * std + mean
+    
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        DataFrame containing the variable to inverse scale
+    scaler : dict
+        Dictionary containing (mean, std) tuples for each variable
+    var_to_scale : str
+        Column name to inverse transform
+    var_used_for_scaling : str
+        Variable name whose scaling parameters should be used
+        
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with inverse scaled variable
+    """
+    df = df.copy()
+    
+    if var_to_scale in df.columns and var_used_for_scaling in scaler:
+        df[var_to_scale] = df[var_to_scale].astype(float)
+        mean_val, std_val = scaler[var_used_for_scaling]
+        # Apply inverse transformation: multiply by std and add mean
+        df[var_to_scale] = (df[var_to_scale] * std_val) + mean_val
+    
+    return df
+
 
 def get_normalization_params_per_basin(df_train, features, target):
     """
@@ -383,19 +417,23 @@ def apply_normalization_per_basin(df, scaler, features):
 
 def apply_inverse_normalization_per_basin(df : pd.DataFrame, 
                                           scaler : dict, 
-                                          col_to_scale : str, 
+                                          var_to_scale : str, 
                                           var_used_for_scaling : str):
-    
+    """
+    Apply inverse normalization (denormalization) per basin.
+    Transforms scaled values back to original scale: x_original = x_scaled * std + mean
+    """
     df = df.copy()
 
     for code in df.code.unique():
         if code in scaler:
             basin_mask = df['code'] == code
 
-            if col_to_scale in df.columns and var_used_for_scaling in df.columns:
-                df.loc[basin_mask, col_to_scale] = df.loc[basin_mask, col_to_scale].astype(float)
+            if var_to_scale in df.columns and var_used_for_scaling in scaler[code]:
+                df.loc[basin_mask, var_to_scale] = df.loc[basin_mask, var_to_scale].astype(float)
                 mean_val, std_val = scaler[code][var_used_for_scaling]
-                df.loc[basin_mask, col_to_scale] = (df.loc[basin_mask, col_to_scale] - mean_val) / std_val
+                # Apply inverse transformation: multiply by std and add mean
+                df.loc[basin_mask, var_to_scale] = (df.loc[basin_mask, var_to_scale] * std_val) + mean_val
 
     return df
 

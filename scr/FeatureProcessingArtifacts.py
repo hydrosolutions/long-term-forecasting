@@ -1018,7 +1018,7 @@ def post_process_predictions(
             logger.warning(f"Target {target} not found in global scaler")
             return df_predictions
         
-        df_predictions = du.inverse_normalization(
+        df_predictions = du.apply_inverse_normalization(
             df=df_predictions,
             scaler=artifacts.scaler,
             var_to_scale=prediction_column,
