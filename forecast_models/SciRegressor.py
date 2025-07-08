@@ -865,6 +865,11 @@ class SciRegressor(BaseForecastModel):
             y_val = df_val_processed[self.target]
 
 
+            # Get basin codes for validation data if needed for per-basin normalization
+            basin_codes_val = None
+            if self.general_config.get('normalization_type') == 'per_basin' and 'code' in df_val_processed.columns:
+                basin_codes_val = df_val_processed['code']
+            
             best_params = sci_utils.optimize_hyperparams(
                 X_train=X_train,
                 y_train=y_train,
@@ -873,6 +878,10 @@ class SciRegressor(BaseForecastModel):
                 model_type=model_type,
                 cat_features=self.cat_features,
                 n_trials=self.general_config.get('n_trials', 50),
+                artifacts=artifacts,
+                experiment_config=self.general_config,
+                target=self.target,
+                basin_codes=basin_codes_val
             )
 
             if best_params is None:
