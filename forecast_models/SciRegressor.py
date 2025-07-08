@@ -76,7 +76,8 @@ class SciRegressor(BaseForecastModel):
         self.rivers_to_exclude = self.general_config.get('rivers_to_exclude', [])
         self.snow_vars = self.general_config.get('snow_vars', ['SWE'])
         self.hparam_tuning_years = self.general_config.get('hparam_tuning_years', 3)
-
+        self.early_stopping_val_fraction = self.general_config.get('early_stopping_val_fraction', 0.1)
+        self.num_test_years = self.general_config.get('num_test_years', 2)
 
     def __preprocess_data__(self):
         """
@@ -266,7 +267,7 @@ class SciRegressor(BaseForecastModel):
     def __post_process_data__(self, 
                               df: pd.DataFrame,
                               pred_cols : List[str],
-                              obs_col: str) -> pd.DataFrame:
+                              obs_col: str = None) -> pd.DataFrame:
         """
         Post-process the data after model predictions.
         this is the re-transformation from mm/d to m3/s
@@ -276,7 +277,10 @@ class SciRegressor(BaseForecastModel):
         for code in df['code'].unique():
             area = self.static_data[self.static_data['code'] == code]['area_km2'].values[0]
             df.loc[df['code'] == code, pred_cols] = df.loc[df['code'] == code, pred_cols] * area / 86.4
-            df.loc[df['code'] == code, obs_col] = df.loc[df['code'] == code, obs_col] * area / 86.4
+            
+            # Only convert observations if obs_col is provided and exists in the dataframe
+            if obs_col is not None and obs_col in df.columns:
+                df.loc[df['code'] == code, obs_col] = df.loc[df['code'] == code, obs_col] * area / 86.4
 
         return df
 
@@ -349,7 +353,14 @@ class SciRegressor(BaseForecastModel):
                 model = sci_utils.get_model(model_type, params, self.cat_features)
 
             # Train and predict
-            model = sci_utils.fit_model(model, X_train, y_train)
+            model = sci_utils.fit_model(
+                model=model, 
+                X=X_train, 
+                y=y_train,
+                model_type=model_type,
+                val_fraction=self.early_stopping_val_fraction
+            )
+
             y_pred = model.predict(X_test)
 
             # Extra step if we dropped any rows in the test set
@@ -440,7 +451,13 @@ class SciRegressor(BaseForecastModel):
             model = sci_utils.get_model(model_type, params, self.cat_features)
 
         # Train the model
-        model = sci_utils.fit_model(model, X_train, y_train)
+        model = sci_utils.fit_model(
+            model=model, 
+            X=X_train, 
+            y=y_train,
+            model_type=model_type,
+            val_fraction=self.early_stopping_val_fraction
+        )
 
         # Predict on test data
         if test_years is not None:
@@ -488,19 +505,28 @@ class SciRegressor(BaseForecastModel):
         logger.info(f"Starting operational prediction for {self.name}")
         
         today = datetime.datetime.now()
-        today_year = today.year
 
-        # Load models
-        models = self.load_model()
-
-        # Prepare the prediction data, use only the last 2 years of data (for fast processing)
-        self.data = self.data[self.data['date'] >= (today - pd.DateOffset(years=2))].copy()
-        self.__preprocess_data__()
-
-
-        forecast = pd.DataFrame()
+        # Step 1: Load models and artifacts
+        self.load_model()
         
-        # Calculate valid period
+        if not self.fitted_models:
+            logger.error("No fitted models found. Please train models first using calibrate_model_and_hindcast().")
+            return pd.DataFrame()
+
+        # Step 2: Filter data to only include last 2 years (for fast processing)
+        cutoff_date = today - pd.DateOffset(years=2)
+        self.data = self.data[self.data['date'] >= cutoff_date].copy()
+        
+        logger.info(f"Filtered data from {cutoff_date.strftime('%Y-%m-%d')} to {self.data['date'].max().strftime('%Y-%m-%d')}")
+        
+        # Step 3: Data processing
+        self.__preprocess_data__()
+        
+        # Set target to 0 for operational mode (no observations available)
+        # this ensures that nothing gets filtered out in the next steps
+        self.data[self.target] = 0  
+
+        # Step 4: Calculate valid period
         if not self.general_config.get('offset'):
             self.general_config['offset'] = self.general_config['prediction_horizon']
         shift = self.general_config['offset'] - self.general_config['prediction_horizon']
@@ -510,10 +536,130 @@ class SciRegressor(BaseForecastModel):
         valid_from_str = valid_from.strftime('%Y-%m-%d')
         valid_to_str = valid_to.strftime('%Y-%m-%d')
         
-        # Make predictions with ensemble of models
-        for model_type in self.models:
-            continue
+        logger.info(f"Forecast valid from: {valid_from_str} to: {valid_to_str}")
 
+        # Step 5: Make predictions with ensemble of models
+        forecast_predictions = {}
+        all_pred_cols = []
+        
+        # Get unique basin codes for prediction
+        basin_codes = self.data['code'].unique()
+        
+        # Prepare base forecast dataframe
+        forecast_base = pd.DataFrame({
+            'code': basin_codes,
+            'forecast_date': today.strftime('%Y-%m-%d'),
+            'valid_from': valid_from_str,
+            'valid_to': valid_to_str,
+            'prediction_horizon_days': self.general_config['prediction_horizon']
+        })
+        
+        for model_type in self.models:
+            if model_type not in self.fitted_models:
+                logger.warning(f"Model {model_type} not found in fitted models. Skipping.")
+                continue
+                
+            logger.info(f"Making predictions with {model_type}")
+            
+            # Get model components
+            model = self.fitted_models[model_type]['model']
+            artifacts = self.fitted_models[model_type]['artifacts']
+            final_features = self.fitted_models[model_type]['final_features']
+            
+            pred_col = f"Q_{model_type}"
+            all_pred_cols.append(pred_col)
+            
+            # Get the most recent complete data for each basin for prediction
+            prediction_data = []
+            
+            for code in basin_codes:
+                basin_data = self.data[self.data['code'] == code].copy()
+                
+                if basin_data.empty:
+                    logger.warning(f"No data available for basin {code}. Skipping.")
+                    continue
+                
+                # Get the most recent row with complete feature data
+                basin_data_complete = basin_data.dropna(subset=final_features)
+                
+                if basin_data_complete.empty:
+                    logger.warning(f"No complete feature data for basin {code}. Skipping.")
+                    continue
+                
+                # Take the most recent complete observation
+                today_row = basin_data_complete[basin_data_complete['date'] == today.strftime('%Y-%m-%d')]
+                prediction_data.append(today_row)
+
+            if not prediction_data:
+                logger.error("No prediction data available for any basin.")
+                continue
+            
+            # Combine all basin prediction data
+            prediction_df = pd.concat(prediction_data, ignore_index=True)
+            
+            # Apply the same preprocessing artifacts as during training
+            prediction_processed = process_test_data(
+                df_test=prediction_df,
+                artifacts=artifacts,
+                experiment_config=self.general_config
+            )
+            
+            # Make predictions
+            X_pred = prediction_processed[final_features]
+            y_pred = model.predict(X_pred)
+            
+            # Store predictions
+            prediction_processed[pred_col] = y_pred
+            
+            # Extract relevant columns for forecast
+            forecast_model = prediction_processed[['date','code', pred_col]].copy()
+
+            # Post process predictions
+            forecast_model = post_process_predictions(
+                df_predictions=forecast_model,
+                artifacts=artifacts,
+                experiment_config=self.general_config,
+                prediction_column=pred_col,
+                target=self.target
+            )
+            
+            forecast_predictions[model_type] = forecast_model
+        
+        # Merge all model predictions
+        forecast = forecast_base.copy()
+        
+        for model_type, model_forecast in forecast_predictions.items():
+            forecast = pd.merge(forecast, model_forecast, on='code', how='left')
+        
+        if not all_pred_cols:
+            logger.error("No successful predictions made.")
+            return pd.DataFrame()
+        
+        # Create ensemble prediction (average of all models)
+        ensemble_name = f"Q_{self.name}"
+        forecast[ensemble_name] = forecast[all_pred_cols].mean(axis=1)
+        all_pred_cols.append(ensemble_name)
+        
+        # Step 6: Post-process data (convert from mm/day back to m³/s)
+        forecast = self.__post_process_data__(
+            df=forecast,
+            pred_cols=all_pred_cols,
+            obs_col=None  # No observations in operational mode
+        )
+        
+        # Add metadata
+        forecast['model_name'] = self.name
+        forecast['created_at'] = today.strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Reorder columns for better readability
+        base_cols = ['code', 'forecast_date', 'valid_from', 'valid_to', 'prediction_horizon_days']
+        pred_cols = [col for col in forecast.columns if col.startswith('Q_')]
+        meta_cols = ['model_name', 'created_at']
+        
+        forecast = forecast[base_cols + pred_cols + meta_cols]
+        
+        logger.info(f"Operational forecast completed for {len(forecast)} basins with {len(all_pred_cols)} predictions")
+        logger.info(f"Forecast statistics:\n{forecast[pred_cols].describe()}")
         
         return forecast
     
@@ -697,8 +843,7 @@ class SciRegressor(BaseForecastModel):
             df_val_processed = process_test_data(
                 df_test=df_val, 
                 artifacts=artifacts, 
-                experiment_config=self.general_config,
-                scale_target=True # Scale target as well so we can use it for hyperparameter tuning
+                experiment_config=self.general_config
             )
             
             final_features = artifacts.final_features
