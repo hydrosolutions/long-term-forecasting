@@ -26702,3 +26702,243 @@ KeyError: 'target_mean'
 2025-07-08 20:45:32,036 - __main__ - INFO -   Mean RMSE: 7.489
 2025-07-08 20:45:32,037 - __main__ - INFO - Calibration and hindcasting completed successfully!
 2025-07-08 20:45:32,037 - __main__ - INFO - Results saved to ../monthly_forecasting_results/BaseCase/PerBasinScalingLR
+2025-07-08 21:06:50,515 - scr.FeatureProcessingArtifacts - INFO - Numeric features: 9
+2025-07-08 21:06:50,515 - scr.FeatureProcessingArtifacts - INFO - Categorical features: 0
+2025-07-08 21:06:50,515 - scr.FeatureProcessingArtifacts - INFO - Static features: 0
+2025-07-08 21:06:50,516 - scr.FeatureProcessingArtifacts - INFO - Applied dropna strategy
+2025-07-08 21:06:50,516 - scr.FeatureProcessingArtifacts - INFO - Final feature count: 9
+2025-07-08 21:06:50,517 - scr.FeatureProcessingArtifacts - INFO - Numeric features: 9
+2025-07-08 21:06:50,517 - scr.FeatureProcessingArtifacts - INFO - Categorical features: 0
+2025-07-08 21:06:50,517 - scr.FeatureProcessingArtifacts - INFO - Static features: 0
+2025-07-08 21:06:50,518 - scr.FeatureProcessingArtifacts - INFO - Created imputer with strategy: mean
+2025-07-08 21:06:50,520 - scr.FeatureProcessingArtifacts - INFO - Identified highly correlated features: ['T_mean_7', 'T_mean_30']
+2025-07-08 21:06:50,587 - scr.FeatureProcessingArtifacts - INFO - Selected features from mutual information: ['discharge_lag1', 'discharge_lag7', 'discharge_mean_30', 'P_sum_30', 'SCA_mean_30']
+2025-07-08 21:06:50,589 - scr.FeatureProcessingArtifacts - INFO - Created normalization scaler
+2025-07-08 21:06:50,589 - scr.FeatureProcessingArtifacts - INFO - Final feature count: 5
+2025-07-08 21:06:50,591 - scr.FeatureProcessingArtifacts - INFO - Numeric features: 9
+2025-07-08 21:06:50,591 - scr.FeatureProcessingArtifacts - INFO - Categorical features: 0
+2025-07-08 21:06:50,591 - scr.FeatureProcessingArtifacts - INFO - Static features: 0
+2025-07-08 21:06:50,596 - scr.FeatureProcessingArtifacts - INFO - Created long-term mean artifacts
+2025-07-08 21:06:50,601 - scr.FeatureProcessingArtifacts - INFO - Long Term Means:          code month discharge_lag1  ...  T_mean_30 SWE_mean_30 SCA_mean_30
+                              mean  ...       mean        mean        mean
+0   basin_001     1      57.351233  ...  15.438425    3.703176   44.834439
+1   basin_001     2      69.387655  ...  20.238181    1.800149   35.379523
+2   basin_001     3      79.333023  ...  23.525002    0.838317   30.864836
+3   basin_001     4      78.720252  ...  24.589541    1.023191   29.730537
+4   basin_001     5      70.146054  ...  23.821002    0.802826   32.928453
+5   basin_001     6      58.312541  ...  20.394053    3.903056   44.000821
+6   basin_001     7      43.312798  ...  14.770773    7.600166   56.235324
+7   basin_001     8      30.344016  ...   9.374323   12.383446   64.266512
+8   basin_001     9      19.777551  ...   6.192652   14.240141   68.678312
+9   basin_001    10      21.968105  ...   5.290840   14.722228   67.852749
+10  basin_001    11      27.727634  ...   6.684794   11.492017   65.226028
+11  basin_001    12      43.550774  ...  10.419279    7.404216   53.167760
+12  basin_002     1      57.939737  ...  15.799513    3.811515   43.150113
+13  basin_002     2      70.773325  ...  20.085915    1.444457   35.652262
+14  basin_002     3      78.896227  ...  23.128293    0.947123   33.264009
+15  basin_002     4      77.206249  ...  24.071424    0.645925   30.759259
+16  basin_002     5      70.941519  ...  23.815828    0.974138   36.228979
+17  basin_002     6      59.623225  ...  20.143887    4.020560   46.275022
+18  basin_002     7      42.783800  ...  14.804068    7.554243   55.731937
+19  basin_002     8      29.322899  ...   9.609248   12.276447   66.806450
+20  basin_002     9      21.840523  ...   6.258254   14.539673   68.521470
+21  basin_002    10      21.837456  ...   4.966806   13.822646   69.089901
+22  basin_002    11      28.414762  ...   7.210400   12.128708   65.065932
+23  basin_002    12      44.135011  ...  10.169005    8.455460   54.949030
+24  basin_003     1      56.953390  ...  15.773313    4.137426   45.392430
+25  basin_003     2      70.065955  ...  20.035094    1.832483   34.495792
+26  basin_003     3      76.490402  ...  23.535989    0.595694   29.301688
+27  basin_003     4      79.697674  ...  25.220631    0.859763   30.790520
+28  basin_003     5      73.535914  ...  23.750431    1.369979   34.701194
+29  basin_003     6      60.939119  ...  19.976527    4.491815   46.060796
+30  basin_003     7      43.065036  ...  14.639952    7.206024   55.834819
+31  basin_003     8      30.808171  ...   9.679999   12.282773   63.101587
+32  basin_003     9      22.629725  ...   6.534071   14.863093   68.913723
+33  basin_003    10      24.236053  ...   5.521889   14.486208   70.155098
+34  basin_003    11      27.747805  ...   6.804643   11.467460   63.700550
+35  basin_003    12      42.881362  ...  10.636107    7.560767   54.808586
+36  basin_004     1      57.382996  ...  15.807895    3.969759   43.550287
+37  basin_004     2      69.691602  ...  19.929371    1.482018   35.321573
+38  basin_004     3      77.482350  ...  23.523097    0.808196   30.973663
+39  basin_004     4      77.178770  ...  25.098085    0.418757   28.485182
+40  basin_004     5      71.492327  ...  23.291591    1.873168   35.607988
+41  basin_004     6      57.415569  ...  19.831972    3.415448   42.316709
+42  basin_004     7      44.882534  ...  14.789995    7.468254   54.702286
+43  basin_004     8      28.075121  ...  10.120597   12.437077   64.355945
+44  basin_004     9      20.189207  ...   5.856643   16.075498   70.629786
+45  basin_004    10      21.381482  ...   5.313907   13.453245   67.472211
+46  basin_004    11      28.591106  ...   7.173765   12.339762   62.352469
+47  basin_004    12      40.515570  ...  10.301823    7.668088   54.847211
+48  basin_005     1      56.618068  ...  15.567594    3.592696   44.171200
+49  basin_005     2      70.434744  ...  19.983512    1.244147   37.534128
+50  basin_005     3      77.154894  ...  23.419311    0.518479   29.935050
+51  basin_005     4      77.972690  ...  24.894478    0.546092   30.007110
+52  basin_005     5      70.987168  ...  23.665198    1.674719   35.712743
+53  basin_005     6      58.611175  ...  19.743575    4.343019   43.668078
+54  basin_005     7      44.464201  ...  15.039856    8.206065   54.325900
+55  basin_005     8      28.849883  ...  10.061652   11.742658   63.478948
+56  basin_005     9      19.970514  ...   6.541818   15.610912   71.509741
+57  basin_005    10      19.523486  ...   5.064851   14.796968   69.948991
+58  basin_005    11      29.015570  ...   6.294939   11.392836   65.873631
+59  basin_005    12      42.496138  ...   9.941364    8.417242   56.978145
+
+[60 rows x 11 columns]
+2025-07-08 21:06:50,601 - scr.FeatureProcessingArtifacts - INFO - Final feature count: 9
+2025-07-08 21:06:50,604 - scr.FeatureProcessingArtifacts - INFO - Numeric features: 9
+2025-07-08 21:06:50,604 - scr.FeatureProcessingArtifacts - INFO - Categorical features: 0
+2025-07-08 21:06:50,604 - scr.FeatureProcessingArtifacts - INFO - Static features: 0
+2025-07-08 21:06:50,604 - scr.FeatureProcessingArtifacts - INFO - Applied dropna strategy
+2025-07-08 21:06:50,604 - scr.FeatureProcessingArtifacts - INFO - Final feature count: 9
+2025-07-08 21:06:50,604 - scr.FeatureProcessingArtifacts - INFO - Artifacts saved to /var/folders/41/6zdzv5wn1fq6nj4hhmk75zhh0000gn/T/tmpana24m22/test_artifacts_joblib using joblib format
+2025-07-08 21:06:50,605 - scr.FeatureProcessingArtifacts - INFO - Artifacts saved to /var/folders/41/6zdzv5wn1fq6nj4hhmk75zhh0000gn/T/tmpana24m22/test_artifacts_pickle using pickle format
+2025-07-08 21:06:50,605 - scr.FeatureProcessingArtifacts - INFO - Artifacts saved to /var/folders/41/6zdzv5wn1fq6nj4hhmk75zhh0000gn/T/tmpana24m22/test_artifacts_hybrid using hybrid format
+2025-07-08 21:06:50,605 - scr.FeatureProcessingArtifacts - INFO - Artifacts saved to /var/folders/41/6zdzv5wn1fq6nj4hhmk75zhh0000gn/T/tmpana24m22/test_auto using hybrid format
+2025-07-08 21:06:50,607 - scr.FeatureProcessingArtifacts - INFO - Numeric features: 9
+2025-07-08 21:06:50,607 - scr.FeatureProcessingArtifacts - INFO - Categorical features: 0
+2025-07-08 21:06:50,607 - scr.FeatureProcessingArtifacts - INFO - Static features: 0
+2025-07-08 21:06:50,607 - scr.FeatureProcessingArtifacts - INFO - Applied dropna strategy
+2025-07-08 21:06:50,607 - scr.FeatureProcessingArtifacts - INFO - Final feature count: 9
+2025-07-08 21:06:50,607 - scr.FeatureProcessingArtifacts - INFO - Artifacts saved to /var/folders/41/6zdzv5wn1fq6nj4hhmk75zhh0000gn/T/tmp84ux_2vc/test_model/v1.0.0/feature_artifacts using hybrid format
+2025-07-08 21:06:50,607 - scr.FeatureProcessingArtifacts - INFO - Production artifacts saved: /var/folders/41/6zdzv5wn1fq6nj4hhmk75zhh0000gn/T/tmp84ux_2vc/test_model/v1.0.0/feature_artifacts
+2025-07-08 21:06:50,607 - scr.FeatureProcessingArtifacts - INFO - Latest symlink updated: /var/folders/41/6zdzv5wn1fq6nj4hhmk75zhh0000gn/T/tmp84ux_2vc/test_model/latest
+2025-07-08 21:06:50,607 - scr.FeatureProcessingArtifacts - INFO - Loaded artifacts for test_model v1.0.0
+2025-07-08 21:06:50,607 - scr.FeatureProcessingArtifacts - INFO - Artifacts created: 2025-07-08T21:06:50.607620
+2025-07-08 21:06:50,607 - scr.FeatureProcessingArtifacts - INFO - Feature count: 9
+2025-07-08 21:06:50,608 - scr.FeatureProcessingArtifacts - INFO - Loaded artifacts for test_model latest
+2025-07-08 21:06:50,608 - scr.FeatureProcessingArtifacts - INFO - Artifacts created: 2025-07-08T21:06:50.607620
+2025-07-08 21:06:50,608 - scr.FeatureProcessingArtifacts - INFO - Feature count: 9
+2025-07-08 21:06:50,608 - scr.FeatureProcessingArtifacts - INFO - Numeric features: 9
+2025-07-08 21:06:50,608 - scr.FeatureProcessingArtifacts - INFO - Categorical features: 0
+2025-07-08 21:06:50,608 - scr.FeatureProcessingArtifacts - INFO - Static features: 0
+2025-07-08 21:06:50,609 - scr.FeatureProcessingArtifacts - INFO - Applied dropna strategy
+2025-07-08 21:06:50,609 - scr.FeatureProcessingArtifacts - INFO - Final feature count: 9
+2025-07-08 21:06:50,609 - scr.FeatureProcessingArtifacts - INFO - Numeric features: 9
+2025-07-08 21:06:50,609 - scr.FeatureProcessingArtifacts - INFO - Categorical features: 0
+2025-07-08 21:06:50,609 - scr.FeatureProcessingArtifacts - INFO - Static features: 0
+2025-07-08 21:06:50,609 - scr.FeatureProcessingArtifacts - INFO - Applied dropna strategy
+2025-07-08 21:06:50,611 - scr.FeatureProcessingArtifacts - INFO - Created normalization scaler
+2025-07-08 21:06:50,611 - scr.FeatureProcessingArtifacts - INFO - Final feature count: 9
+2025-07-08 21:06:50,613 - scr.FeatureProcessingArtifacts - INFO - Numeric features: 9
+2025-07-08 21:06:50,613 - scr.FeatureProcessingArtifacts - INFO - Categorical features: 0
+2025-07-08 21:06:50,613 - scr.FeatureProcessingArtifacts - INFO - Static features: 0
+2025-07-08 21:06:50,614 - scr.FeatureProcessingArtifacts - INFO - Created imputer with strategy: mean
+2025-07-08 21:06:50,616 - scr.FeatureProcessingArtifacts - INFO - Created normalization scaler
+2025-07-08 21:06:50,616 - scr.FeatureProcessingArtifacts - INFO - Final feature count: 9
+2025-07-08 21:06:50,618 - scr.FeatureProcessingArtifacts - INFO - Numeric features: 9
+2025-07-08 21:06:50,618 - scr.FeatureProcessingArtifacts - INFO - Categorical features: 0
+2025-07-08 21:06:50,618 - scr.FeatureProcessingArtifacts - INFO - Static features: 0
+2025-07-08 21:06:50,619 - scr.FeatureProcessingArtifacts - INFO - Applied dropna strategy
+2025-07-08 21:06:50,619 - scr.FeatureProcessingArtifacts - INFO - Final feature count: 9
+2025-07-08 21:06:50,620 - scr.FeatureProcessingArtifacts - INFO - Numeric features: 9
+2025-07-08 21:06:50,620 - scr.FeatureProcessingArtifacts - INFO - Categorical features: 0
+2025-07-08 21:06:50,620 - scr.FeatureProcessingArtifacts - INFO - Static features: 0
+2025-07-08 21:06:50,621 - scr.FeatureProcessingArtifacts - INFO - Created imputer with strategy: mean
+2025-07-08 21:06:50,621 - scr.FeatureProcessingArtifacts - INFO - Final feature count: 9
+2025-07-08 21:06:50,624 - scr.FeatureProcessingArtifacts - INFO - Numeric features: 14
+2025-07-08 21:06:50,624 - scr.FeatureProcessingArtifacts - INFO - Categorical features: 0
+2025-07-08 21:06:50,624 - scr.FeatureProcessingArtifacts - INFO - Static features: 5
+2025-07-08 21:06:50,624 - scr.FeatureProcessingArtifacts - INFO - Static feature elevation_mean - mean: 1173.1882690275904, std: 513.0005386261743
+2025-07-08 21:06:50,624 - scr.FeatureProcessingArtifacts - INFO - Static feature area_km2 - mean: 489.6438871216346, std: 392.64174623330223
+2025-07-08 21:06:50,624 - scr.FeatureProcessingArtifacts - INFO - Static feature slope_mean - mean: 19.52013257515422, std: 6.420244019957866
+2025-07-08 21:06:50,624 - scr.FeatureProcessingArtifacts - INFO - Static feature glacier_coverage - mean: 22.104194685543288, std: 7.363677050976162
+2025-07-08 21:06:50,624 - scr.FeatureProcessingArtifacts - INFO - Static feature forest_coverage - mean: 28.691444957770564, std: 16.336486712330093
+2025-07-08 21:06:50,626 - scr.FeatureProcessingArtifacts - INFO - Created imputer with strategy: mean
+2025-07-08 21:06:50,628 - scr.FeatureProcessingArtifacts - INFO - Identified highly correlated features: ['T_mean_7', 'T_mean_30']
+2025-07-08 21:06:50,732 - scr.FeatureProcessingArtifacts - INFO - Selected features from mutual information: ['discharge_lag1', 'discharge_lag7', 'discharge_mean_30', 'P_sum_7', 'P_sum_30', 'SWE_mean_30', 'SCA_mean_30', 'slope_mean', 'glacier_coverage', 'forest_coverage']
+2025-07-08 21:06:50,734 - scr.FeatureProcessingArtifacts - INFO - Created normalization scaler
+2025-07-08 21:06:50,734 - scr.FeatureProcessingArtifacts - INFO - Final feature count: 10
+2025-07-08 21:06:50,742 - scr.FeatureProcessingArtifacts - INFO - Numeric features: 12
+2025-07-08 21:06:50,742 - scr.FeatureProcessingArtifacts - INFO - Categorical features: 0
+2025-07-08 21:06:50,742 - scr.FeatureProcessingArtifacts - INFO - Static features: 3
+2025-07-08 21:06:50,743 - scr.FeatureProcessingArtifacts - INFO - Static feature elevation_mean - mean: 1785.8987169045329, std: 683.392117341593
+2025-07-08 21:06:50,743 - scr.FeatureProcessingArtifacts - INFO - Static feature area_km2 - mean: 446.7548741250705, std: 383.6765051637029
+2025-07-08 21:06:50,743 - scr.FeatureProcessingArtifacts - INFO - Static feature slope_mean - mean: 15.89221299369427, std: 9.46058731030456
+2025-07-08 21:06:50,744 - scr.FeatureProcessingArtifacts - INFO - Created imputer with strategy: mean
+2025-07-08 21:06:50,746 - scr.FeatureProcessingArtifacts - INFO - Created normalization scaler
+2025-07-08 21:06:50,746 - scr.FeatureProcessingArtifacts - INFO - Final feature count: 12
+2025-07-08 21:06:50,749 - scr.FeatureProcessingArtifacts - INFO - Numeric features: 9
+2025-07-08 21:06:50,749 - scr.FeatureProcessingArtifacts - INFO - Categorical features: 0
+2025-07-08 21:06:50,749 - scr.FeatureProcessingArtifacts - INFO - Static features: 0
+2025-07-08 21:06:50,750 - scr.FeatureProcessingArtifacts - INFO - Created imputer with strategy: mean
+2025-07-08 21:06:50,752 - scr.FeatureProcessingArtifacts - INFO - Created normalization scaler
+2025-07-08 21:06:50,752 - scr.FeatureProcessingArtifacts - INFO - Final feature count: 9
+2025-07-08 21:06:50,755 - scr.FeatureProcessingArtifacts - INFO - Numeric features: 12
+2025-07-08 21:06:50,755 - scr.FeatureProcessingArtifacts - INFO - Categorical features: 0
+2025-07-08 21:06:50,755 - scr.FeatureProcessingArtifacts - INFO - Static features: 3
+2025-07-08 21:06:50,755 - scr.FeatureProcessingArtifacts - INFO - Static feature elevation_mean - mean: 1785.8987169045329, std: 683.392117341593
+2025-07-08 21:06:50,755 - scr.FeatureProcessingArtifacts - INFO - Static feature area_km2 - mean: 446.7548741250705, std: 383.6765051637029
+2025-07-08 21:06:50,755 - scr.FeatureProcessingArtifacts - INFO - Static feature slope_mean - mean: 15.89221299369427, std: 9.46058731030456
+2025-07-08 21:06:50,757 - scr.FeatureProcessingArtifacts - INFO - Created imputer with strategy: mean
+2025-07-08 21:06:50,757 - scr.FeatureProcessingArtifacts - INFO - Final feature count: 12
+2025-07-08 21:06:50,759 - scr.FeatureProcessingArtifacts - INFO - Numeric features: 9
+2025-07-08 21:06:50,759 - scr.FeatureProcessingArtifacts - INFO - Categorical features: 0
+2025-07-08 21:06:50,759 - scr.FeatureProcessingArtifacts - INFO - Static features: 0
+2025-07-08 21:06:50,760 - scr.FeatureProcessingArtifacts - INFO - Created imputer with strategy: mean
+2025-07-08 21:06:50,760 - scr.FeatureProcessingArtifacts - INFO - Final feature count: 9
+2025-07-08 21:06:51,084 - forecast_models.LINEAR_REGRESSION - DEBUG - Extracting features for Linear Regression model
+2025-07-08 21:06:51,099 - forecast_models.LINEAR_REGRESSION - DEBUG - Features extracted successfully
+2025-07-08 21:06:51,383 - forecast_models.LINEAR_REGRESSION - DEBUG - Extracting features for Linear Regression model
+2025-07-08 21:06:51,399 - forecast_models.LINEAR_REGRESSION - DEBUG - Features extracted successfully
+2025-07-08 21:06:51,736 - forecast_models.LINEAR_REGRESSION - DEBUG - Extracting features for Linear Regression model
+2025-07-08 21:06:51,752 - forecast_models.LINEAR_REGRESSION - DEBUG - Features extracted successfully
+2025-07-08 21:06:51,752 - forecast_models.LINEAR_REGRESSION - INFO - Starting calibration and hindcasting for TestLinearRegression
+2025-07-08 21:06:51,754 - forecast_models.LINEAR_REGRESSION - INFO - Performing Leave-One-Year-Out CV for 26 years: [2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]
+2025-07-08 21:06:51,754 - forecast_models.LINEAR_REGRESSION - INFO - Unique periods in data: 1-end, 2-end, 3-end, 4-end, 5-end, 6-end, 7-end, 8-end, 9-end, 10-end, 11-end, 12-end
+2025-07-08 21:06:53,200 - forecast_models.LINEAR_REGRESSION - DEBUG - Failed linear regression for 0 cases: []
+2025-07-08 21:06:53,202 - forecast_models.LINEAR_REGRESSION - INFO - Calibration complete. Generated 918 predictions for 3 codes
+2025-07-08 21:06:53,488 - forecast_models.LINEAR_REGRESSION - DEBUG - Extracting features for Linear Regression model
+2025-07-08 21:06:53,552 - forecast_models.LINEAR_REGRESSION - DEBUG - Features extracted successfully
+2025-07-08 21:06:53,555 - forecast_models.LINEAR_REGRESSION - DEBUG - Predicting operational data for period: 7-8
+2025-07-08 21:06:53,555 - forecast_models.LINEAR_REGRESSION - DEBUG - Today's date: 2025-07-08
+2025-07-08 21:06:53,555 - forecast_models.LINEAR_REGRESSION - DEBUG - Latest date of data: 2025-07-08
+2025-07-08 21:06:53,563 - forecast_models.LINEAR_REGRESSION - DEBUG - Operational data for period 7-8 contains 78 samples.
+2025-07-08 21:06:53,563 - forecast_models.LINEAR_REGRESSION - DEBUG - Valid from: 2025-07-09
+2025-07-08 21:06:53,563 - forecast_models.LINEAR_REGRESSION - DEBUG - Valid to: 2025-08-08
+2025-07-08 21:06:53,564 - forecast_models.LINEAR_REGRESSION - DEBUG - Features for 16942: ['discharge_roll_mean_15', 'T_roll_mean_15', 'P_roll_sum_30']
+2025-07-08 21:06:53,564 - forecast_models.LINEAR_REGRESSION - DEBUG - filtering data for code 16942 with 26 samples.
+2025-07-08 21:06:53,564 - forecast_models.LINEAR_REGRESSION - DEBUG - Latest date of data for code 16942: 2025-07-08
+2025-07-08 21:06:53,564 - forecast_models.LINEAR_REGRESSION - DEBUG - Today is 2025-07-08
+2025-07-08 21:06:53,564 - forecast_models.LINEAR_REGRESSION - DEBUG - Type of date and today: <class 'pandas._libs.tslibs.timestamps.Timestamp'>, <class 'pandas._libs.tslibs.timestamps.Timestamp'>
+2025-07-08 21:06:53,564 - forecast_models.LINEAR_REGRESSION - DEBUG - Length Prediction data for 16942: 1
+2025-07-08 21:06:53,564 - forecast_models.LINEAR_REGRESSION - DEBUG - Length Calibration data for 16942: 25
+2025-07-08 21:06:53,565 - forecast_models.LINEAR_REGRESSION - DEBUG - Predictions for 16942: 43.03 m3/s
+2025-07-08 21:06:53,566 - forecast_models.LINEAR_REGRESSION - DEBUG - Prediction for 16942 relative to long-term mean: 1.0022076673040092
+2025-07-08 21:06:53,566 - forecast_models.LINEAR_REGRESSION - DEBUG - R2 calibration for 16942: 0.08295111811866462
+2025-07-08 21:06:53,566 - forecast_models.LINEAR_REGRESSION - DEBUG - Model equation for 16942: y = 44.103 + -0.128*discharge_roll_mean_15 + 0.623*T_roll_mean_15 + 0.000*P_roll_sum_30
+2025-07-08 21:06:53,566 - forecast_models.LINEAR_REGRESSION - DEBUG - Features for 16940: ['discharge_roll_mean_15', 'P_roll_sum_30', 'T_roll_mean_15']
+2025-07-08 21:06:53,566 - forecast_models.LINEAR_REGRESSION - DEBUG - filtering data for code 16940 with 26 samples.
+2025-07-08 21:06:53,566 - forecast_models.LINEAR_REGRESSION - DEBUG - Latest date of data for code 16940: 2025-07-08
+2025-07-08 21:06:53,566 - forecast_models.LINEAR_REGRESSION - DEBUG - Today is 2025-07-08
+2025-07-08 21:06:53,566 - forecast_models.LINEAR_REGRESSION - DEBUG - Type of date and today: <class 'pandas._libs.tslibs.timestamps.Timestamp'>, <class 'pandas._libs.tslibs.timestamps.Timestamp'>
+2025-07-08 21:06:53,567 - forecast_models.LINEAR_REGRESSION - DEBUG - Length Prediction data for 16940: 1
+2025-07-08 21:06:53,567 - forecast_models.LINEAR_REGRESSION - DEBUG - Length Calibration data for 16940: 25
+2025-07-08 21:06:53,568 - forecast_models.LINEAR_REGRESSION - DEBUG - Predictions for 16940: 38.67 m3/s
+2025-07-08 21:06:53,568 - forecast_models.LINEAR_REGRESSION - DEBUG - Prediction for 16940 relative to long-term mean: 0.9924474416054909
+2025-07-08 21:06:53,568 - forecast_models.LINEAR_REGRESSION - DEBUG - R2 calibration for 16940: 0.24007386780093054
+2025-07-08 21:06:53,568 - forecast_models.LINEAR_REGRESSION - DEBUG - Model equation for 16940: y = 52.410 + -0.463*discharge_roll_mean_15 + 0.020*P_roll_sum_30 + 0.283*T_roll_mean_15
+2025-07-08 21:06:53,569 - forecast_models.LINEAR_REGRESSION - DEBUG - Features for 16936: ['P_roll_sum_30', 'T_roll_mean_15', 'discharge_roll_mean_30']
+2025-07-08 21:06:53,569 - forecast_models.LINEAR_REGRESSION - DEBUG - filtering data for code 16936 with 26 samples.
+2025-07-08 21:06:53,569 - forecast_models.LINEAR_REGRESSION - DEBUG - Latest date of data for code 16936: 2025-07-08
+2025-07-08 21:06:53,569 - forecast_models.LINEAR_REGRESSION - DEBUG - Today is 2025-07-08
+2025-07-08 21:06:53,569 - forecast_models.LINEAR_REGRESSION - DEBUG - Type of date and today: <class 'pandas._libs.tslibs.timestamps.Timestamp'>, <class 'pandas._libs.tslibs.timestamps.Timestamp'>
+2025-07-08 21:06:53,569 - forecast_models.LINEAR_REGRESSION - DEBUG - Length Prediction data for 16936: 1
+2025-07-08 21:06:53,569 - forecast_models.LINEAR_REGRESSION - DEBUG - Length Calibration data for 16936: 25
+2025-07-08 21:06:53,570 - forecast_models.LINEAR_REGRESSION - DEBUG - Predictions for 16936: 31.46 m3/s
+2025-07-08 21:06:53,570 - forecast_models.LINEAR_REGRESSION - DEBUG - Prediction for 16936 relative to long-term mean: 0.9965417740850991
+2025-07-08 21:06:53,570 - forecast_models.LINEAR_REGRESSION - DEBUG - R2 calibration for 16936: 0.06344878755366368
+2025-07-08 21:06:53,571 - forecast_models.LINEAR_REGRESSION - DEBUG - Model equation for 16936: y = 34.790 + 0.012*P_roll_sum_30 + -0.298*T_roll_mean_15 + -0.105*discharge_roll_mean_30
+2025-07-08 21:06:53,857 - calibrate_hindcast - WARNING - Configuration file not found: /var/folders/41/6zdzv5wn1fq6nj4hhmk75zhh0000gn/T/lr_test_22x5bpjg/config/data_paths.json
+2025-07-08 21:06:54,184 - forecast_models.LINEAR_REGRESSION - DEBUG - Extracting features for Linear Regression model
+2025-07-08 21:06:54,198 - forecast_models.LINEAR_REGRESSION - DEBUG - Features extracted successfully
+2025-07-08 21:06:54,198 - forecast_models.LINEAR_REGRESSION - INFO - Starting calibration and hindcasting for TestLinearRegression
+2025-07-08 21:06:54,201 - forecast_models.LINEAR_REGRESSION - INFO - Performing Leave-One-Year-Out CV for 26 years: [2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]
+2025-07-08 21:06:54,201 - forecast_models.LINEAR_REGRESSION - INFO - Unique periods in data: 1-end, 2-end, 3-end, 4-end, 5-end, 6-end, 7-end, 8-end, 9-end, 10-end, 11-end, 12-end
+2025-07-08 21:06:55,632 - forecast_models.LINEAR_REGRESSION - DEBUG - Failed linear regression for 0 cases: []
+2025-07-08 21:06:55,634 - forecast_models.LINEAR_REGRESSION - INFO - Calibration complete. Generated 918 predictions for 3 codes
+2025-07-08 21:06:55,638 - forecast_models.LINEAR_REGRESSION - DEBUG - Predicting operational data for period: 7-8
+2025-07-08 21:06:55,638 - forecast_models.LINEAR_REGRESSION - DEBUG - Today's date: 2025-07-08
+2025-07-08 21:06:55,638 - forecast_models.LINEAR_REGRESSION - DEBUG - Latest date of data: 2025-06-30
+2025-07-08 21:06:55,639 - forecast_models.LINEAR_REGRESSION - DEBUG - Operational data for period 7-8 contains 0 samples.
+2025-07-08 21:06:55,639 - forecast_models.LINEAR_REGRESSION - WARNING - No operational data available for period 7-8.
+2025-07-08 21:06:55,714 - scr.sci_utils - WARNING - Model is None. Returning empty DataFrame.
+2025-07-08 21:06:55,714 - scr.sci_utils - WARNING - Model type <class 'test_sci_utils.TestGetFeatureImportance.test_get_feature_importance_unsupported_model.<locals>.UnsupportedModel'> not supported for feature importance extraction.

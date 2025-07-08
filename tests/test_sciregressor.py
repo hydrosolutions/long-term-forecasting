@@ -328,6 +328,43 @@ class SciRegressorTester:
         self.static_data = None
         self.configs = None
         self.only_failures = False
+        
+    def setup_test_environment(self):
+        """Set up test environment with synthetic data and temporary directories."""
+        # Create temporary directory for test outputs
+        self.test_dir = tempfile.mkdtemp(prefix="sciregressor_test_")
+        logger.info(f"Created test directory: {self.test_dir}")
+        
+        # Generate synthetic data
+        self.data = TestDataGenerator.generate_synthetic_timeseries_data()
+        self.static_data = TestDataGenerator.generate_synthetic_static_data()
+        
+        # Setup configurations
+        self.configs = {
+            'general_config': GENERAL_CONFIG.copy(),
+            'feature_config': FEATURE_CONFIG.copy(),
+            'model_config': MODEL_CONFIG.copy(),
+            'path_config': PATH_CONFIG.copy(),
+            'data_config': DATA_CONFIG.copy()
+        }
+        
+        # Create config files in test directory
+        config_dir = Path(self.test_dir) / "config"
+        config_dir.mkdir(exist_ok=True)
+        
+        for config_name, config_data in self.configs.items():
+            if config_name != 'path_config':
+                config_file = config_dir / f"{config_name}.json"
+                with open(config_file, 'w') as f:
+                    json.dump(config_data, f, indent=2)
+        
+        logger.info("Test environment setup complete")
+        
+    def teardown_test_environment(self):
+        """Clean up test environment."""
+        if self.test_dir and os.path.exists(self.test_dir):
+            shutil.rmtree(self.test_dir)
+            logger.info(f"Cleaned up test directory: {self.test_dir}")
 
 class ComprehensiveSciRegressorTester:
     """Comprehensive test class for SciRegressor model with all combinations."""
@@ -690,43 +727,6 @@ class ComprehensiveSciRegressorTester:
             logger.warning(f"⚠️  {failed_count} tests failed")
             print(f"⚠️  {failed_count} tests failed")
             return False
-        
-    def setup_test_environment(self):
-        """Set up test environment with synthetic data and temporary directories."""
-        # Create temporary directory for test outputs
-        self.test_dir = tempfile.mkdtemp(prefix="sciregressor_test_")
-        logger.info(f"Created test directory: {self.test_dir}")
-        
-        # Generate synthetic data
-        self.data = TestDataGenerator.generate_synthetic_timeseries_data()
-        self.static_data = TestDataGenerator.generate_synthetic_static_data()
-        
-        # Setup configurations
-        self.configs = {
-            'general_config': GENERAL_CONFIG.copy(),
-            'feature_config': FEATURE_CONFIG.copy(),
-            'model_config': MODEL_CONFIG.copy(),
-            'path_config': PATH_CONFIG.copy(),
-            'data_config': DATA_CONFIG.copy()
-        }
-        
-        # Create config files in test directory
-        config_dir = Path(self.test_dir) / "config"
-        config_dir.mkdir(exist_ok=True)
-        
-        for config_name, config_data in self.configs.items():
-            if config_name != 'path_config':
-                config_file = config_dir / f"{config_name}.json"
-                with open(config_file, 'w') as f:
-                    json.dump(config_data, f, indent=2)
-        
-        logger.info("Test environment setup complete")
-        
-    def teardown_test_environment(self):
-        """Clean up test environment."""
-        if self.test_dir and os.path.exists(self.test_dir):
-            shutil.rmtree(self.test_dir)
-            logger.info(f"Cleaned up test directory: {self.test_dir}")
     
     def _run_test_with_detailed_logging(self, test_func, test_name):
         """
