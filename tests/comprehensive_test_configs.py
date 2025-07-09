@@ -78,7 +78,7 @@ BASE_GENERAL_CONFIG = {
     "rivers_to_exclude": [],
     "test_years": 3,
     "num_elevation_zones": 5,
-    "n_trials": 5,  # Small number for testing
+    "n_trials": 1,  # Single trial for fast testing
     "hparam_tuning_years": 3,
     "early_stopping_val_fraction": 0.1,
     "num_test_years": 2
@@ -127,15 +127,15 @@ PATH_CONFIG = {
 
 # Data configuration
 DATA_CONFIG = {
-    "start_year": 2000,
-    "end_year": 2020,
+    "start_year": 2018,
+    "end_year": 2023,
     "basins": [16936, 16940, 16942]
 }
 
 # Test constants
 TEST_CONSTANTS = {
     "basin_codes": [16936, 16940, 16942],
-    "start_date": "2000-01-01",
+    "start_date": "2018-01-01",
     "noise_level": 0.1,
     "random_seed": 42,
     "min_predictions_for_metrics": 5,
@@ -229,7 +229,7 @@ def get_test_config(model_type: str, preprocessing_method: str, model_name: str 
 
 # Test data generation parameters
 TEST_DATA_PARAMS = {
-    "num_years": 21,  # 2000-2020
+    "num_years": 5,  # 2018-2023
     "num_basins": 3,
     "seasonal_amplitude": 15.0,  # Temperature seasonal variation
     "precip_base": 10.0,  # Base precipitation

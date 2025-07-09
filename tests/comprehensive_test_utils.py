@@ -34,7 +34,7 @@ class ComprehensiveTestDataGenerator:
     
     @staticmethod
     def generate_comprehensive_timeseries_data(
-        start_date: str = "2000-01-01",
+        start_date: str = "2018-01-01",
         basin_codes: List[int] = None,
         noise_level: float = 0.1,
         preprocessing_method: str = "global_normalization"
@@ -54,7 +54,8 @@ class ComprehensiveTestDataGenerator:
         if basin_codes is None:
             basin_codes = TEST_CONSTANTS["basin_codes"]
             
-        end_date = pd.Timestamp.today()
+        # Use exactly 5 years of data for efficiency
+        end_date = pd.Timestamp(start_date) + pd.DateOffset(years=5)
         date_range = pd.date_range(start=start_date, end=end_date, freq='D')
         data_list = []
         
