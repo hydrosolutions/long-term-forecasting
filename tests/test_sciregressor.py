@@ -124,7 +124,7 @@ GENERAL_CONFIG = {
     "snow_vars": [],
     "test_years": 3,
     "num_elevation_zones": 5,
-    "n_trials": 10
+    "n_trials": 1  # Optimized for fast testing
 }
 
 FEATURE_CONFIG = {
@@ -189,12 +189,12 @@ DATA_CONFIG = {
     "basins": [16936, 16940, 16942]
 }
 
-class TestDataGenerator:
-    """Helper class to generate synthetic data for testing SciRegressor."""
+class LegacyTestDataGenerator:
+    """Legacy helper class - replaced by ComprehensiveTestDataGenerator."""
     
     @staticmethod
     def generate_synthetic_timeseries_data(
-        start_date: str = "2000-01-01",
+        start_date: str = "2018-01-01",  # Updated to match optimized date range
         basin_codes: List[int] = [16936, 16940, 16942],
         noise_level: float = 0.1
     ) -> pd.DataFrame:
@@ -210,7 +210,8 @@ class TestDataGenerator:
         Returns:
             DataFrame with synthetic time series data
         """
-        end_date = pd.Timestamp.today()
+        # Use exactly 5 years of data for efficiency (matching comprehensive generator)
+        end_date = pd.Timestamp(start_date) + pd.DateOffset(years=5)
         date_range = pd.date_range(start=start_date, end=end_date, freq='D')
         data_list = []
         
@@ -335,18 +336,19 @@ class SciRegressorTester:
         self.test_dir = tempfile.mkdtemp(prefix="sciregressor_test_")
         logger.info(f"Created test directory: {self.test_dir}")
         
-        # Generate synthetic data
-        self.data = TestDataGenerator.generate_synthetic_timeseries_data()
-        self.static_data = TestDataGenerator.generate_synthetic_static_data()
+        # Generate comprehensive synthetic data (optimized for efficiency)
+        self.data = ComprehensiveTestDataGenerator.generate_comprehensive_timeseries_data()
+        self.static_data = ComprehensiveTestDataGenerator.generate_comprehensive_static_data()
         
-        # Setup configurations
-        self.configs = {
-            'general_config': GENERAL_CONFIG.copy(),
-            'feature_config': FEATURE_CONFIG.copy(),
-            'model_config': MODEL_CONFIG.copy(),
-            'path_config': PATH_CONFIG.copy(),
-            'data_config': DATA_CONFIG.copy()
-        }
+        # Setup configurations using optimized comprehensive configs
+        self.configs = get_test_config("xgb", "global_normalization")
+        
+        # Update with legacy-specific settings if needed
+        self.configs['general_config']['model_name'] = "TestSciRegressor"
+        self.configs['general_config']['models'] = ["xgb", "rf", "catboost"]
+        
+        # Update path config to use test directory
+        self.configs['path_config']['model_home_path'] = self.test_dir
         
         # Create config files in test directory
         config_dir = Path(self.test_dir) / "config"
