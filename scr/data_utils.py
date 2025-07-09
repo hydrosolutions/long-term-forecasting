@@ -409,8 +409,11 @@ def apply_normalization_per_basin(df, scaler, features):
             
             for col in features:
                 if col in scaler[code]:
-                    df.loc[basin_mask, col] = df.loc[basin_mask, col].astype(float)
+                    # Ensure column is float type before normalization to avoid dtype warnings
+                    df[col] = df[col].astype(float)
                     mean_val, std_val = scaler[code][col]
+                    mean_val = float(mean_val)
+                    std_val = float(std_val)
                     df.loc[basin_mask, col] = (df.loc[basin_mask, col] - mean_val) / std_val
     
     return df
