@@ -4,18 +4,23 @@
 ## COMMON BASH COMMANDS:
 
 1. activate environment
+As we are working we do not need to activate the venv specifically but can just use
 bash 
 '
-source "/Users/sandrohunziker/Documents/sapphire_venv/monthly_forecast/bin/activate"
+uv run some_script.py
 '
 
-2. run the tests:
+2. Run ruff
+bash
+'uv run ruff format'
+
+1. run the tests:
 bash 
 '
-python -m pytest -ra 
+uv run pytest -v
 '
 
-3. Run the  shell scripts:
+1. Run the  shell scripts:
 bash
 '
 ./tune_and_calibrate_script.sh

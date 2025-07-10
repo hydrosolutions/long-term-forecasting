@@ -4,19 +4,20 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any
 
 
-
 class BaseForecastModel(ABC):
     """
     Abstract base class for forecast models.
     """
 
-    def __init__(self, 
-                 data: pd.DataFrame,
-                 static_data: pd.DataFrame,
-                 general_config: Dict[str, Any], 
-                 model_config: Dict[str, Any],
-                 feature_config: Dict[str, Any],
-                 path_config: Dict[str, Any]) -> None:
+    def __init__(
+        self,
+        data: pd.DataFrame,
+        static_data: pd.DataFrame,
+        general_config: Dict[str, Any],
+        model_config: Dict[str, Any],
+        feature_config: Dict[str, Any],
+        path_config: Dict[str, Any],
+    ) -> None:
         """
         Initialize the forecast model with a configuration dictionary.
 
@@ -29,8 +30,7 @@ class BaseForecastModel(ABC):
         self.model_config = model_config
         self.feature_config = feature_config
         self.path_config = path_config
-        self.name = general_config['model_name']
-
+        self.name = general_config["model_name"]
 
     @abstractmethod
     def predict_operational(self, data: pd.DataFrame) -> pd.DataFrame:
