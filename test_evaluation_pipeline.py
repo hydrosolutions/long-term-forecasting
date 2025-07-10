@@ -14,21 +14,21 @@ from evaluation.evaluate_pipeline import run_evaluation_pipeline
 
 if __name__ == "__main__":
     print("Testing Evaluation Pipeline...")
-    
+
     # Test with minimal parameters
     success = run_evaluation_pipeline(
         results_dir="../monthly_forecasting_results",
         output_dir="../monthly_forecasting_results/evaluation",
-        evaluation_day='end',
+        evaluation_day="end",
         common_codes_only=True,
-        ensemble_method='mean',
+        ensemble_method="mean",
         include_code_month=False,
         min_samples_overall=5,  # Lower thresholds for testing
         min_samples_code=3,
         min_samples_month=2,
-        min_samples_code_month=1
+        min_samples_code_month=1,
     )
-    
+
     if success:
         print("✅ Evaluation pipeline completed successfully!")
         print("Check output directory: ../monthly_forecasting_results/evaluation/")
