@@ -537,8 +537,8 @@ class TestLongTermMeanFunctions:
         assert 1 in result["code"].values
         assert 2 in result["code"].values
 
-        # Check that we have month column
-        assert "month" in result.columns
+        # Check that we have day_of_year column
+        assert "day_of_year" in result.columns
 
         # Check that all features are present in the result
         for feature in features:
@@ -691,7 +691,7 @@ class TestLongTermMeanScaling:
         long_term_mean = pd.DataFrame(
             {
                 "code": [1, 2],
-                "month": [1, 1],
+                "day_of_year": [1, 1],
                 "feature_1": [1.0, 2.0],
                 "feature_2": [1.5, 2.5],
                 "feature_3": [2.0, 3.0],

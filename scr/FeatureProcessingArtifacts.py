@@ -37,6 +37,12 @@ class FeatureProcessingArtifacts:
         self.experiment_config_hash = None
         self.feature_count = None
         self.target_col = None
+        # New attributes for selective scaling
+        self.relative_features = None  # Features that use relative scaling
+        self.per_basin_features = None  # Features that use per-basin scaling
+        self.relative_scaling_vars = None  # Config patterns for relative scaling
+        self.use_relative_target = None  # Whether target uses relative scaling
+        self.per_basin_scaler = None  # Scaler for per-basin features
 
     def save(self, filepath: Union[str, Path], format: str = "joblib") -> None:
         """
@@ -94,6 +100,11 @@ class FeatureProcessingArtifacts:
             "creation_timestamp": self.creation_timestamp,
             "experiment_config_hash": self.experiment_config_hash,
             "feature_count": self.feature_count,
+            # New selective scaling attributes
+            "relative_features": self.relative_features,
+            "per_basin_features": self.per_basin_features,
+            "relative_scaling_vars": self.relative_scaling_vars,
+            "use_relative_target": self.use_relative_target,
         }
 
         with open(artifacts_dir / "metadata.json", "w") as f:
@@ -116,6 +127,9 @@ class FeatureProcessingArtifacts:
         if self.static_scaler is not None:
             self._save_scaler_safe(artifacts_dir, "static_scaler")
 
+        if self.per_basin_scaler is not None:
+            self._save_scaler_safe(artifacts_dir, "per_basin_scaler")
+
         # Save long_term_means as Parquet
         if self.long_term_means is not None:
             self._save_long_term_means_safe(artifacts_dir)
@@ -130,13 +144,23 @@ class FeatureProcessingArtifacts:
         1. Global: {'feature_name': (mean, std), ...}
         2. Per-basin: {'basin_code': {'feature_name': (mean, std), ...}, ...}
         """
-        if self.scaler is None:
+        # Get the appropriate scaler based on scaler_name
+        if scaler_name == "scaler":
+            scaler = self.scaler
+        elif scaler_name == "static_scaler":
+            scaler = self.static_scaler
+        elif scaler_name == "per_basin_scaler":
+            scaler = self.per_basin_scaler
+        else:
+            scaler = getattr(self, scaler_name, None)
+
+        if scaler is None:
             return
 
         # Convert scaler to JSON-serializable format
         scaler_data = {}
 
-        for key, value in self.scaler.items():
+        for key, value in scaler.items():
             if isinstance(value, dict):
                 # Per-basin case: key is basin_code, value is dict of feature scalers
                 scaler_data[str(key)] = {}
@@ -286,6 +310,11 @@ class FeatureProcessingArtifacts:
             artifacts.creation_timestamp = metadata.get("creation_timestamp")
             artifacts.experiment_config_hash = metadata.get("experiment_config_hash")
             artifacts.feature_count = metadata.get("feature_count")
+            # Load new selective scaling attributes
+            artifacts.relative_features = metadata.get("relative_features")
+            artifacts.per_basin_features = metadata.get("per_basin_features")
+            artifacts.relative_scaling_vars = metadata.get("relative_scaling_vars")
+            artifacts.use_relative_target = metadata.get("use_relative_target")
 
         # Load sklearn objects
         sklearn_path = artifacts_dir / "sklearn_objects.joblib"
@@ -298,6 +327,10 @@ class FeatureProcessingArtifacts:
         artifacts.scaler = cls._load_scaler_safe(artifacts_dir, "scaler")
 
         artifacts.static_scaler = cls._load_scaler_safe(artifacts_dir, "static_scaler")
+
+        artifacts.per_basin_scaler = cls._load_scaler_safe(
+            artifacts_dir, "per_basin_scaler"
+        )
 
         # Load long_term_means from Parquet or JSON
         artifacts.long_term_means = cls._load_long_term_means_safe(artifacts_dir)
@@ -839,21 +872,83 @@ def _normalization_training(
             df, artifacts.scaler, numeric_features_to_scale + [target]
         )
     elif normalization_process == "long_term_mean":
-        if artifacts.long_term_means is None:
+        # Get relative scaling vars from experiment config
+        relative_scaling_vars = experiment_config.get("relative_scaling_vars", None)
+        use_relative_target = experiment_config.get("use_relative_target", False)
+
+        # Store in artifacts
+        artifacts.relative_scaling_vars = relative_scaling_vars
+        artifacts.use_relative_target = use_relative_target
+
+        # Determine feature groups
+        all_features = numeric_features_to_scale + (
+            [target] if use_relative_target else []
+        )
+
+        if relative_scaling_vars:
+            relative_features, per_basin_features = du.get_relative_scaling_features(
+                numeric_features_to_scale, relative_scaling_vars
+            )
+            # Add target to relative features if use_relative_target is True
+            if use_relative_target:
+                relative_features.append(target)
+        else:
+            # If no relative_scaling_vars, all features use long-term mean
+            relative_features = all_features
+            per_basin_features = []
+
+        # Store feature groups in artifacts
+        artifacts.relative_features = relative_features
+        artifacts.per_basin_features = per_basin_features
+
+        # Calculate long-term means for relative features
+        if artifacts.long_term_means is None and relative_features:
             long_term_means = du.get_long_term_mean_per_basin(
-                df, features=numeric_features_to_scale + [target]
+                df, features=relative_features
             )
         else:
             long_term_means = artifacts.long_term_means
 
         artifacts.long_term_means = long_term_means
-        artifacts.scaler = long_term_means.to_dict()
 
+        # Calculate per-basin scaler for non-relative features
+        if per_basin_features:
+            # Only include target in scaler calculation if it should use per-basin scaling
+            if not use_relative_target:
+                artifacts.per_basin_scaler = du.get_normalization_params_per_basin(
+                    df, per_basin_features, target
+                )
+            else:
+                # Don't include target in per-basin scaler if it uses relative scaling
+                artifacts.per_basin_scaler = du.get_normalization_params_per_basin(
+                    df, per_basin_features, None
+                )
+                # Create empty dict entry for consistency
+                if artifacts.per_basin_scaler:
+                    for basin in artifacts.per_basin_scaler:
+                        artifacts.per_basin_scaler[basin][target] = (0.0, 1.0)
+
+        # Keep scaler for backward compatibility
+        artifacts.scaler = (
+            long_term_means.to_dict() if long_term_means is not None else {}
+        )
+
+        # Apply scaling
         df = du.apply_long_term_mean_scaling(
             df,
             long_term_mean=long_term_means,
-            features=numeric_features_to_scale + [target],
+            features=numeric_features_to_scale
+            + ([target] if use_relative_target else []),
+            relative_scaling_vars=relative_scaling_vars,
+            per_basin_scaler=artifacts.per_basin_scaler,
         )
+
+        # Apply per-basin scaling to target if not using relative target
+        if not use_relative_target and target not in relative_features:
+            if artifacts.per_basin_scaler:
+                df = du.apply_normalization_per_basin(
+                    df, artifacts.per_basin_scaler, [target]
+                )
     else:
         raise ValueError(
             f"Unknown normalization process: {normalization_process}. "
@@ -998,6 +1093,8 @@ def _apply_normalization(
             df,
             long_term_mean=artifacts.long_term_means,
             features=numeric_features_to_scale,
+            relative_scaling_vars=artifacts.relative_scaling_vars,
+            per_basin_scaler=artifacts.per_basin_scaler,
         )
     elif normalization_process == "per_basin":
         df = du.apply_normalization_per_basin(
@@ -1056,18 +1153,38 @@ def post_process_predictions(
         return df_predictions
 
     if normalization_process == "long_term_mean":
-        if artifacts.long_term_means is None:
-            logger.warning("Long-term means not available for denormalization")
-            return df_predictions
+        # Check if target was scaled with relative scaling or per-basin scaling
+        if artifacts.use_relative_target and target in artifacts.relative_features:
+            # Target was scaled with long-term mean
+            if artifacts.long_term_means is None:
+                logger.warning("Long-term means not available for denormalization")
+                return df_predictions
 
-        df_predictions = du.apply_inverse_long_term_mean_scaling(
-            df=df_predictions,
-            long_term_mean=artifacts.long_term_means,
-            var_to_scale=prediction_column,
-            var_used_for_scaling=target,
-        )
+            df_predictions = du.apply_inverse_long_term_mean_scaling(
+                df=df_predictions,
+                long_term_mean=artifacts.long_term_means,
+                var_to_scale=prediction_column,
+                var_used_for_scaling=target,
+                relative_features=artifacts.relative_features,
+                per_basin_features=artifacts.per_basin_features,
+                per_basin_scaler=artifacts.per_basin_scaler,
+            )
+            logger.info(
+                f"Applied relative (long-term mean) denormalization to {prediction_column}"
+            )
+        else:
+            # Target was scaled with per-basin scaling
+            if artifacts.per_basin_scaler is None:
+                logger.warning("Per-basin scaler not available for denormalization")
+                return df_predictions
 
-        logger.info(f"Applied long-term mean denormalization to {prediction_column}")
+            df_predictions = du.apply_inverse_normalization_per_basin(
+                df=df_predictions,
+                scaler=artifacts.per_basin_scaler,
+                var_to_scale=prediction_column,
+                var_used_for_scaling=target,
+            )
+            logger.info(f"Applied per-basin denormalization to {prediction_column}")
 
     elif normalization_process == "per_basin":
         if artifacts.scaler is None:

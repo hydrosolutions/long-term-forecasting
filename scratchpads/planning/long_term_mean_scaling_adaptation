@@ -1,0 +1,11 @@
+# Chage of Functionality
+
+Right now there is an option of having long_term_mean scaling - this calculate per basin and month the mean and applies y = x/u , where x is the original feature and u the long term mean. I now want to adapt / enhance this functionality
+
+1. Instead of per basin and per code averaging it should be per basin and per day_of_the_year to get a more accurate representation of the situation
+2. It should not be applied to all features - but rather there should be an config (from general_config) relative_scaling_var (=SWE, T, discharge) which scales all feature which have X (=relative_scaling_var) + "_" in it - the other features should then be scaled with the per basin scaling function - static features should be handled as before with the scaling approach
+3. If the experiment config use_relative_target =True, then the target should also be scaled relatively as the features per basin and day of the year 
+4. adapt the post_process_predictions() function and the apply_inverse_long_term_mean_scaling() function that it handles the new changes
+5. adjust the saving and loading functions in the FeatureProcessingArtifacts
+6. Add the relative features as a self. item in the FeatureProcessingArtifacts
+7. write test functions to ensure it is working
