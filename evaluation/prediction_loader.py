@@ -99,9 +99,41 @@ def scan_prediction_files(
     return discovered_models
 
 
+def _detect_prediction_columns(df: pd.DataFrame, model_name: str) -> List[str]:
+    """
+    Detect all prediction columns in the DataFrame.
+
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        DataFrame with prediction data
+    model_name : str
+        Name of the model for column naming
+
+    Returns:
+    --------
+    List[str]
+        List of prediction column names
+    """
+    prediction_cols = []
+
+    # Look for any column starting with Q_ that's not Q_obs
+    q_cols = [col for col in df.columns if col.startswith("Q_") and col != "Q_obs"]
+
+    if q_cols:
+        prediction_cols = q_cols
+        logger.info(
+            f"Found {len(prediction_cols)} prediction columns for {model_name}: {prediction_cols}"
+        )
+
+    return prediction_cols
+
+
 def _standardize_prediction_columns(df: pd.DataFrame, model_name: str) -> pd.DataFrame:
     """
     Standardize prediction column names to a consistent format.
+    Note: This function now handles only single prediction column cases.
+    For multiple prediction columns, use _create_ensemble_dataframes.
 
     Parameters:
     -----------
@@ -117,33 +149,26 @@ def _standardize_prediction_columns(df: pd.DataFrame, model_name: str) -> pd.Dat
     """
     df = df.copy()
 
-    # Standardize prediction column name
-    prediction_col = None
+    prediction_cols = _detect_prediction_columns(df, model_name)
 
-    # Check for different prediction column patterns
-    if "Q_pred" in df.columns:
-        prediction_col = "Q_pred"
-    elif "Q_mean" in df.columns:
-        prediction_col = "Q_mean"
-    elif "Q50" in df.columns:
-        prediction_col = "Q50"
-    elif f"Q_{model_name}" in df.columns:
-        prediction_col = f"Q_{model_name}"
-    else:
-        # Look for any column starting with Q_ that's not Q_obs
-        q_cols = [col for col in df.columns if col.startswith("Q_") and col != "Q_obs"]
-        if q_cols:
-            prediction_col = q_cols[0]
-            logger.warning(
-                f"Using {prediction_col} as prediction column for {model_name}"
-            )
-
-    if prediction_col is None:
+    if len(prediction_cols) == 0:
         raise ValueError(f"No prediction column found for {model_name}")
 
-    # Rename prediction column to standardized name
-    if prediction_col != "Q_pred":
-        df = df.rename(columns={prediction_col: "Q_pred"})
+    # For single prediction column, standardize as before
+    if len(prediction_cols) == 1:
+        prediction_col = prediction_cols[0]
+        # Rename prediction column to standardized name
+        if prediction_col != "Q_pred":
+            df = df.rename(columns={prediction_col: "Q_pred"})
+    else:
+        # For multiple prediction columns, keep the first one and warn
+        # This maintains backward compatibility for existing code
+        prediction_col = prediction_cols[0]
+        logger.warning(
+            f"Multiple prediction columns found for {model_name}. Using {prediction_col} for compatibility."
+        )
+        if prediction_col != "Q_pred":
+            df = df.rename(columns={prediction_col: "Q_pred"})
 
     # Ensure required columns exist
     required_cols = ["date", "code", "Q_obs", "Q_pred"]
@@ -191,6 +216,81 @@ def _filter_evaluation_dates(
     return df
 
 
+def _create_ensemble_dataframes(
+    df: pd.DataFrame, model_name: str, family_name: str, evaluation_day: Union[str, int]
+) -> Dict[str, pd.DataFrame]:
+    """
+    Create separate DataFrames for each ensemble member and an aggregated ensemble.
+
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        DataFrame with prediction data
+    model_name : str
+        Name of the model
+    family_name : str
+        Name of the model family
+    evaluation_day : Union[str, int]
+        Evaluation day configuration
+
+    Returns:
+    --------
+    Dict[str, pd.DataFrame]
+        Dictionary mapping ensemble member IDs to DataFrames
+    """
+    prediction_cols = _detect_prediction_columns(df, model_name)
+    ensemble_dataframes = {}
+
+    # Create individual ensemble member DataFrames
+    for pred_col in prediction_cols:
+        # Create a copy of the dataframe for this ensemble member
+        ensemble_df = df.copy()
+
+        # Rename the prediction column to Q_pred for standardization
+        ensemble_df = ensemble_df.rename(columns={pred_col: "Q_pred"})
+
+        # Remove other prediction columns
+        other_pred_cols = [col for col in prediction_cols if col != pred_col]
+        ensemble_df = ensemble_df.drop(columns=other_pred_cols, errors="ignore")
+
+        # Filter to evaluation dates
+        ensemble_df = _filter_evaluation_dates(ensemble_df, evaluation_day)
+
+        # Extract ensemble member name from column name
+        ensemble_member = pred_col.replace("Q_", "")
+        if ensemble_member == model_name:
+            ensemble_model_id = f"{family_name}_{model_name}"
+            ensemble_member = "ensemble"
+        else:
+            ensemble_model_id = f"{family_name}_{model_name}_{ensemble_member}"
+
+        # Add model metadata
+        ensemble_df["model_id"] = ensemble_model_id
+        ensemble_df["family"] = family_name
+        ensemble_df["model_name"] = model_name
+        ensemble_df["ensemble_member"] = ensemble_member
+
+        # Convert code to int for consistency
+        ensemble_df["code"] = ensemble_df["code"].astype(int)
+
+        # Ensure required columns exist
+        required_cols = ["date", "code", "Q_obs", "Q_pred"]
+        missing_cols = [col for col in required_cols if col not in ensemble_df.columns]
+
+        if missing_cols:
+            logger.warning(
+                f"Missing required columns {missing_cols} for {ensemble_model_id}"
+            )
+            continue
+
+        ensemble_dataframes[ensemble_model_id] = ensemble_df
+        logger.info(
+            f"Created ensemble member {ensemble_model_id} with {len(ensemble_df)} records"
+        )
+
+    return ensemble_dataframes
+
+
 def load_predictions(
     model_paths: Dict[str, List[str]],
     evaluation_day: Union[str, int] = EVALUATION_DAY_OF_MONTH,
@@ -198,6 +298,7 @@ def load_predictions(
 ) -> Dict[str, pd.DataFrame]:
     """
     Load and standardize prediction data from multiple models.
+    Now supports multiple prediction columns per model (ensemble members).
 
     Parameters:
     -----------
@@ -212,6 +313,7 @@ def load_predictions(
     --------
     Dict[str, pd.DataFrame]
         Dictionary mapping model identifiers to prediction DataFrames
+        Now includes separate entries for each ensemble member and aggregated ensemble
     """
     loaded_predictions = {}
     all_codes = []
@@ -229,24 +331,41 @@ def load_predictions(
                 df = pd.read_csv(prediction_file)
                 logger.info(f"Loaded {len(df)} records from {model_id}")
 
-                # Standardize columns
-                df = _standardize_prediction_columns(df, model_name)
+                # Detect prediction columns
+                prediction_cols = _detect_prediction_columns(df, model_name)
 
-                # Filter to evaluation dates
-                df = _filter_evaluation_dates(df, evaluation_day)
-                logger.info(f"Filtered to {len(df)} evaluation records for {model_id}")
+                if len(prediction_cols) > 1:
+                    # Handle multiple prediction columns (ensemble members)
+                    ensemble_dataframes = _create_ensemble_dataframes(
+                        df, model_name, family_name, evaluation_day
+                    )
 
-                # Add model metadata
-                df["model_id"] = model_id
-                df["family"] = family_name
-                df["model_name"] = model_name
+                    # Add all ensemble DataFrames to loaded_predictions
+                    for ensemble_id, ensemble_df in ensemble_dataframes.items():
+                        loaded_predictions[ensemble_id] = ensemble_df
+                        all_codes.append(set(ensemble_df["code"].unique()))
 
-                # Convert code to int for consistency
-                df["code"] = df["code"].astype(int)
+                else:
+                    # Handle single prediction column (backward compatibility)
+                    df = _standardize_prediction_columns(df, model_name)
 
-                # Store predictions
-                loaded_predictions[model_id] = df
-                all_codes.append(set(df["code"].unique()))
+                    # Filter to evaluation dates
+                    df = _filter_evaluation_dates(df, evaluation_day)
+                    logger.info(
+                        f"Filtered to {len(df)} evaluation records for {model_id}"
+                    )
+
+                    # Add model metadata
+                    df["model_id"] = model_id
+                    df["family"] = family_name
+                    df["model_name"] = model_name
+
+                    # Convert code to int for consistency
+                    df["code"] = df["code"].astype(int)
+
+                    # Store predictions
+                    loaded_predictions[model_id] = df
+                    all_codes.append(set(df["code"].unique()))
 
             except Exception as e:
                 logger.error(f"Failed to load predictions for {model_id}: {str(e)}")
