@@ -68,6 +68,14 @@ MONTH_NAMES = {
     -1: "All Months"
 }
 
+# Month Names - Shifted as we predict on the last day of the previous month for the next month
+MONTH_NAMES = {
+    1: "February", 2: "March", 3: "April", 4: "May",
+    5: "June", 6: "July", 7: "August", 8: "September",
+    9: "October", 10: "November", 11: "December", 12: "January",
+    -1: "All Months"
+}
+
 
 def get_model_color(model_name: str, model_family: Optional[str] = None) -> str:
     """
