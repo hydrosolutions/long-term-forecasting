@@ -67,8 +67,8 @@ def create_simple_ensemble(prediction_data: List[pd.DataFrame],
         logger.error("No valid prediction columns found")
         return pd.DataFrame()
     
-    # Combine predictions into a single DataFrame
-    combined_predictions = pd.concat(prediction_values, axis=1)
+    # Combine predictions into a single DataFrame using outer join
+    combined_predictions = pd.concat(prediction_values, axis=1, join='outer')
     
     # Calculate ensemble
     if ensemble_method == 'mean':
@@ -81,12 +81,21 @@ def create_simple_ensemble(prediction_data: List[pd.DataFrame],
         logger.warning(f"Unknown ensemble method: {ensemble_method}, using mean")
         ensemble_pred = combined_predictions.mean(axis=1)
     
-    # Create ensemble DataFrame
-    ensemble_df = base_df[['date', 'code', 'Q_obs']].copy()
-    ensemble_df['Q_pred'] = ensemble_pred.values
+    # Create ensemble DataFrame from the combined index
+    ensemble_df = combined_predictions.reset_index()
+    ensemble_df = ensemble_df[['date', 'code']].copy()
+    
+    # Add observations from the base DataFrame
+    base_obs = base_df.set_index(['date', 'code'])['Q_obs']
+    ensemble_df = ensemble_df.set_index(['date', 'code'])
+    ensemble_df['Q_obs'] = base_obs
+    ensemble_df['Q_pred'] = ensemble_pred
     
     # Add ensemble metadata
     ensemble_df['n_models'] = (~combined_predictions.isna()).sum(axis=1)
+    
+    # Reset index
+    ensemble_df = ensemble_df.reset_index()
     
     return ensemble_df
 
@@ -434,7 +443,10 @@ def create_ensemble_summary(family_ensembles: Dict[str, pd.DataFrame],
 
 if __name__ == "__main__":
     # Example usage
-    from prediction_loader import load_all_predictions
+    try:
+        from .prediction_loader import load_all_predictions
+    except ImportError:
+        from prediction_loader import load_all_predictions
     
     # Load predictions
     predictions, validation = load_all_predictions()

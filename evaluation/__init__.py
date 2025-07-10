@@ -6,7 +6,7 @@ including individual model evaluation, ensemble creation, and dashboard integrat
 """
 
 __version__ = "1.0.0"
-__author__ = "Hydro Solutions"
+__author__ = "Sandro Hunziker"
 
 # Import main components
 from .evaluate_models import calculate_metrics, evaluate_per_code, evaluate_per_month

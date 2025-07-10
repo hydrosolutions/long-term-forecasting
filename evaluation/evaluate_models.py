@@ -477,7 +477,10 @@ def calculate_model_rankings(evaluation_results: pd.DataFrame,
 
 if __name__ == "__main__":
     # Example usage
-    from prediction_loader import load_all_predictions
+    try:
+        from .prediction_loader import load_all_predictions
+    except ImportError:
+        from prediction_loader import load_all_predictions
     
     # Load predictions
     predictions, validation = load_all_predictions()

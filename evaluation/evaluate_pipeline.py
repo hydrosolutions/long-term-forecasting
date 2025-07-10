@@ -19,9 +19,14 @@ import argparse
 import sys
 
 # Import evaluation modules
-from prediction_loader import load_all_predictions, validate_prediction_data
-from ensemble_builder import create_all_ensembles, save_ensemble_predictions, combine_predictions_and_ensembles
-from evaluate_models import evaluate_multiple_models, calculate_model_rankings
+try:
+    from .prediction_loader import load_all_predictions, validate_prediction_data
+    from .ensemble_builder import create_all_ensembles, save_ensemble_predictions, combine_predictions_and_ensembles
+    from .evaluate_models import evaluate_multiple_models, calculate_model_rankings
+except ImportError:
+    from prediction_loader import load_all_predictions, validate_prediction_data
+    from ensemble_builder import create_all_ensembles, save_ensemble_predictions, combine_predictions_and_ensembles
+    from evaluate_models import evaluate_multiple_models, calculate_model_rankings
 
 # Configure logging
 logging.basicConfig(
