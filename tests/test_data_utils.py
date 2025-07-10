@@ -709,5 +709,219 @@ class TestLongTermMeanScaling:
             assert feat in result.columns
 
 
+class TestRelativeScaling:
+    """Test relative scaling functions for relative deviation preprocessing."""
+
+    def test_calculate_long_term_means(self):
+        """Test calculate_long_term_means function."""
+        # Create test data with multiple years and basins
+        dates = pd.date_range("2020-01-01", periods=1000, freq="D")
+        df = pd.DataFrame({
+            "code": [1, 2] * 500,
+            "date": dates,
+            "SWE": np.random.uniform(0, 100, 1000),
+            "T": np.random.uniform(-20, 30, 1000),
+            "discharge": np.random.uniform(0, 50, 1000),
+        })
+        
+        features = ["SWE", "T", "discharge"]
+        
+        # Calculate long-term means
+        norm_df = du.calculate_long_term_means(df, features)
+        
+        # Check basic structure
+        assert isinstance(norm_df, pd.DataFrame)
+        expected_columns = ["basin_code", "day_of_year", "variable_name", "long_term_mean"]
+        assert list(norm_df.columns) == expected_columns
+        
+        # Check that we have data for all features
+        assert set(norm_df["variable_name"].unique()) == set(features)
+        
+        # Check that we have data for all basins
+        assert set(norm_df["basin_code"].unique()) == {1, 2}
+        
+        # Check day of year range
+        assert norm_df["day_of_year"].min() >= 1
+        assert norm_df["day_of_year"].max() <= 366
+        
+        # Check that long-term means are reasonable
+        assert norm_df["long_term_mean"].notna().all()
+        # Check that SWE and discharge are non-negative, temperature can be negative
+        swe_means = norm_df[norm_df["variable_name"] == "SWE"]["long_term_mean"]
+        discharge_means = norm_df[norm_df["variable_name"] == "discharge"]["long_term_mean"]
+        assert (swe_means >= 0).all()
+        assert (discharge_means >= 0).all()
+
+    def test_calculate_long_term_means_empty_features(self):
+        """Test calculate_long_term_means with empty features list."""
+        df = pd.DataFrame({
+            "code": [1, 2],
+            "date": pd.date_range("2020-01-01", periods=2, freq="D"),
+            "SWE": [10, 20],
+        })
+        
+        # Empty features list should return empty DataFrame
+        norm_df = du.calculate_long_term_means(df, [])
+        
+        assert isinstance(norm_df, pd.DataFrame)
+        assert len(norm_df) == 0
+        expected_columns = ["basin_code", "day_of_year", "variable_name", "long_term_mean"]
+        assert list(norm_df.columns) == expected_columns
+
+    def test_calculate_long_term_means_missing_features(self):
+        """Test calculate_long_term_means with features not in DataFrame."""
+        df = pd.DataFrame({
+            "code": [1, 2],
+            "date": pd.date_range("2020-01-01", periods=2, freq="D"),
+            "SWE": [10, 20],
+        })
+        
+        # Features not in DataFrame should be ignored
+        norm_df = du.calculate_long_term_means(df, ["SWE", "nonexistent_feature"])
+        
+        assert isinstance(norm_df, pd.DataFrame)
+        assert len(norm_df) > 0
+        assert set(norm_df["variable_name"].unique()) == {"SWE"}
+
+    def test_apply_relative_scaling(self):
+        """Test apply_relative_scaling function."""
+        # Create test data
+        df = pd.DataFrame({
+            "code": [1, 1, 2, 2],
+            "date": pd.date_range("2020-01-01", periods=4, freq="D"),
+            "SWE": [10, 20, 15, 25],
+            "T": [5, 10, 7, 12],
+        })
+        
+        # Create normalization DataFrame
+        norm_df = pd.DataFrame({
+            "basin_code": [1, 1, 2, 2],
+            "day_of_year": [1, 2, 1, 2],
+            "variable_name": ["SWE", "SWE", "SWE", "SWE"],
+            "long_term_mean": [5, 10, 10, 20],
+        })
+        
+        features = ["SWE"]
+        
+        # Apply relative scaling
+        result = du.apply_relative_scaling(df, norm_df, features)
+        
+        # Check that relative columns were created
+        assert "SWE_rel_norm" in result.columns
+        assert "SWE" in result.columns  # Original should still be there
+        
+        # Check that scaling was applied correctly
+        # First row: SWE=10, long_term_mean=5, so relative should be 2.0
+        assert result.loc[0, "SWE_rel_norm"] == 2.0
+        # Second row: SWE=20, long_term_mean=10, so relative should be 2.0
+        assert result.loc[1, "SWE_rel_norm"] == 2.0
+
+    def test_apply_relative_scaling_zero_division(self):
+        """Test apply_relative_scaling handles division by zero."""
+        df = pd.DataFrame({
+            "code": [1],
+            "date": pd.date_range("2020-01-01", periods=1, freq="D"),
+            "SWE": [10],
+        })
+        
+        # Create normalization DataFrame with zero mean
+        norm_df = pd.DataFrame({
+            "basin_code": [1],
+            "day_of_year": [1],
+            "variable_name": ["SWE"],
+            "long_term_mean": [0],  # Zero mean should be replaced with 1
+        })
+        
+        features = ["SWE"]
+        
+        # This should not raise an error
+        result = du.apply_relative_scaling(df, norm_df, features)
+        
+        # Check that division by zero was handled (0 replaced with 1)
+        assert result.loc[0, "SWE_rel_norm"] == 10.0  # 10/1 = 10
+
+    def test_inverse_relative_scaling(self):
+        """Test inverse_relative_scaling function."""
+        # Create test data with relative-scaled features
+        df = pd.DataFrame({
+            "code": [1, 1, 2, 2],
+            "date": pd.date_range("2020-01-01", periods=4, freq="D"),
+            "SWE_rel_norm": [2.0, 2.0, 1.5, 1.25],
+            "T_rel_norm": [1.0, 2.0, 1.4, 2.4],
+        })
+        
+        # Create normalization DataFrame
+        norm_df = pd.DataFrame({
+            "basin_code": [1, 1, 2, 2, 1, 1, 2, 2],
+            "day_of_year": [1, 2, 1, 2, 1, 2, 1, 2],
+            "variable_name": ["SWE", "SWE", "SWE", "SWE", "T", "T", "T", "T"],
+            "long_term_mean": [5, 10, 10, 20, 5, 5, 5, 5],
+        })
+        
+        features = ["SWE", "T"]
+        
+        # Apply inverse relative scaling
+        result = du.inverse_relative_scaling(df, norm_df, features)
+        
+        # Check that original features were created
+        assert "SWE" in result.columns
+        assert "T" in result.columns
+        
+        # Check that inverse scaling was applied correctly
+        # First row: SWE_rel_norm=2.0, long_term_mean=5, so SWE should be 10.0
+        assert result.loc[0, "SWE"] == 10.0
+        # Second row: SWE_rel_norm=2.0, long_term_mean=10, so SWE should be 20.0
+        assert result.loc[1, "SWE"] == 20.0
+
+    def test_relative_scaling_round_trip(self):
+        """Test that apply_relative_scaling and inverse_relative_scaling are inverses."""
+        # Create test data
+        df = pd.DataFrame({
+            "code": [1, 1, 2, 2],
+            "date": pd.date_range("2020-01-01", periods=4, freq="D"),
+            "SWE": [10, 20, 15, 25],
+            "T": [5, 10, 7, 12],
+        })
+        
+        features = ["SWE", "T"]
+        
+        # Calculate normalization data
+        norm_df = du.calculate_long_term_means(df, features)
+        
+        # Apply relative scaling
+        df_scaled = du.apply_relative_scaling(df, norm_df, features)
+        
+        # Apply inverse scaling
+        df_unscaled = du.inverse_relative_scaling(df_scaled, norm_df, features)
+        
+        # Check that we get back the original values (approximately)
+        for feat in features:
+            assert np.allclose(df[feat].values, df_unscaled[feat].values, rtol=1e-10)
+
+    def test_relative_scaling_leap_year(self):
+        """Test relative scaling with leap year data."""
+        # Create test data including Feb 29 (leap year)
+        dates = pd.date_range("2020-02-28", periods=3, freq="D")  # 2020 is a leap year
+        df = pd.DataFrame({
+            "code": [1, 1, 1],
+            "date": dates,
+            "SWE": [10, 15, 20],
+        })
+        
+        features = ["SWE"]
+        
+        # Calculate long-term means
+        norm_df = du.calculate_long_term_means(df, features)
+        
+        # Check that day 60 (Feb 29) is handled correctly
+        assert 60 in norm_df["day_of_year"].values
+        
+        # Apply relative scaling
+        result = du.apply_relative_scaling(df, norm_df, features)
+        
+        # Should not raise any errors
+        assert "SWE_rel_norm" in result.columns
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

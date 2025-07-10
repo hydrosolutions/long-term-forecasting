@@ -901,24 +901,32 @@ def apply_relative_scaling(df: pd.DataFrame, norm_df: pd.DataFrame, features: li
     # Rename basin_code to code for merging
     norm_pivot = norm_pivot.rename(columns={'basin_code': 'code'})
     
+    # Rename normalization columns to avoid conflicts
+    norm_cols_map = {}
+    for feature in features:
+        if feature in norm_pivot.columns:
+            norm_cols_map[feature] = f"{feature}_norm"
+    norm_pivot = norm_pivot.rename(columns=norm_cols_map)
+    
     # Merge normalization data
     df = df.merge(norm_pivot, on=['code', 'day_of_year'], how='left')
     
     # Apply relative scaling to each feature
     for feature in features:
-        if feature in df.columns and feature in norm_pivot.columns:
-            # Create relative scaled column
-            rel_col = f"{feature}_rel_norm"
-            norm_col = feature  # from norm_pivot
-            
-            # Handle division by zero - replace 0 with 1
-            norm_values = df[norm_col].replace(0, 1)
-            
-            # Apply relative scaling
-            df[rel_col] = df[feature] / norm_values
-            
-            # Drop the normalization column to avoid clutter
-            df = df.drop(columns=[norm_col])
+        if feature in df.columns:
+            norm_col = f"{feature}_norm"
+            if norm_col in df.columns:
+                # Create relative scaled column
+                rel_col = f"{feature}_rel_norm"
+                
+                # Handle division by zero - replace 0 with 1
+                norm_values = df[norm_col].replace(0, 1)
+                
+                # Apply relative scaling
+                df[rel_col] = df[feature] / norm_values
+                
+                # Drop the normalization column to avoid clutter
+                df = df.drop(columns=[norm_col])
     
     return df
 
@@ -957,24 +965,28 @@ def inverse_relative_scaling(df: pd.DataFrame, norm_df: pd.DataFrame, features: 
     # Rename basin_code to code for merging
     norm_pivot = norm_pivot.rename(columns={'basin_code': 'code'})
     
+    # Rename normalization columns to avoid conflicts
+    norm_cols_map = {}
+    for feature in features:
+        if feature in norm_pivot.columns:
+            norm_cols_map[feature] = f"{feature}_norm"
+    norm_pivot = norm_pivot.rename(columns=norm_cols_map)
+    
     # Merge normalization data
     df = df.merge(norm_pivot, on=['code', 'day_of_year'], how='left')
     
     # Apply inverse relative scaling to each feature
     for feature in features:
         rel_col = f"{feature}_rel_norm"
-        if rel_col in df.columns and feature in norm_pivot.columns:
+        norm_col = f"{feature}_norm"
+        if rel_col in df.columns and norm_col in df.columns:
             # Handle missing normalization values - replace with 1
-            norm_values = df[feature].fillna(1)
+            norm_values = df[norm_col].fillna(1)
             
             # Apply inverse scaling
             df[feature] = df[rel_col] * norm_values
             
             # Drop the normalization column to avoid clutter
-            if feature in df.columns:
-                try:
-                    df = df.drop(columns=[feature])
-                except KeyError:
-                    pass  # Column already dropped or doesn't exist
+            df = df.drop(columns=[norm_col])
     
     return df
