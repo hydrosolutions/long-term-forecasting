@@ -51,7 +51,7 @@ app.layout = html.Div([
     dcc.Tabs(id="main-tabs", value='tab-1', children=[
         dcc.Tab(label='Performance by Month', value='tab-1'),
         dcc.Tab(label='Time Series Comparison', value='tab-2'),
-        dcc.Tab(label='Model Comparison by Basin', value='tab-3'),
+        dcc.Tab(label='Monthly Performance by Basin', value='tab-3'),
         dcc.Tab(label='Monthly Performance Heatmap', value='tab-4'),
         dcc.Tab(label='Data Table', value='tab-5'),
     ]),
@@ -87,10 +87,28 @@ def create_tab1_layout():
 
 # Tab 2: Observed vs Predicted Time Series
 def create_tab2_layout():
+    # Get available models from predictions
+    prediction_models = []
+    try:
+        pred_handler = PredictionDataHandler()
+        pred_handler._load_all_predictions()
+        if pred_handler._all_predictions:
+            prediction_models = sorted(pred_handler._all_predictions.keys())
+            # Filter out ensemble members if needed
+            prediction_models = [m for m in prediction_models if not any(sub in m for sub in ['_xgb', '_lgbm', '_catboost'])]
+    except:
+        prediction_models = []
+    
     return html.Div([
         create_control_panel([
+            {'label': 'Select Model (from predictions):', 'control': dcc.Dropdown(
+                id='tab2-model-selector',
+                options=[{'label': model, 'value': model} for model in prediction_models],
+                value=prediction_models[0] if prediction_models else None,
+                clearable=False
+            )},
             {'label': 'Select Basin:', 'control': create_basin_selector(metrics_handler.available_codes)},
-            {'label': 'Date Range (optional):', 'control': create_date_range_picker(
+            {'label': 'Date Range:', 'control': create_date_range_picker(
                 start_date='2010-01-01',
                 end_date='2020-12-31'
             )}
@@ -104,17 +122,8 @@ def create_tab2_layout():
 def create_tab3_layout():
     return html.Div([
         create_control_panel([
-            {'label': 'Select Metric:', 'control': create_metric_selector()},
-            {'label': 'Sort Basins By:', 
-             'control': dcc.RadioItems(
-                 id='tab3-sort-by',
-                 options=[
-                     {'label': 'Basin Code', 'value': 'code'},
-                     {'label': 'Median Performance', 'value': 'median'}
-                 ],
-                 value='median',
-                 inline=True
-             )}
+            {'label': 'Select Basin:', 'control': create_basin_selector(metrics_handler.available_codes)},
+            {'label': 'Select Metric:', 'control': create_metric_selector()}
         ]),
         create_loading_wrapper('tab3-graph', dcc.Graph(id='tab3-graph'))
     ])
@@ -234,37 +243,43 @@ def update_tab1_graph(selected_models, selected_metric, basin_filter):
     
     fig = go.Figure()
     
-    # Track which models have been added to legend
-    legend_added = set()
-    
-    # Sort months and get unique basins
+    # Create boxplots grouped by month with models side by side
     months = sorted(df['month'].unique())
     
     for model in selected_models:
         model_df = df[df['model'] == model]
         if not model_df.empty:
+            # Collect all data for this model across all months
+            x_data = []
+            y_data = []
+            hover_text = []
+            
             for month in months:
                 month_df = model_df[model_df['month'] == month]
                 if not month_df.empty:
                     # Get values for all basins in this month
                     values = month_df[selected_metric].dropna()
-                    if len(values) > 0:
-                        # Ensure showlegend is a native Python bool
-                        show_in_legend = bool(model not in legend_added)
-                        
-                        fig.add_trace(go.Box(
-                            y=values,
-                            x=[MONTH_NAMES[month]] * len(values),
-                            name=model,
-                            marker_color=color_map[model],
-                            boxmean='sd',
-                            showlegend=show_in_legend,
-                            hovertext=[f"Basin {code}" for code in month_df['code']],
-                            hoverinfo="y+text"
-                        ))
-                        
-                        # Mark this model as having been added to legend
-                        legend_added.add(model)
+                    month_codes = month_df[month_df[selected_metric].notna()]['code']
+                    
+                    # Add data for this month
+                    x_data.extend([MONTH_NAMES[month]] * len(values))
+                    y_data.extend(values)
+                    hover_text.extend([f"Basin {code}" for code in month_codes])
+            
+            if len(y_data) > 0:
+                fig.add_trace(go.Box(
+                    y=y_data,
+                    x=x_data,
+                    name=model,
+                    marker_color=color_map[model],
+                    boxpoints='outliers',  # Show outliers as points
+                    whiskerwidth=0.5,  # Make whiskers more prominent
+                    pointpos=0,  # Center outlier points
+                    jitter=0.3,  # Add slight jitter to outliers for clarity
+                    hovertext=hover_text,
+                    hoverinfo="y+text+name",
+                    offsetgroup=model,  # This ensures models are grouped side by side
+                ))
     
     title = f"{METRIC_INFO[selected_metric]['display_name']} by Month (All Basins)"
     if basin_filter != 'all':
@@ -284,181 +299,126 @@ def update_tab1_graph(selected_models, selected_metric, basin_filter):
 @app.callback(
     [Output('tab2-graph', 'figure'),
      Output('tab2-metrics-display', 'children')],
-    [Input('model-selector', 'value'),
+    [Input('tab2-model-selector', 'value'),
      Input('basin-selector', 'value'),
      Input('date-range-picker', 'start_date'),
      Input('date-range-picker', 'end_date')]
 )
-def update_tab2_graph(selected_models, selected_basin, start_date, end_date):
-    if not selected_models or not selected_basin:
-        return go.Figure().add_annotation(text="Please select models and a basin"), ""
+def update_tab2_graph(selected_model, selected_basin, start_date, end_date):
+    if not selected_model or not selected_basin:
+        return go.Figure().add_annotation(text="Please select a model and a basin"), ""
     
     fig = go.Figure()
-    metrics_cards = []
     
-    # Add observed data (from first model's predictions)
-    first_model_data = prediction_handler.get_observed_vs_predicted(
-        selected_models[0], selected_basin, start_date, end_date
+    # Get observed vs predicted data
+    pred_data = prediction_handler.get_observed_vs_predicted(
+        selected_model, selected_basin, start_date, end_date
     )
     
-    if not first_model_data.empty:
-        fig.add_trace(go.Scatter(
-            x=first_model_data['date'],
-            y=first_model_data['Q_obs'],
-            mode='lines',
-            name='Observed',
-            line=dict(color='black', width=2)
-        ))
+    if pred_data.empty:
+        return go.Figure().add_annotation(text=f"No data available for {selected_model} in basin {selected_basin}"), ""
     
-    # Add predicted data for each model
-    color_map = get_color_mapping(metrics_handler.df[metrics_handler.df['model'].isin(selected_models)])
+    # Add observed data
+    fig.add_trace(go.Scatter(
+        x=pred_data['date'],
+        y=pred_data['Q_obs'],
+        mode='lines',
+        name='Observed',
+        line=dict(color='black', width=2)
+    ))
     
-    for model in selected_models:
-        pred_data = prediction_handler.get_observed_vs_predicted(
-            model, selected_basin, start_date, end_date
+    # Add predicted data
+    fig.add_trace(go.Scatter(
+        x=pred_data['date'],
+        y=pred_data['Q_pred'],
+        mode='lines',
+        name=f'{selected_model} (Predicted)',
+        line=dict(color='#1f77b4', dash='dash')
+    ))
+    
+    # Try to find metrics for this model-basin combination
+    # Try different model name variations
+    model_base = selected_model.split('_', 1)[1] if '_' in selected_model else selected_model
+    metrics_text = "Metrics not available in metrics.csv"
+    
+    for model_variant in [selected_model, model_base]:
+        metrics_df = metrics_handler.get_filtered_data(
+            models=[model_variant],
+            codes=[selected_basin],
+            evaluation_level='per_code'
         )
         
-        if not pred_data.empty:
-            fig.add_trace(go.Scatter(
-                x=pred_data['date'],
-                y=pred_data['Q_pred'],
-                mode='lines',
-                name=f'{model} (Predicted)',
-                line=dict(color=color_map.get(model, '#808080'), dash='dash')
-            ))
-            
-            # Calculate metrics for this model-basin combination
-            metrics_df = metrics_handler.get_filtered_data(
-                models=[model],
-                codes=[selected_basin],
-                evaluation_level='per_code'
-            )
-            
-            if not metrics_df.empty:
-                metrics_dict = metrics_df.iloc[0].to_dict()
-                metric_text = create_performance_annotation({
-                    k: v for k, v in metrics_dict.items() 
-                    if k in ['nse', 'rmse', 'pbias', 'kge']
-                })
-                
-                metrics_cards.append(
-                    html.Div([
-                        html.H5(model, style={'color': color_map.get(model, '#808080')}),
-                        html.Pre(metric_text)
-                    ], style={'display': 'inline-block', 'margin': '10px', 
-                             'padding': '10px', 'border': '1px solid #ddd',
-                             'borderRadius': '5px'})
-                )
+        if not metrics_df.empty:
+            metrics_dict = metrics_df.iloc[0].to_dict()
+            metrics_text = create_performance_annotation({
+                k: v for k, v in metrics_dict.items() 
+                if k in ['nse', 'rmse', 'pbias', 'kge', 'r2']
+            })
+            break
+    
+    metrics_display = html.Div([
+        html.H5(selected_model),
+        html.Pre(metrics_text)
+    ], style={'margin': '10px', 'padding': '10px', 'border': '1px solid #ddd', 'borderRadius': '5px'})
     
     fig.update_layout(
-        title=f"Observed vs Predicted Discharge - Basin {selected_basin}",
+        title=f"Observed vs Predicted Discharge - {selected_model} - Basin {selected_basin}",
         xaxis_title="Date",
         yaxis_title="Discharge (m3/s)",
         hovermode='x unified'
     )
     
-    metrics_display = html.Div(metrics_cards)
-    
     return apply_default_layout(fig), metrics_display
 
 
-# Tab 3 callback: Model Comparison by Basin
+# Tab 3 callback: Model Comparison by Basin (Line Plot)
 @app.callback(
     Output('tab3-graph', 'figure'),
     [Input('model-selector', 'value'),
-     Input('metric-selector', 'value'),
-     Input('tab3-sort-by', 'value')]
+     Input('basin-selector', 'value'),
+     Input('metric-selector', 'value')]
 )
-def update_tab3_graph(selected_models, selected_metric, sort_by):
-    if not selected_models:
-        return go.Figure().add_annotation(text="Please select at least one model")
+def update_tab3_graph(selected_models, selected_basin, selected_metric):
+    if not selected_models or not selected_basin:
+        return go.Figure().add_annotation(text="Please select models and a basin")
     
-    # Get per-basin data
+    # Get per-month data for the selected basin
     df = metrics_handler.get_filtered_data(
         models=selected_models,
-        evaluation_level='per_code'
+        codes=[selected_basin],
+        evaluation_level='per_code_month'
     )
+    
+    # Remove 'all months' data
+    df = df[df['month'] > 0]
     
     if df.empty:
-        return go.Figure().add_annotation(text="No data available")
+        return go.Figure().add_annotation(text=f"No monthly data available for basin {selected_basin}")
     
-    # Sort basins
-    if sort_by == 'median':
-        # Calculate median performance per basin
-        basin_medians = df.groupby('code')[selected_metric].median().sort_values(
-            ascending=not METRIC_INFO[selected_metric]['higher_is_better']
-        )
-        basin_order = basin_medians.index.tolist()
-    else:
-        basin_order = sorted(df['code'].unique())
-    
-    # Create subplots with dynamic spacing and row limits
-    from plotly.subplots import make_subplots
-    n_basins = len(basin_order)
-    n_cols = 4
-    
-    # Show all basins - remove the limit
-    # max_basins = 60  # Reasonable limit for visualization
-    # if n_basins > max_basins:
-    #     basin_order = basin_order[:max_basins]
-    #     n_basins = max_basins
-    
-    n_rows = (n_basins + n_cols - 1) // n_cols
-    
-    # Calculate appropriate vertical spacing based on number of rows
-    # Plotly's constraint: vertical_spacing <= 1 / (rows - 1)
-    max_vertical_spacing = 1 / (n_rows - 1) if n_rows > 1 else 0.15
-    # Use a reasonable spacing that's within limits
-    vertical_spacing = min(0.15, max_vertical_spacing * 0.8)  # Use 80% of max to be safe
-    
-    fig = make_subplots(
-        rows=n_rows, cols=n_cols,
-        subplot_titles=[f"Basin {code}" for code in basin_order],
-        vertical_spacing=vertical_spacing,
-        horizontal_spacing=0.05
-    )
-    
+    # Create line plot
+    fig = go.Figure()
     color_map = get_color_mapping(df)
     
-    for idx, basin in enumerate(basin_order):
-        row = idx // n_cols + 1
-        col = idx % n_cols + 1
-        
-        basin_df = df[df['code'] == basin]
-        
-        for model in selected_models:
-            model_data = basin_df[basin_df['model'] == model]
-            if not model_data.empty and selected_metric in model_data.columns:
-                value = model_data[selected_metric].iloc[0]
-                if not pd.isna(value):
-                    fig.add_trace(
-                        go.Bar(
-                            x=[model],
-                            y=[value],
-                            name=model,
-                            marker_color=color_map.get(model, '#808080'),
-                            showlegend=(idx == 0),
-                            text=format_metric_value(value, selected_metric),
-                            textposition='auto'
-                        ),
-                        row=row, col=col
-                    )
-    
-    # Calculate appropriate height based on number of rows
-    # Use smaller height per row when there are many basins
-    row_height = 200 if n_rows <= 10 else max(150, min(200, 2000 // n_rows))
+    for model in selected_models:
+        model_df = df[df['model'] == model].sort_values('month')
+        if not model_df.empty:
+            fig.add_trace(go.Scatter(
+                x=[MONTH_NAMES[m] for m in model_df['month']],
+                y=model_df[selected_metric],
+                mode='lines+markers',
+                name=model,
+                line=dict(color=color_map.get(model, '#808080'), width=2),
+                marker=dict(size=8)
+            ))
     
     fig.update_layout(
-        title=f"{METRIC_INFO[selected_metric]['display_name']} Comparison by Basin",
-        height=row_height * n_rows,
-        showlegend=True
+        title=f"{METRIC_INFO[selected_metric]['display_name']} by Month - Basin {selected_basin}",
+        xaxis_title="Month",
+        yaxis_title=METRIC_INFO[selected_metric]['display_name'],
+        hovermode='x unified'
     )
     
-    # Update axes
-    fig.update_xaxes(tickangle=-45)
-    fig.update_yaxes(title_text=METRIC_INFO[selected_metric]['display_name'], row=n_rows, col=1)
-    
-    return fig
+    return apply_default_layout(fig)
 
 
 # Tab 4 callback: Monthly Performance Analysis

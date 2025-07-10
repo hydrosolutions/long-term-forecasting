@@ -245,6 +245,8 @@ class PredictionDataHandler:
         """
         # Load all predictions if not already loaded
         self._load_all_predictions()
+
+        logger.info(f"self all predictions: {self._all_predictions.keys()}")
         
         # Get predictions for the specific model
         if model not in self._all_predictions:
@@ -255,6 +257,8 @@ class PredictionDataHandler:
         
         # Filter by code if specified
         if code is not None:
+            code = int(code)  # Ensure code is an integer
+            df['code'] = df['code'].astype(int)  # Ensure code column is integer
             df = df[df['code'] == code]
             
         # Remove ensemble members if not requested
@@ -285,8 +289,10 @@ class PredictionDataHandler:
         df = self.load_predictions(model, code)
         
         if df.empty:
+            logger.warning(f"No prediction data available for model {model} and code {code}")
             return df
             
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
         # Filter by date range if specified
         if start_date is not None:
             df = df[df['date'] >= pd.to_datetime(start_date)]
