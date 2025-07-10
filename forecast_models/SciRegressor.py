@@ -97,8 +97,10 @@ class SciRegressor(BaseForecastModel):
             "early_stopping_val_fraction", 0.1
         )
         self.num_test_years = self.general_config.get("num_test_years", 2)
-        self.relative_scaling_vars = self.general_config.get("relative_scaling_vars", [])
-        
+        self.relative_scaling_vars = self.general_config.get(
+            "relative_scaling_vars", []
+        )
+
         # Initialize normalization DataFrame for relative scaling
         self.norm_df = None
 
@@ -1055,7 +1057,7 @@ class SciRegressor(BaseForecastModel):
                         save_path, f"{model_type}_feature_importance.csv"
                     )
                     feature_importance.to_csv(feature_importance_path, index=False)
-        
+
         # Save normalization DataFrame if it exists
         if self.norm_df is not None:
             norm_df_path = os.path.join(save_path, "norm_df.csv")
@@ -1115,7 +1117,7 @@ class SciRegressor(BaseForecastModel):
                 "artifacts": artifacts,
                 "final_features": final_features,
             }
-        
+
         # Load normalization DataFrame if it exists
         norm_df_path = os.path.join(load_path, "norm_df.csv")
         if os.path.exists(norm_df_path):
@@ -1123,6 +1125,8 @@ class SciRegressor(BaseForecastModel):
             logger.info(f"Normalization DataFrame loaded from {norm_df_path}")
         else:
             self.norm_df = None
-            logger.info("No normalization DataFrame found, relative scaling will be disabled")
+            logger.info(
+                "No normalization DataFrame found, relative scaling will be disabled"
+            )
 
         logger.info(f"Models loaded from {load_path}")

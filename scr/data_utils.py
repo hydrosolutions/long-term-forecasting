@@ -753,124 +753,63 @@ def average_by_elevation_band(df, elevation_band_areas):
     return df
 
 
-def create_lag_features(df, features, lags):
-    df = df.copy()
-
-    for code in df.code.unique():
-        mask = df.code == code
-
-        for feature in features:
-            for lag in lags:
-                df.loc[mask, f"{feature}_lag_{lag}"] = df.loc[mask, feature].shift(lag)
-
-    return df
-
-
-def agg_with_min_obs(x, func="mean", min_obs=15):
+def calculate_norm_means(df: pd.DataFrame, features: list) -> pd.DataFrame:
     """
-    Aggregate data only if there are enough valid observations
+    Calculate norm means for each day of the year (1-366) and basin.
 
-    Parameters:
-    -----------
-    x : Series
-        Data to aggregate
-    func : str
-        'mean' or 'sum'
-    min_obs : int
-        Minimum number of non-NaN observations required
-
-    Returns:
-    --------
-    float or NaN
-        Aggregated value if enough observations, NaN otherwise
-    """
-    valid_count = x.notna().sum()
-    if valid_count >= min_obs:
-        if func == "last":
-            return np.nanmean(x.iloc[-5:])  # Get last value this way instead
-        return x.agg(func)
-    return np.nan
-
-
-def create_monthly_df(df, feature_cols):
-    df = df.copy()
-
-    df["month"] = df["date"].dt.month
-    df["year"] = df["date"].dt.year
-
-    groupby_cols = ["year", "month"]
-
-    # Base aggregations
-    agg_dict = {
-        "discharge": lambda y: agg_with_min_obs(y, "mean"),
-        "T": "mean",
-        "P": "sum",
-    }
-
-    # Add feature column aggregations
-    for col in feature_cols:
-        df[f"{col}_mean"] = df[col].bfill().values
-        # df[f'{col}_mean_last'] = df[col].bfill().values
-        agg_dict[f"{col}_mean"] = "mean"
-        # agg_dict[f'{col}_mean_last'] = lambda y: agg_with_min_obs(y, 'last')
-
-    # Apply the groupby with all aggregations
-    hydro_df = df.groupby(groupby_cols).agg(agg_dict).reset_index()
-
-    return hydro_df
-
-
-def calculate_long_term_means(df: pd.DataFrame, features: list) -> pd.DataFrame:
-    """
-    Calculate long-term means for each day of the year (1-366) and basin.
-    
     Parameters:
     -----------
     df : pd.DataFrame
         DataFrame with 'date', 'code' columns and feature columns
     features : list
-        List of feature columns to calculate long-term means for
-    
+        List of feature columns to calculate norm means for
+
     Returns:
     --------
     pd.DataFrame
         DataFrame with columns: [basin_code, day_of_year, variable_name, long_term_mean]
     """
     df = df.copy()
-    
+
     # Add day of year column
-    df['day_of_year'] = df['date'].dt.dayofyear
-    
+    df["day_of_year"] = df["date"].dt.dayofyear
+
     # Group by basin and day of year
-    groupby_cols = ['code', 'day_of_year']
-    
+    groupby_cols = ["code", "day_of_year"]
+
     # Calculate means for each feature
     results = []
     for feature in features:
         if feature in df.columns:
             # Calculate long-term mean for this feature
             feature_means = df.groupby(groupby_cols)[feature].mean().reset_index()
-            feature_means['variable_name'] = feature
-            feature_means['long_term_mean'] = feature_means[feature]
-            feature_means = feature_means[['code', 'day_of_year', 'variable_name', 'long_term_mean']]
+            feature_means["variable_name"] = feature
+            feature_means["long_term_mean"] = feature_means[feature]
+            feature_means = feature_means[
+                ["code", "day_of_year", "variable_name", "long_term_mean"]
+            ]
             results.append(feature_means)
-    
+
     # Combine all results
     if results:
         norm_df = pd.concat(results, ignore_index=True)
         # Rename code column to basin_code for clarity
-        norm_df = norm_df.rename(columns={'code': 'basin_code'})
+        norm_df = norm_df.rename(columns={"code": "basin_code"})
         return norm_df
     else:
         # Return empty DataFrame with expected columns
-        return pd.DataFrame(columns=['basin_code', 'day_of_year', 'variable_name', 'long_term_mean'])
+        return pd.DataFrame(
+            columns=["basin_code", "day_of_year", "variable_name", "long_term_mean"]
+        )
 
 
-def apply_relative_scaling(df: pd.DataFrame, norm_df: pd.DataFrame, features: list) -> pd.DataFrame:
+def apply_relative_scaling(
+    df: pd.DataFrame, norm_df: pd.DataFrame, features: list
+) -> pd.DataFrame:
     """
     Apply relative scaling to features using long-term means.
     Creates new columns with suffix '_rel_norm'.
-    
+
     Parameters:
     -----------
     df : pd.DataFrame
@@ -879,38 +818,38 @@ def apply_relative_scaling(df: pd.DataFrame, norm_df: pd.DataFrame, features: li
         DataFrame with normalization data (basin_code, day_of_year, variable_name, long_term_mean)
     features : list
         List of feature columns to apply relative scaling to
-    
+
     Returns:
     --------
     pd.DataFrame
         DataFrame with additional relative-scaled columns
     """
     df = df.copy()
-    
+
     # Add day of year column if not present
-    if 'day_of_year' not in df.columns:
-        df['day_of_year'] = df['date'].dt.dayofyear
-    
+    if "day_of_year" not in df.columns:
+        df["day_of_year"] = df["date"].dt.dayofyear
+
     # Create pivot table for easier merging
     norm_pivot = norm_df.pivot_table(
-        index=['basin_code', 'day_of_year'], 
-        columns='variable_name', 
-        values='long_term_mean'
+        index=["basin_code", "day_of_year"],
+        columns="variable_name",
+        values="long_term_mean",
     ).reset_index()
-    
+
     # Rename basin_code to code for merging
-    norm_pivot = norm_pivot.rename(columns={'basin_code': 'code'})
-    
+    norm_pivot = norm_pivot.rename(columns={"basin_code": "code"})
+
     # Rename normalization columns to avoid conflicts
     norm_cols_map = {}
     for feature in features:
         if feature in norm_pivot.columns:
             norm_cols_map[feature] = f"{feature}_norm"
     norm_pivot = norm_pivot.rename(columns=norm_cols_map)
-    
+
     # Merge normalization data
-    df = df.merge(norm_pivot, on=['code', 'day_of_year'], how='left')
-    
+    df = df.merge(norm_pivot, on=["code", "day_of_year"], how="left")
+
     # Apply relative scaling to each feature
     for feature in features:
         if feature in df.columns:
@@ -918,23 +857,25 @@ def apply_relative_scaling(df: pd.DataFrame, norm_df: pd.DataFrame, features: li
             if norm_col in df.columns:
                 # Create relative scaled column
                 rel_col = f"{feature}_rel_norm"
-                
+
                 # Handle division by zero - replace 0 with 1
                 norm_values = df[norm_col].replace(0, 1)
-                
+
                 # Apply relative scaling
                 df[rel_col] = df[feature] / norm_values
-                
+
                 # Drop the normalization column to avoid clutter
                 df = df.drop(columns=[norm_col])
-    
+
     return df
 
 
-def inverse_relative_scaling(df: pd.DataFrame, norm_df: pd.DataFrame, features: list) -> pd.DataFrame:
+def inverse_relative_scaling(
+    df: pd.DataFrame, norm_df: pd.DataFrame, features: list
+) -> pd.DataFrame:
     """
     Inverse relative scaling to transform back to original scale.
-    
+
     Parameters:
     -----------
     df : pd.DataFrame
@@ -943,38 +884,38 @@ def inverse_relative_scaling(df: pd.DataFrame, norm_df: pd.DataFrame, features: 
         DataFrame with normalization data (basin_code, day_of_year, variable_name, long_term_mean)
     features : list
         List of feature columns to inverse scale (should be the original feature names)
-    
+
     Returns:
     --------
     pd.DataFrame
         DataFrame with features transformed back to original scale
     """
     df = df.copy()
-    
+
     # Add day of year column if not present
-    if 'day_of_year' not in df.columns:
-        df['day_of_year'] = df['date'].dt.dayofyear
-    
+    if "day_of_year" not in df.columns:
+        df["day_of_year"] = df["date"].dt.dayofyear
+
     # Create pivot table for easier merging
     norm_pivot = norm_df.pivot_table(
-        index=['basin_code', 'day_of_year'], 
-        columns='variable_name', 
-        values='long_term_mean'
+        index=["basin_code", "day_of_year"],
+        columns="variable_name",
+        values="long_term_mean",
     ).reset_index()
-    
+
     # Rename basin_code to code for merging
-    norm_pivot = norm_pivot.rename(columns={'basin_code': 'code'})
-    
+    norm_pivot = norm_pivot.rename(columns={"basin_code": "code"})
+
     # Rename normalization columns to avoid conflicts
     norm_cols_map = {}
     for feature in features:
         if feature in norm_pivot.columns:
             norm_cols_map[feature] = f"{feature}_norm"
     norm_pivot = norm_pivot.rename(columns=norm_cols_map)
-    
+
     # Merge normalization data
-    df = df.merge(norm_pivot, on=['code', 'day_of_year'], how='left')
-    
+    df = df.merge(norm_pivot, on=["code", "day_of_year"], how="left")
+
     # Apply inverse relative scaling to each feature
     for feature in features:
         rel_col = f"{feature}_rel_norm"
@@ -982,11 +923,11 @@ def inverse_relative_scaling(df: pd.DataFrame, norm_df: pd.DataFrame, features: 
         if rel_col in df.columns and norm_col in df.columns:
             # Handle missing normalization values - replace with 1
             norm_values = df[norm_col].fillna(1)
-            
+
             # Apply inverse scaling
             df[feature] = df[rel_col] * norm_values
-            
+
             # Drop the normalization column to avoid clutter
             df = df.drop(columns=[norm_col])
-    
+
     return df
