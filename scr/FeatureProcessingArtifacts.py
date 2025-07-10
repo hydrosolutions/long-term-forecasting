@@ -934,13 +934,19 @@ def _normalization_training(
         )
 
         # Apply scaling
+        # Build the list of features to scale
+        features_to_scale = numeric_features_to_scale.copy()
+        if use_relative_target:
+            features_to_scale.append(target)
+
+        # Pass explicit relative features to ensure target is scaled correctly
         df = du.apply_long_term_mean_scaling(
             df,
             long_term_mean=long_term_means,
-            features=numeric_features_to_scale
-            + ([target] if use_relative_target else []),
+            features=features_to_scale,
             relative_scaling_vars=relative_scaling_vars,
             per_basin_scaler=artifacts.per_basin_scaler,
+            explicit_relative_features=relative_features,  # This ensures target is scaled relatively when use_relative_target=True
         )
 
         # Apply per-basin scaling to target if not using relative target
@@ -1089,12 +1095,14 @@ def _apply_normalization(
         numeric_features_to_scale.append(artifacts.target_col)
 
     if normalization_process == "long_term_mean":
+        # Pass explicit relative features to ensure consistent scaling
         df = du.apply_long_term_mean_scaling(
             df,
             long_term_mean=artifacts.long_term_means,
             features=numeric_features_to_scale,
             relative_scaling_vars=artifacts.relative_scaling_vars,
             per_basin_scaler=artifacts.per_basin_scaler,
+            explicit_relative_features=artifacts.relative_features,
         )
     elif normalization_process == "per_basin":
         df = du.apply_normalization_per_basin(
@@ -1166,7 +1174,7 @@ def post_process_predictions(
                 var_to_scale=prediction_column,
                 var_used_for_scaling=target,
                 relative_features=artifacts.relative_features,
-                per_basin_features=artifacts.per_basin_features,
+                use_relative_target=artifacts.use_relative_target,
                 per_basin_scaler=artifacts.per_basin_scaler,
             )
             logger.info(

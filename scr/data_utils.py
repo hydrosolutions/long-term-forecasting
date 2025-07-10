@@ -598,7 +598,12 @@ def get_relative_scaling_features(features, relative_scaling_vars):
 
 
 def apply_long_term_mean_scaling(
-    df, long_term_mean, features, relative_scaling_vars=None, per_basin_scaler=None
+    df,
+    long_term_mean,
+    features,
+    relative_scaling_vars=None,
+    per_basin_scaler=None,
+    explicit_relative_features=None,
 ):
     """
     Apply long-term mean scaling to the DataFrame with selective feature scaling:
@@ -619,6 +624,8 @@ def apply_long_term_mean_scaling(
         Variable patterns for relative scaling (e.g., ["SWE", "T", "discharge"])
     per_basin_scaler : dict, optional
         Scaler for per-basin normalization
+    explicit_relative_features : list, optional
+        Explicit list of features to scale relatively (overrides pattern matching)
 
     Returns:
     --------
@@ -629,7 +636,11 @@ def apply_long_term_mean_scaling(
     df["day_of_year"] = df["date"].dt.dayofyear  # ensure day_of_year col exists
 
     # Determine which features use relative scaling vs per-basin scaling
-    if relative_scaling_vars:
+    if explicit_relative_features is not None:
+        # Use explicit list if provided
+        relative_features = explicit_relative_features
+        per_basin_features = [f for f in features if f not in relative_features]
+    elif relative_scaling_vars:
         relative_features, per_basin_features = get_relative_scaling_features(
             features, relative_scaling_vars
         )
@@ -695,9 +706,9 @@ def apply_inverse_long_term_mean_scaling(
     df: pd.DataFrame,
     long_term_mean: pd.DataFrame,
     var_to_scale: str,
-    var_used_for_scaling: list,
+    var_used_for_scaling: str,
     relative_features: list = None,
-    per_basin_features: list = None,
+    use_relative_target: bool = None,
     per_basin_scaler: dict = None,
 ):
     """
@@ -711,12 +722,12 @@ def apply_inverse_long_term_mean_scaling(
         DataFrame with long-term means for each feature per basin and day of year
     var_to_scale : str
         Variable name to scale (e.g., prediction column)
-    var_used_for_scaling : list
-        List of feature columns used for scaling
+    var_used_for_scaling : str
+        Feature column used for scaling (e.g., target column)
     relative_features : list, optional
         Features that used relative scaling
-    per_basin_features : list, optional
-        Features that used per-basin scaling
+    use_relative_target : bool, optional
+        Whether the target was scaled relatively (for backward compatibility)
     per_basin_scaler : dict, optional
         Scaler for per-basin normalization
 
@@ -732,14 +743,18 @@ def apply_inverse_long_term_mean_scaling(
     if isinstance(var_used_for_scaling, str):
         var_used_for_scaling = [var_used_for_scaling]
 
-    # If relative_features not provided, assume all var_used_for_scaling are relative
-    if relative_features is None:
-        relative_features = var_used_for_scaling
+    # Determine if we should use relative scaling for inverse
+    # Check if the variable used for scaling is in relative_features
+    if relative_features is not None:
+        should_use_relative = var_used_for_scaling[0] in relative_features
+    elif use_relative_target is not None:
+        # Backward compatibility: use the flag if relative_features not provided
+        should_use_relative = use_relative_target
+    else:
+        # Default to True for backward compatibility
+        should_use_relative = True
 
-    # Handle inverse scaling for relative features
-    if var_to_scale in relative_features or any(
-        var in var_to_scale for var in relative_features
-    ):
+    if should_use_relative:
         # --- 1) flatten multi-index columns if needed ---
         ltm = long_term_mean.copy()
         if isinstance(ltm.columns, pd.MultiIndex):
@@ -765,22 +780,18 @@ def apply_inverse_long_term_mean_scaling(
         df = df.merge(ltm, on=["code", "day_of_year"], how="left")
 
         # --- 3) multiply the features by the long-term mean ---
-        for feat in var_used_for_scaling:
-            if feat in relative_features:
-                mean_col = f"{feat}_mean"
-                if mean_col in df.columns:
-                    long_term_mean_values = df[mean_col]
-                    # replace 0 with 1 to avoid division by zero
-                    long_term_mean_values = long_term_mean_values.replace(0, 1)
-                    # Check if we have duplicate columns that cause df[mean_col] to return a DataFrame
-                    if isinstance(long_term_mean_values, pd.DataFrame):
-                        # Use the first occurrence of the column
-                        df[var_to_scale] = (
-                            df[var_to_scale] * long_term_mean_values.iloc[:, 0]
-                        )
-                    else:
-                        # Normal case - mean_col is a Series
-                        df[var_to_scale] = df[var_to_scale] * long_term_mean_values
+        mean_col = f"{var_used_for_scaling[0]}_mean"
+        if mean_col in df.columns:
+            long_term_mean_values = df[mean_col]
+            # replace 0 with 1 to avoid division by zero
+            long_term_mean_values = long_term_mean_values.replace(0, 1)
+            # Check if we have duplicate columns that cause df[mean_col] to return a DataFrame
+            if isinstance(long_term_mean_values, pd.DataFrame):
+                # Use the first occurrence of the column
+                df[var_to_scale] = df[var_to_scale] * long_term_mean_values.iloc[:, 0]
+            else:
+                # Normal case - mean_col is a Series
+                df[var_to_scale] = df[var_to_scale] * long_term_mean_values
 
         # --- 4) drop helper columns ---
         drop_cols = [
@@ -791,11 +802,7 @@ def apply_inverse_long_term_mean_scaling(
         df = df.drop(columns=drop_cols)
 
     # Handle inverse scaling for per-basin features
-    elif (
-        per_basin_features
-        and var_to_scale in per_basin_features
-        and per_basin_scaler is not None
-    ):
+    else:
         # Use the first feature in var_used_for_scaling for per-basin inverse scaling
         df = apply_inverse_normalization_per_basin(
             df, per_basin_scaler, var_to_scale, var_used_for_scaling[0]
