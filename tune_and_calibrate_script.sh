@@ -23,7 +23,7 @@ SAVE_CONFIG="--save_config"  # Save updated config with best hyperparameters
 # PYTHON_CMD="uv run python"
 
 # Option 3: Use specific virtual environment
-source "/Users/sandrohunziker/Documents/sapphire_venv/monthly_forecast/bin/activate"
+#source "/Users/sandrohunziker/Documents/sapphire_venv/monthly_forecast/bin/activate"
 
 # Option 4: Use system python (default)
 #PYTHON_CMD="python3"
@@ -34,6 +34,8 @@ if command -v uv &> /dev/null; then
 else
     PYTHON_CMD="python"
 fi
+
+PYTHON_CMD="uv run"
 
 # Colors for output
 RED='\033[0;31m'

@@ -5,19 +5,20 @@ import re
 
 import numpy as np
 import pandas as pd
-import netCDF4 as nc
-import xarray as xr
 import geopandas as gpd
-import rasterio
 from scipy import stats
 
 # Plotting
-import plotly.express as px
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 import tqdm
 from collections import defaultdict
+
+# Shared logging
+import logging
+from log_config import setup_logging
+setup_logging()  
 
 def get_position_name(row):
     if row['date'].day == 5:
