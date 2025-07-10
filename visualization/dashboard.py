@@ -101,11 +101,12 @@ def create_tab2_layout():
     
     return html.Div([
         create_control_panel([
-            {'label': 'Select Model (from predictions):', 'control': dcc.Dropdown(
+            {'label': 'Select Models (from predictions):', 'control': dcc.Dropdown(
                 id='tab2-model-selector',
                 options=[{'label': model, 'value': model} for model in prediction_models],
-                value=prediction_models[0] if prediction_models else None,
-                clearable=False
+                value=prediction_models[:2] if len(prediction_models) >= 2 else prediction_models,
+                multi=True,
+                placeholder="Select models to compare..."
             )},
             {'label': 'Select Basin:', 'control': create_basin_selector(metrics_handler.available_codes)},
             {'label': 'Date Range:', 'control': create_date_range_picker(
@@ -304,69 +305,94 @@ def update_tab1_graph(selected_models, selected_metric, basin_filter):
      Input('date-range-picker', 'start_date'),
      Input('date-range-picker', 'end_date')]
 )
-def update_tab2_graph(selected_model, selected_basin, start_date, end_date):
-    if not selected_model or not selected_basin:
-        return go.Figure().add_annotation(text="Please select a model and a basin"), ""
+def update_tab2_graph(selected_models, selected_basin, start_date, end_date):
+    if not selected_models or not selected_basin:
+        return go.Figure().add_annotation(text="Please select models and a basin"), ""
+    
+    # Ensure selected_models is a list
+    if isinstance(selected_models, str):
+        selected_models = [selected_models]
     
     fig = go.Figure()
+    metrics_cards = []
+    obs_added = False
     
-    # Get observed vs predicted data
-    pred_data = prediction_handler.get_observed_vs_predicted(
-        selected_model, selected_basin, start_date, end_date
-    )
+    # Define colors for models
+    colors = px.colors.qualitative.Set1[:len(selected_models)]
     
-    if pred_data.empty:
-        return go.Figure().add_annotation(text=f"No data available for {selected_model} in basin {selected_basin}"), ""
-    
-    # Add observed data
-    fig.add_trace(go.Scatter(
-        x=pred_data['date'],
-        y=pred_data['Q_obs'],
-        mode='lines',
-        name='Observed',
-        line=dict(color='black', width=2)
-    ))
-    
-    # Add predicted data
-    fig.add_trace(go.Scatter(
-        x=pred_data['date'],
-        y=pred_data['Q_pred'],
-        mode='lines',
-        name=f'{selected_model} (Predicted)',
-        line=dict(color='#1f77b4', dash='dash')
-    ))
-    
-    # Try to find metrics for this model-basin combination
-    # Try different model name variations
-    model_base = selected_model.split('_', 1)[1] if '_' in selected_model else selected_model
-    metrics_text = "Metrics not available in metrics.csv"
-    
-    for model_variant in [selected_model, model_base]:
-        metrics_df = metrics_handler.get_filtered_data(
-            models=[model_variant],
-            codes=[selected_basin],
-            evaluation_level='per_code'
+    for idx, model in enumerate(selected_models):
+        # Get observed vs predicted data
+        pred_data = prediction_handler.get_observed_vs_predicted(
+            model, selected_basin, start_date, end_date
         )
         
-        if not metrics_df.empty:
-            metrics_dict = metrics_df.iloc[0].to_dict()
-            metrics_text = create_performance_annotation({
-                k: v for k, v in metrics_dict.items() 
-                if k in ['nse', 'rmse', 'pbias', 'kge', 'r2']
-            })
-            break
+        if pred_data.empty:
+            continue
+        
+        # Add observed data only once
+        if not obs_added:
+            fig.add_trace(go.Scatter(
+                x=pred_data['date'],
+                y=pred_data['Q_obs'],
+                mode='lines',
+                name='Observed',
+                line=dict(color='black', width=2)
+            ))
+            obs_added = True
+        
+        # Add predicted data
+        fig.add_trace(go.Scatter(
+            x=pred_data['date'],
+            y=pred_data['Q_pred'],
+            mode='lines',
+            name=f'{model} (Predicted)',
+            line=dict(color=colors[idx % len(colors)], dash='dash')
+        ))
+        
+        # Try to find metrics for this model-basin combination
+        # Try different model name variations
+        model_base = model.split('_', 1)[1] if '_' in model else model
+        metrics_text = "Metrics not available in metrics.csv"
+        
+        for model_variant in [model, model_base]:
+            metrics_df = metrics_handler.get_filtered_data(
+                models=[model_variant],
+                codes=[selected_basin],
+                evaluation_level='per_code'
+            )
+            
+            if not metrics_df.empty:
+                metrics_dict = metrics_df.iloc[0].to_dict()
+                metrics_text = create_performance_annotation({
+                    k: v for k, v in metrics_dict.items() 
+                    if k in ['nse', 'rmse', 'pbias', 'kge', 'r2']
+                })
+                break
+        
+        metrics_cards.append(
+            html.Div([
+                html.H5(model, style={'color': colors[idx % len(colors)]}),
+                html.Pre(metrics_text)
+            ], style={'display': 'inline-block', 'margin': '10px', 
+                     'padding': '10px', 'border': '1px solid #ddd',
+                     'borderRadius': '5px'})
+        )
     
-    metrics_display = html.Div([
-        html.H5(selected_model),
-        html.Pre(metrics_text)
-    ], style={'margin': '10px', 'padding': '10px', 'border': '1px solid #ddd', 'borderRadius': '5px'})
+    if not obs_added:
+        return go.Figure().add_annotation(text="No data available for selected models and basin"), ""
+    
+    title = f"Observed vs Predicted Discharge - Basin {selected_basin}"
+    if len(selected_models) == 1:
+        title = f"Observed vs Predicted Discharge - {selected_models[0]} - Basin {selected_basin}"
     
     fig.update_layout(
-        title=f"Observed vs Predicted Discharge - {selected_model} - Basin {selected_basin}",
+        title=title,
         xaxis_title="Date",
         yaxis_title="Discharge (m3/s)",
         hovermode='x unified'
     )
+    
+    metrics_display = html.Div(metrics_cards)
     
     return apply_default_layout(fig), metrics_display
 
@@ -400,11 +426,15 @@ def update_tab3_graph(selected_models, selected_basin, selected_metric):
     color_map = get_color_mapping(df)
     
     for model in selected_models:
-        model_df = df[df['model'] == model].sort_values('month')
+        model_df = df[df['model'] == model]
         if not model_df.empty:
+            # Group by month and take mean to handle multiple entries
+            monthly_mean = model_df.groupby('month')[selected_metric].mean().reset_index()
+            monthly_mean = monthly_mean.sort_values('month')
+            
             fig.add_trace(go.Scatter(
-                x=[MONTH_NAMES[m] for m in model_df['month']],
-                y=model_df[selected_metric],
+                x=[MONTH_NAMES[m] for m in monthly_mean['month']],
+                y=monthly_mean[selected_metric],
                 mode='lines+markers',
                 name=model,
                 line=dict(color=color_map.get(model, '#808080'), width=2),
