@@ -11,3 +11,4 @@
 /tests_output
 *.log
 /evaluation/__pycache__
+/visualization/__pycache__

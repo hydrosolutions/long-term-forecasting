@@ -90,7 +90,10 @@ def create_tab2_layout():
     return html.Div([
         create_control_panel([
             {'label': 'Select Basin:', 'control': create_basin_selector(metrics_handler.available_codes)},
-            {'label': 'Date Range (optional):', 'control': create_date_range_picker()}
+            {'label': 'Date Range (optional):', 'control': create_date_range_picker(
+                start_date='2010-01-01',
+                end_date='2020-12-31'
+            )}
         ]),
         create_loading_wrapper('tab2-graph', dcc.Graph(id='tab2-graph')),
         html.Div(id='tab2-metrics-display', style={'marginTop': '20px'})
@@ -210,46 +213,62 @@ def update_tab1_graph(selected_models, selected_metric, basin_filter):
     if not selected_models:
         return go.Figure().add_annotation(text="Please select at least one model")
     
-    # Filter data
-    if basin_filter == 'all':
-        df = metrics_handler.get_filtered_data(
-            models=selected_models,
-            evaluation_level='per_month'
-        )
-    else:
-        df = metrics_handler.get_filtered_data(
-            models=selected_models,
-            codes=[basin_filter],
-            evaluation_level='per_code_month'
-        )
+    # Get per-code-month data to show basins as separate boxes
+    df = metrics_handler.get_filtered_data(
+        models=selected_models,
+        evaluation_level='per_code_month'
+    )
+    
+    # Filter by specific basin if selected
+    if basin_filter != 'all':
+        df = df[df['code'] == basin_filter]
     
     # Remove 'all months' data
     df = df[df['month'] > 0]
     
-    # Create boxplot
+    if df.empty:
+        return go.Figure().add_annotation(text="No data available for selected filters")
+    
+    # Create boxplot with basins
     color_map = get_color_mapping(df)
     
     fig = go.Figure()
     
+    # Track which models have been added to legend
+    legend_added = set()
+    
+    # Sort months and get unique basins
+    months = sorted(df['month'].unique())
+    
     for model in selected_models:
         model_df = df[df['model'] == model]
         if not model_df.empty:
-            # Group by month and calculate statistics
-            for month in sorted(model_df['month'].unique()):
-                month_data = model_df[model_df['month'] == month][selected_metric].dropna()
-                if len(month_data) > 0:
-                    fig.add_trace(go.Box(
-                        y=month_data,
-                        x=[MONTH_NAMES[month]] * len(month_data),
-                        name=model,
-                        marker_color=color_map[model],
-                        boxmean='sd',
-                        showlegend=(month == sorted(model_df['month'].unique())[0])
-                    ))
+            for month in months:
+                month_df = model_df[model_df['month'] == month]
+                if not month_df.empty:
+                    # Get values for all basins in this month
+                    values = month_df[selected_metric].dropna()
+                    if len(values) > 0:
+                        # Ensure showlegend is a native Python bool
+                        show_in_legend = bool(model not in legend_added)
+                        
+                        fig.add_trace(go.Box(
+                            y=values,
+                            x=[MONTH_NAMES[month]] * len(values),
+                            name=model,
+                            marker_color=color_map[model],
+                            boxmean='sd',
+                            showlegend=show_in_legend,
+                            hovertext=[f"Basin {code}" for code in month_df['code']],
+                            hoverinfo="y+text"
+                        ))
+                        
+                        # Mark this model as having been added to legend
+                        legend_added.add(model)
     
-    title = f"{METRIC_INFO[selected_metric]['display_name']} by Month"
+    title = f"{METRIC_INFO[selected_metric]['display_name']} by Month (All Basins)"
     if basin_filter != 'all':
-        title += f" (Basin {basin_filter})"
+        title = f"{METRIC_INFO[selected_metric]['display_name']} by Month (Basin {basin_filter})"
     
     fig.update_layout(
         title=title,
@@ -373,16 +392,29 @@ def update_tab3_graph(selected_models, selected_metric, sort_by):
     else:
         basin_order = sorted(df['code'].unique())
     
-    # Create subplots
+    # Create subplots with dynamic spacing and row limits
     from plotly.subplots import make_subplots
     n_basins = len(basin_order)
     n_cols = 4
+    
+    # Show all basins - remove the limit
+    # max_basins = 60  # Reasonable limit for visualization
+    # if n_basins > max_basins:
+    #     basin_order = basin_order[:max_basins]
+    #     n_basins = max_basins
+    
     n_rows = (n_basins + n_cols - 1) // n_cols
+    
+    # Calculate appropriate vertical spacing based on number of rows
+    # Plotly's constraint: vertical_spacing <= 1 / (rows - 1)
+    max_vertical_spacing = 1 / (n_rows - 1) if n_rows > 1 else 0.15
+    # Use a reasonable spacing that's within limits
+    vertical_spacing = min(0.15, max_vertical_spacing * 0.8)  # Use 80% of max to be safe
     
     fig = make_subplots(
         rows=n_rows, cols=n_cols,
         subplot_titles=[f"Basin {code}" for code in basin_order],
-        vertical_spacing=0.15,
+        vertical_spacing=vertical_spacing,
         horizontal_spacing=0.05
     )
     
@@ -412,9 +444,13 @@ def update_tab3_graph(selected_models, selected_metric, sort_by):
                         row=row, col=col
                     )
     
+    # Calculate appropriate height based on number of rows
+    # Use smaller height per row when there are many basins
+    row_height = 200 if n_rows <= 10 else max(150, min(200, 2000 // n_rows))
+    
     fig.update_layout(
         title=f"{METRIC_INFO[selected_metric]['display_name']} Comparison by Basin",
-        height=200 * n_rows,
+        height=row_height * n_rows,
         showlegend=True
     )
     
@@ -448,8 +484,8 @@ def update_tab4_graph(selected_models, selected_metric, viz_type):
     if df.empty:
         return go.Figure().add_annotation(text="No monthly data available")
     
-    # Prepare data for visualization
-    pivot_df = df.pivot(index='model', columns='month', values=selected_metric)
+    # Prepare data for visualization - handle duplicates by taking mean
+    pivot_df = df.groupby(['model', 'month'])[selected_metric].mean().unstack('month')
     
     # Rename columns to month names
     pivot_df.columns = [MONTH_NAMES[month] for month in pivot_df.columns]
