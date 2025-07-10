@@ -10,3 +10,4 @@
 /catboost_info
 /tests_output
 *.log
+/evaluation/__pycache__
