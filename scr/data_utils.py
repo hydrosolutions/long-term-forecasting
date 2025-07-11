@@ -670,8 +670,12 @@ def apply_long_term_mean_scaling(
         per_basin_features = []
 
     # Handle target variable separately if requested
-    if use_relative_target and "target" in df.columns and "target" not in features:
-        relative_features.append("target")
+    if use_relative_target and "target" in df.columns:
+        # Ensure target is in relative_features (remove from per_basin if necessary)
+        if "target" in per_basin_features:
+            per_basin_features.remove("target")
+        if "target" not in relative_features:
+            relative_features.append("target")
 
     # --- 1) flatten multi-index columns if needed ---
     ltm = long_term_mean.copy()

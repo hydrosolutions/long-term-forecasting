@@ -838,6 +838,12 @@ def _normalization_training(
     ]
 
     normalization_process = experiment_config.get("normalization_type", "global")
+    
+    # Get configuration parameters for selective scaling (store for all types)
+    relative_scaling_vars = experiment_config.get("relative_scaling_vars", None)
+    use_relative_target = experiment_config.get("use_relative_target", False)
+    artifacts.relative_scaling_vars = relative_scaling_vars
+    artifacts.use_relative_target = use_relative_target
 
     if normalization_process not in ["global", "per_basin", "long_term_mean"]:
         raise ValueError(
@@ -860,9 +866,6 @@ def _normalization_training(
             df, artifacts.scaler, numeric_features_to_scale + [target]
         )
     elif normalization_process == "long_term_mean":
-        # Get configuration parameters for selective scaling
-        relative_scaling_vars = experiment_config.get("relative_scaling_vars", None)
-        use_relative_target = experiment_config.get("use_relative_target", False)
 
         if artifacts.long_term_means is None:
             long_term_means = du.get_long_term_mean_per_basin(
@@ -887,8 +890,6 @@ def _normalization_training(
         artifacts.scaling_metadata = scaling_metadata
         artifacts.relative_features = scaling_metadata.get("relative_features", [])
         artifacts.per_basin_features = scaling_metadata.get("per_basin_features", [])
-        artifacts.relative_scaling_vars = relative_scaling_vars
-        artifacts.use_relative_target = use_relative_target
     else:
         raise ValueError(
             f"Unknown normalization process: {normalization_process}. "
