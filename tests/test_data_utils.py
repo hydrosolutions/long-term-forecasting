@@ -537,8 +537,8 @@ class TestLongTermMeanFunctions:
         assert 1 in result["code"].values
         assert 2 in result["code"].values
 
-        # Check that we have month column
-        assert "month" in result.columns
+        # Check that we have month or period column (period is the new default)
+        assert "month" in result.columns or "period" in result.columns
 
         # Check that all features are present in the result
         for feature in features:
@@ -627,7 +627,7 @@ class TestLongTermMeanScaling:
         )
 
         # This should now work without raising a ValueError after the fix
-        result = du.apply_long_term_mean_scaling(df, long_term_mean, features)
+        result = du.apply_long_term_mean_scaling(df, long_term_mean, features, return_metadata=False)
 
         # Check that result is a DataFrame
         assert isinstance(result, pd.DataFrame)
@@ -658,7 +658,7 @@ class TestLongTermMeanScaling:
         long_term_mean = du.get_long_term_mean_per_basin(df, features)
 
         # This should not raise a ValueError
-        result = du.apply_long_term_mean_scaling(df, long_term_mean, features)
+        result = du.apply_long_term_mean_scaling(df, long_term_mean, features, return_metadata=False)
 
         # Check that result is a DataFrame
         assert isinstance(result, pd.DataFrame)
@@ -699,7 +699,7 @@ class TestLongTermMeanScaling:
         )
 
         # This should not raise a ValueError
-        result = du.apply_long_term_mean_scaling(df, long_term_mean, features)
+        result = du.apply_long_term_mean_scaling(df, long_term_mean, features, return_metadata=False)
 
         # Check that result is a DataFrame
         assert isinstance(result, pd.DataFrame)

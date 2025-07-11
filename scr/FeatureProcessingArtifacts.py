@@ -884,6 +884,7 @@ def _normalization_training(
             features=numeric_features_to_scale + [target],
             relative_scaling_vars=relative_scaling_vars,
             use_relative_target=use_relative_target,
+            return_metadata=True,
         )
 
         # Store scaling metadata in artifacts
@@ -1031,12 +1032,13 @@ def _apply_normalization(
 
     if normalization_process == "long_term_mean":
         # Use stored scaling metadata from training
-        df, _ = du.apply_long_term_mean_scaling(
+        df = du.apply_long_term_mean_scaling(
             df,
             long_term_mean=artifacts.long_term_means,
             features=numeric_features_to_scale,
             relative_scaling_vars=artifacts.relative_scaling_vars,
             use_relative_target=artifacts.use_relative_target and scale_target,
+            return_metadata=False,  # Don't need metadata during test data processing
         )
     elif normalization_process == "per_basin":
         df = du.apply_normalization_per_basin(

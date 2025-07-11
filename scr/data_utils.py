@@ -596,20 +596,33 @@ def apply_long_term_mean(df, long_term_mean, features):
       - fill missing feature values with the corresponding long-term mean
     """
     df = df.copy()
-    df["month"] = df["date"].dt.month  # ensure month col exists
 
     # --- 1) flatten multi-index columns if needed ---
     ltm = long_term_mean.copy()
     if isinstance(ltm.columns, pd.MultiIndex):
         # after agg(['mean']), cols look like (feature, 'mean')
-        ltm.columns = ["code", "month"] + [f"{feat}_mean" for feat in features]
+        # Detect if we have 'month' or 'period' in the index
+        period_col = "period" if any("period" in str(col) for col in ltm.columns) else "month"
+        ltm.columns = ["code", period_col] + [f"{feat}_mean" for feat in features]
     else:
         # if you already ran grouped.mean(), you just need to rename
         rename_map = {feat: f"{feat}_mean" for feat in features}
         ltm = ltm.rename(columns=rename_map)
 
     # --- 2) merge the long-term means back onto the original ---
-    df = df.merge(ltm, on=["code", "month"], how="left")
+    # Check if we should use period or month for merging (backward compatibility)
+    if "period" in ltm.columns:
+        merge_cols = ["code", "period"]
+        # Ensure df has period column
+        if "period" not in df.columns:
+            df = get_periods(df)
+    else:
+        merge_cols = ["code", "month"]
+        # Ensure df has month column
+        if "month" not in df.columns:
+            df["month"] = df["date"].dt.month
+    
+    df = df.merge(ltm, on=merge_cols, how="left")
 
     # --- 3) fill in missing values from the long-term mean ---
     for feat in features:
@@ -629,7 +642,8 @@ def apply_long_term_mean(df, long_term_mean, features):
 
 
 def apply_long_term_mean_scaling(
-    df, long_term_mean, features, relative_scaling_vars=None, use_relative_target=False
+    df, long_term_mean, features, relative_scaling_vars=None, use_relative_target=False,
+    return_metadata=True
 ):
     """
     Apply long-term mean scaling to the DataFrame with selective feature scaling.
@@ -646,13 +660,14 @@ def apply_long_term_mean_scaling(
         List of variable patterns for relative scaling (e.g., ["SWE", "T", "discharge"])
     use_relative_target : bool, optional
         Whether to apply relative scaling to the target variable
+    return_metadata : bool, optional
+        Whether to return scaling metadata along with the DataFrame (default: True)
 
     Returns:
     --------
-    pd.DataFrame
-        DataFrame with scaled features
-    dict
-        Metadata about which features used which scaling type
+    pd.DataFrame or tuple
+        If return_metadata=False: DataFrame with scaled features
+        If return_metadata=True: (DataFrame with scaled features, dict with metadata)
     """
     df = df.copy()
 
@@ -702,7 +717,16 @@ def apply_long_term_mean_scaling(
         ltm = ltm.rename(columns=rename_map)
 
     # --- 2) merge the long-term means back onto the original ---
-    df = df.merge(ltm, on=["code", "period"], how="left")
+    # Check if we should use period or month for merging (backward compatibility)
+    if "period" in ltm.columns:
+        merge_cols = ["code", "period"]
+    else:
+        # Fall back to month-based merging for backward compatibility
+        if "month" not in df.columns:
+            df["month"] = df["date"].dt.month
+        merge_cols = ["code", "month"]
+    
+    df = df.merge(ltm, on=merge_cols, how="left")
 
     # --- 3) Apply scaling based on feature type ---
     scaling_metadata = {
@@ -739,8 +763,13 @@ def apply_long_term_mean_scaling(
         + (["target"] if use_relative_target and "target" in df.columns else [])
     ]
     drop_cols = [col for col in drop_cols if col in df.columns]
-
-    return df.drop(columns=drop_cols), scaling_metadata
+    
+    df_result = df.drop(columns=drop_cols)
+    
+    if return_metadata:
+        return df_result, scaling_metadata
+    else:
+        return df_result
 
 
 def apply_inverse_long_term_mean_scaling(
@@ -800,7 +829,16 @@ def apply_inverse_long_term_mean_scaling(
         ltm = ltm.rename(columns=rename_map)
 
     # --- 2) merge the long-term means back onto the original ---
-    df = df.merge(ltm, on=["code", "period"], how="left")
+    # Check if we should use period or month for merging (backward compatibility)
+    if "period" in ltm.columns:
+        merge_cols = ["code", "period"]
+    else:
+        # Fall back to month-based merging for backward compatibility
+        if "month" not in df.columns:
+            df["month"] = df["date"].dt.month
+        merge_cols = ["code", "month"]
+    
+    df = df.merge(ltm, on=merge_cols, how="left")
 
     # --- 3) multiply the features by the long-term mean ---
     # Use the first variable in var_used_for_scaling for scaling
