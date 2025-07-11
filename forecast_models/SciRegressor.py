@@ -97,6 +97,10 @@ class SciRegressor(BaseForecastModel):
             "early_stopping_val_fraction", 0.1
         )
         self.num_test_years = self.general_config.get("num_test_years", 2)
+        
+        # New parameters for enhanced long-term mean scaling
+        self.use_relative_target = self.general_config.get("use_relative_target", False)
+        self.relative_scaling_vars = self.general_config.get("relative_scaling_vars", [])
 
     def __preprocess_data__(self):
         """
