@@ -1,0 +1,58 @@
+{
+    "model_type": "sciregressor",
+    "models": [
+        "xgb",
+        "lgbm",
+        "catboost"
+    ],
+    "prediction_horizon": 30,
+    "offset": null,
+    "snow_vars": [
+        "SWE",
+        "ROF"
+    ],
+    "feature_cols": [
+        "discharge",
+        "P",
+        "T",
+        "SWE",
+        "ROF"
+    ],
+    "static_features": [
+        "LAT",
+        "LON",
+        "gl_fr",
+        "h_mean",
+        "h_min",
+        "h_max",
+        "slope",
+        "area_km2"
+    ],
+    "cat_features": [
+        "code_str"
+    ],
+    "hparam_tuning_years": 3,
+    "num_test_years": 2,
+    "early_stopping_val_fraction": 0.1,
+    "n_trials": 50,
+    "use_lr_predictors": true,
+    "use_mutual_info": false,
+    "remove_correlated_features": false,
+    "number_of_features": 50,
+    "handle_na": "long_term_mean",
+    "impute_method": "mean",
+    "normalize": true,
+    "normalization_type": "per_basin",
+    "num_elevation_zones": 1,
+    "rivers_to_exclude": [
+        1111,
+        2222,
+        3333
+    ],
+    "unnatural_rivers": [
+        1111,
+        2222,
+        33333
+    ],
+    "model_name": "LongTermLR"
+}

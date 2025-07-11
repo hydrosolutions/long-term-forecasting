@@ -82,6 +82,8 @@ BASE_GENERAL_CONFIG = {
     "hparam_tuning_years": 3,
     "early_stopping_val_fraction": 0.1,
     "num_test_years": 2,
+    "use_relative_target": False,
+    "relative_scaling_vars": [],
 }
 
 # Feature configuration

@@ -98,6 +98,12 @@ class SciRegressor(BaseForecastModel):
         )
         self.num_test_years = self.general_config.get("num_test_years", 2)
 
+        # New parameters for enhanced long-term mean scaling
+        self.use_relative_target = self.general_config.get("use_relative_target", False)
+        self.relative_scaling_vars = self.general_config.get(
+            "relative_scaling_vars", []
+        )
+
     def __preprocess_data__(self):
         """
         Preprocess the data by adding position and other derived features.
@@ -969,20 +975,8 @@ class SciRegressor(BaseForecastModel):
             y_val = df_val_processed[self.target]
 
             # Get basin codes and dates for validation data if needed
-            basin_codes_val = None
-            val_dates = None
-
-            if (
-                self.general_config.get("normalization_type") == "per_basin"
-                and "code" in df_val_processed.columns
-            ):
-                basin_codes_val = df_val_processed["code"]
-
-            if (
-                self.general_config.get("normalization_type") == "long_term_mean"
-                and "date" in df_val_processed.columns
-            ):
-                val_dates = df_val_processed["date"]
+            basin_codes_val = df_val_processed["code"]
+            val_dates = df_val_processed["date"]
 
             best_params = sci_utils.optimize_hyperparams(
                 X_train=X_train,

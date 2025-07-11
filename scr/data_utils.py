@@ -22,10 +22,42 @@ from log_config import setup_logging
 setup_logging()
 
 
+def get_position_name(row):
+    """
+    Get position name from a DataFrame row with a date.
+    Returns format like "1-5", "2-10", "3-15", "7-End", etc.
+
+    Parameters:
+    -----------
+    row : pd.Series
+        Series containing a 'date' field
+
+    Returns:
+    --------
+    str
+        Position name in format "month-day" or "month-End"
+    """
+    date = row["date"]
+    month = date.month
+    day = date.day
+
+    # Get the last day of the month
+    import calendar
+
+    last_day = calendar.monthrange(date.year, month)[1]
+
+    # Special case for last day of month
+    if day == last_day:
+        return f"{month}-End"
+    else:
+        return f"{month}-{day}"
+
+
 def get_periods(df) -> pd.DataFrame:
     """
     Get unique periods from the data.
-    The period name is <month>-<day>.
+    Creates 36 periods per year: days 10, 20, and end of each month.
+    The period name is <month>-<day> where day is "10", "20", or "end".
     if it is the last day of the month, the period name is <month>-end. (accounts for february)
 
     Returns:
@@ -34,14 +66,17 @@ def get_periods(df) -> pd.DataFrame:
     df = df.copy()
     df["day"] = df["date"].dt.day
     df["month"] = df["date"].dt.month
-    df["period_suffix"] = np.where(
-        df["date"].dt.day == df["date"].dt.days_in_month,
-        "end",
-        df["date"].dt.day.astype(str),
-    )
-    df["period"] = (
-        df["month"].astype(str) + "-" + df["period_suffix"]
-    )
+
+    # Determine period suffix based on day of month
+    # Days 1-10 -> "10"
+    # Days 11-20 -> "20"
+    # Days 21-end -> "end"
+    conditions = [df["day"] <= 10, df["day"] <= 20, df["day"] > 20]
+    choices = ["10", "20", "end"]
+
+    df["period_suffix"] = np.select(conditions, choices, default="end")
+    df["period"] = df["month"].astype(str) + "-" + df["period_suffix"]
+
     df.drop(columns=["period_suffix"], inplace=True)
 
     return df
@@ -257,7 +292,7 @@ def calculate_percentile_snow_bands(
     return hydro_df
 
 
-def get_normalization_params(df_train, features, target):
+def get_normalization_params(df_train, features, target=None):
     """
     Calculate normalization parameters (mean and std) from training data.
 
@@ -267,8 +302,8 @@ def get_normalization_params(df_train, features, target):
         Training dataframe
     features : list
         List of feature columns to normalize
-    target : str
-        Target column to normalize
+    target : str, optional
+        Target column to normalize. If None, only features are normalized.
 
     Returns:
     --------
@@ -276,7 +311,9 @@ def get_normalization_params(df_train, features, target):
         Dictionary containing mean and std for each column
     """
     scaler = {}
-    cols_to_normalize = features + [target]
+    cols_to_normalize = features.copy()
+    if target is not None:
+        cols_to_normalize.append(target)
 
     for col in cols_to_normalize:
         mean_ = df_train[col].astype(float).mean()
@@ -377,7 +414,7 @@ def apply_inverse_normalization(
     return df
 
 
-def get_normalization_params_per_basin(df_train, features, target):
+def get_normalization_params_per_basin(df_train, features, target=None):
     """
     Calculate normalization parameters per basin from training data.
 
@@ -387,15 +424,17 @@ def get_normalization_params_per_basin(df_train, features, target):
         Training dataframe with 'code' column for basin identification
     features : list
         List of feature columns to normalize
-    target : str
-        Target column to normalize
+    target : str, optional
+        Target column to normalize. If None, only features are normalized.
 
     Returns:
     --------
     dict
         Nested dictionary: {basin_code: {column: (mean, std)}}
     """
-    cols_to_normalize = features + [target]
+    cols_to_normalize = features.copy()
+    if target is not None:
+        cols_to_normalize.append(target)
 
     # Pre-compute statistics for all basins at once
     basin_stats = df_train.groupby("code")[cols_to_normalize].agg(["mean", "std"])
@@ -501,46 +540,121 @@ def normalize_features_per_basin(df_train, df_test, features, target):
     return df_train_normalized, df_test_normalized, scaler
 
 
+def get_relative_scaling_features(features, relative_scaling_vars):
+    """
+    Identify features that should use relative scaling based on pattern matching.
+
+    Parameters:
+    -----------
+    features : list
+        List of all feature column names
+    relative_scaling_vars : list
+        List of variable patterns to match (e.g., ["SWE", "T", "discharge"])
+
+    Returns:
+    --------
+    list
+        List of features that match any of the patterns
+
+    Example:
+    --------
+    >>> features = ["SWE_1", "SWE_2", "SWE_Perc_Elev_1", "P_1", "discharge"]
+    >>> relative_scaling_vars = ["SWE", "discharge"]
+    >>> get_relative_scaling_features(features, relative_scaling_vars)
+    ["SWE_1", "SWE_2", "SWE_Perc_Elev_1", "discharge"]
+    """
+    if not relative_scaling_vars:
+        return []
+
+    relative_features = []
+    for feature in features:
+        for var_pattern in relative_scaling_vars:
+            # Check if the feature starts with the pattern followed by underscore or is exact match
+            if feature == var_pattern or feature.startswith(f"{var_pattern}_"):
+                relative_features.append(feature)
+                break  # No need to check other patterns for this feature
+
+    return relative_features
+
+
 def get_long_term_mean_per_basin(df, features):
     """
-    Calculate long-term mean for each feature per basin and month.
-    """
+    Calculate long-term mean and standard deviation for each feature per basin and period.
 
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        DataFrame with 'date' and 'code' columns plus feature columns
+    features : list
+        List of feature columns to calculate statistics for
+
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with long-term mean and std for each feature per basin and period
+    """
     df = df.copy()
 
-    df["month"] = df["date"].dt.month
+    # Add period column using existing get_periods function
+    df = get_periods(df)
 
-    # groupy code and month
-    groupby_cols = ["code", "month"]
+    # Group by code and period (36 groups per basin per year)
+    groupby_cols = ["code", "period"]
 
     grouped = df.groupby(groupby_cols)
 
-    long_term_mean = grouped[features].agg(["mean"]).reset_index()
+    # Calculate both mean and std
+    long_term_stats = grouped[features].agg(["mean", "std"]).reset_index()
 
-    return long_term_mean
+    # Handle zero std by replacing with 1 (to avoid division by zero)
+    for feature in features:
+        std_col = (feature, "std")
+        if std_col in long_term_stats.columns:
+            long_term_stats.loc[long_term_stats[std_col] == 0, std_col] = 1.0
+            # Also replace NaN std with 1.0 (happens when group has only one value)
+            long_term_stats[std_col] = long_term_stats[std_col].fillna(1.0)
+
+    return long_term_stats
 
 
 def apply_long_term_mean(df, long_term_mean, features):
     """
     Apply long-term mean to the DataFrame in a vectorized way:
-      - merge on basin code and month
+      - merge on basin code and period
       - fill missing feature values with the corresponding long-term mean
     """
     df = df.copy()
-    df["month"] = df["date"].dt.month  # ensure month col exists
+
+    # Add period column using existing get_periods function
+    df = get_periods(df)
 
     # --- 1) flatten multi-index columns if needed ---
     ltm = long_term_mean.copy()
     if isinstance(ltm.columns, pd.MultiIndex):
-        # after agg(['mean']), cols look like (feature, 'mean')
-        ltm.columns = ["code", "month"] + [f"{feat}_mean" for feat in features]
+        # After agg(['mean', 'std']), we need to extract just the mean columns
+        # Build new column names from the MultiIndex
+        new_columns = []
+        for col in ltm.columns:
+            if col[1] == "":  # This is for 'code' and 'period' columns
+                new_columns.append(col[0])
+            elif col[1] == "mean":  # This is for feature mean columns
+                new_columns.append(f"{col[0]}_mean")
+            # Skip 'std' columns as we don't need them for filling missing values
+
+        # Select only the columns we need (code, period, and means)
+        mean_cols = []
+        for i, col in enumerate(ltm.columns):
+            if col[1] == "" or col[1] == "mean":
+                mean_cols.append(i)
+        ltm = ltm.iloc[:, mean_cols]
+        ltm.columns = new_columns
     else:
         # if you already ran grouped.mean(), you just need to rename
         rename_map = {feat: f"{feat}_mean" for feat in features}
         ltm = ltm.rename(columns=rename_map)
 
     # --- 2) merge the long-term means back onto the original ---
-    df = df.merge(ltm, on=["code", "month"], how="left")
+    df = df.merge(ltm, on=["code", "period"], how="left")
 
     # --- 3) fill in missing values from the long-term mean ---
     for feat in features:
@@ -555,121 +669,225 @@ def apply_long_term_mean(df, long_term_mean, features):
 
     # --- 4) drop helper columns and return ---
     drop_cols = [f"{feat}_mean" for feat in features]
+    # Also drop the period column we added
+    if "period" in df.columns:
+        drop_cols.append("period")
 
     return df.drop(columns=drop_cols)
 
 
-def apply_long_term_mean_scaling(df, long_term_mean, features):
+def apply_long_term_mean_scaling(df, long_term_stats, features, features_to_scale=None):
     """
-    Apply long-term mean to the DataFrame in a vectorized way:
-      - merge on basin code and month
-      - scale the features by deviding by the corresponding long-term mean
+    Apply standardization scaling using long-term statistics:
+      - merge on basin code and period
+      - scale features using formula: (x - mean) / std
+
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        DataFrame with features to scale
+    long_term_stats : pd.DataFrame
+        DataFrame with long-term mean and std for each feature per basin and period
+    features : list
+        List of all feature columns in the data
+    features_to_scale : list, optional
+        List of features to apply scaling to. If None, scales all features.
+
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with selected features scaled
     """
     df = df.copy()
-    df["month"] = df["date"].dt.month  # ensure month col exists
+
+    # Add period column using existing get_periods function
+    df = get_periods(df)
+
+    # Default to scaling all features if not specified
+    if features_to_scale is None:
+        features_to_scale = features
 
     # --- 1) flatten multi-index columns if needed ---
-    ltm = long_term_mean.copy()
-    if isinstance(ltm.columns, pd.MultiIndex):
-        # after agg(['mean']), cols look like (feature, 'mean')
-        # We need to flatten the MultiIndex properly
+    lts = long_term_stats.copy()
+    if isinstance(lts.columns, pd.MultiIndex):
+        # after agg(['mean', 'std']), cols look like (feature, 'mean'), (feature, 'std')
         new_columns = []
-        for col in ltm.columns:
-            if col[1] == "":  # This is for 'code' and 'month' columns
+        for col in lts.columns:
+            if col[1] == "":  # This is for 'code' and 'period' columns
                 new_columns.append(col[0])
-            elif col[1] == "mean":  # This is for feature columns
-                new_columns.append(f"{col[0]}_mean")
+            elif col[1] in ["mean", "std"]:  # This is for feature columns
+                new_columns.append(f"{col[0]}_{col[1]}")
             else:
                 # Handle any other column structure
                 new_columns.append("_".join(str(x) for x in col if x))
-        ltm.columns = new_columns
-    else:
-        # if you already ran grouped.mean(), you just need to rename
-        rename_map = {feat: f"{feat}_mean" for feat in features}
-        ltm = ltm.rename(columns=rename_map)
+        lts.columns = new_columns
 
-    # --- 2) merge the long-term means back onto the original ---
-    df = df.merge(ltm, on=["code", "month"], how="left")
+    # --- 2) merge the long-term stats back onto the original ---
+    df = df.merge(lts, on=["code", "period"], how="left")
 
-    # --- 3) fill in missing values from the long-term mean ---
-    for feat in features:
-        mean_col = f"{feat}_mean"
-        long_term_mean = df[mean_col]
-        # replace 0 with 1 to avoid division by zero
-        long_term_mean = long_term_mean.replace(0, 1)
-        # Check if we have duplicate columns that cause df[mean_col] to return a DataFrame
-        if isinstance(long_term_mean, pd.DataFrame):
-            # Use the first occurrence of the column
-            df[feat] = df[feat] / long_term_mean.iloc[:, 0]
-        else:
-            # Normal case - mean_col is a Series
-            df[feat] = df[feat] / long_term_mean
+    # --- 3) apply standardization formula to selected features ---
+    for feat in features_to_scale:
+        if feat in features:  # Only scale if feature exists
+            mean_col = f"{feat}_mean"
+            std_col = f"{feat}_std"
+
+            if mean_col in df.columns and std_col in df.columns:
+                # Apply standardization formula: (x - mean) / std
+                df[feat] = (df[feat] - df[mean_col]) / df[std_col]
 
     # --- 4) drop helper columns and return ---
-    drop_cols = [f"{feat}_mean" for feat in features]
+    drop_cols = []
+    for feat in features:  # Drop stats for all features, not just scaled ones
+        drop_cols.extend([f"{feat}_mean", f"{feat}_std"])
+    drop_cols = [col for col in drop_cols if col in df.columns]
+
+    # Also drop the period column we added
+    if "period" in df.columns:
+        drop_cols.append("period")
 
     return df.drop(columns=drop_cols)
 
 
 def apply_inverse_long_term_mean_scaling(
     df: pd.DataFrame,
-    long_term_mean: pd.DataFrame,
-    var_to_scale: str,
-    var_used_for_scaling: list,
+    long_term_stats: pd.DataFrame,
+    features_to_inverse_scale: list,
 ):
     """
-    Inverse long-term mean scaling: multiply the features by the corresponding long-term mean.
+    Inverse standardization scaling using long-term statistics.
+    Transforms scaled values back to original scale using: x_original = x_scaled * std + mean
 
     Parameters:
     -----------
     df : pd.DataFrame
         DataFrame with features to inverse scale
-    long_term_mean : pd.DataFrame
-        DataFrame with long-term means for each feature per basin and month
-    features : list
+    long_term_stats : pd.DataFrame
+        DataFrame with long-term mean and std for each feature per basin and period
+    features_to_inverse_scale : list
         List of feature columns to inverse scale
 
     Returns:
     --------
     pd.DataFrame
-        DataFrame with features inverse scaled
+        DataFrame with features inverse scaled to original values
     """
     df = df.copy()
-    df["month"] = df["date"].dt.month  # ensure month col exists
 
-    # check if var_used_for_scaling is a single string or a list
-    if isinstance(var_used_for_scaling, str):
-        var_used_for_scaling = [var_used_for_scaling]
+    # Add period column using existing get_periods function
+    df = get_periods(df)
 
     # --- 1) flatten multi-index columns if needed ---
-    ltm = long_term_mean.copy()
-    if isinstance(ltm.columns, pd.MultiIndex):
-        ltm.columns = ["code", "month"] + [
-            f"{feat}_mean" for feat in var_used_for_scaling
-        ]
-    else:
-        rename_map = {feat: f"{feat}_mean" for feat in var_used_for_scaling}
-        ltm = ltm.rename(columns=rename_map)
+    lts = long_term_stats.copy()
+    if isinstance(lts.columns, pd.MultiIndex):
+        new_columns = []
+        for col in lts.columns:
+            if col[1] == "":  # This is for 'code' and 'period' columns
+                new_columns.append(col[0])
+            elif col[1] in ["mean", "std"]:  # This is for feature columns
+                new_columns.append(f"{col[0]}_{col[1]}")
+            else:
+                new_columns.append("_".join(str(x) for x in col if x))
+        lts.columns = new_columns
 
-    # --- 2) merge the long-term means back onto the original ---
-    df = df.merge(ltm, on=["code", "month"], how="left")
+    # --- 2) merge the long-term stats back onto the original ---
+    df = df.merge(lts, on=["code", "period"], how="left")
 
-    # --- 3) multiply the features by the long-term mean ---
-    for feat in var_used_for_scaling:
+    # --- 3) apply inverse standardization formula ---
+    for feat in features_to_inverse_scale:
         mean_col = f"{feat}_mean"
-        long_term_mean = df[mean_col]
-        # replace 0 with 1 to avoid division by zero
-        long_term_mean = long_term_mean.replace(0, 1)
-        # Check if we have duplicate columns that cause df[mean_col] to return a DataFrame
-        if isinstance(long_term_mean, pd.DataFrame):
-            # Use the first occurrence of the column
-            df[var_to_scale] = df[feat] * long_term_mean.iloc[:, 0]
-        else:
-            # Normal case - mean_col is a Series
-            df[var_to_scale] = df[feat] * long_term_mean
+        std_col = f"{feat}_std"
+
+        if mean_col in df.columns and std_col in df.columns:
+            # Apply inverse standardization: x_original = x_scaled * std + mean
+            df[feat] = df[feat] * df[std_col] + df[mean_col]
 
     # --- 4) drop helper columns and return ---
-    drop_cols = [f"{feat}_mean" for feat in var_used_for_scaling]
+    drop_cols = []
+    for feat in features_to_inverse_scale:
+        drop_cols.extend([f"{feat}_mean", f"{feat}_std"])
+    drop_cols = [col for col in drop_cols if col in df.columns]
+
+    # Also drop the period column we added
+    if "period" in df.columns:
+        drop_cols.append("period")
+
+    return df.drop(columns=drop_cols)
+
+
+def apply_inverse_long_term_mean_scaling_predictions(
+    df: pd.DataFrame,
+    long_term_stats: pd.DataFrame,
+    prediction_col: str,
+    target_col: str,
+):
+    """
+    Inverse standardization scaling specifically for predictions.
+    Uses the target variable's statistics to transform predictions back to original scale.
+
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        DataFrame with predictions to inverse scale (must have 'date' and 'code' columns)
+    long_term_stats : pd.DataFrame
+        DataFrame with long-term mean and std for each feature per basin and period
+    prediction_col : str
+        Name of the column containing predictions to inverse scale
+    target_col : str
+        Name of the target variable whose statistics should be used
+
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with predictions inverse scaled to original values
+
+    Note:
+    -----
+    This function is critical for fixing the R2 degradation issue. It ensures that
+    predictions are inverse-transformed using the correct (target) statistics.
+    """
+    df = df.copy()
+
+    # Add period column using existing get_periods function
+    df = get_periods(df)
+
+    # --- 1) flatten multi-index columns if needed ---
+    lts = long_term_stats.copy()
+    if isinstance(lts.columns, pd.MultiIndex):
+        new_columns = []
+        for col in lts.columns:
+            if col[1] == "":  # This is for 'code' and 'period' columns
+                new_columns.append(col[0])
+            elif col[1] in ["mean", "std"]:  # This is for feature columns
+                new_columns.append(f"{col[0]}_{col[1]}")
+            else:
+                new_columns.append("_".join(str(x) for x in col if x))
+        lts.columns = new_columns
+
+    # --- 2) merge the long-term stats back onto the original ---
+    df = df.merge(lts, on=["code", "period"], how="left")
+
+    # --- 3) apply inverse standardization using target statistics ---
+    target_mean_col = f"{target_col}_mean"
+    target_std_col = f"{target_col}_std"
+
+    if target_mean_col in df.columns and target_std_col in df.columns:
+        # Apply inverse standardization: x_original = x_scaled * std + mean
+        df[prediction_col] = (
+            df[prediction_col] * df[target_std_col] + df[target_mean_col]
+        )
+    else:
+        raise ValueError(f"Target statistics not found for {target_col}")
+
+    # --- 4) drop all helper columns and return ---
+    # Get all stat columns to drop
+    stat_cols = [
+        col for col in df.columns if col.endswith("_mean") or col.endswith("_std")
+    ]
+    drop_cols = stat_cols.copy()
+
+    # Also drop the period column we added
+    if "period" in df.columns:
+        drop_cols.append("period")
 
     return df.drop(columns=drop_cols)
 

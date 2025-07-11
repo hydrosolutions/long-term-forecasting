@@ -7,7 +7,6 @@ leave-one-year-out cross-validation, hyperparameter optimization, and feature pr
 """
 
 import os
-import logging
 from typing import Dict, Any, List, Tuple, Optional, Union
 import pandas as pd
 import numpy as np
@@ -39,8 +38,13 @@ import optuna
 # Custom modules
 from scr import data_utils as du
 
-logger = logging.getLogger(__name__)
+# Shared logging
+import logging
+from log_config import setup_logging
 
+setup_logging()
+
+logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logger
 
 def get_model(
     model_type: str, params: Dict[str, Any], cat_features: Optional[List[str]] = None
@@ -352,26 +356,17 @@ def _objective_xgb(
             }
         )
 
-        # Add code column if needed for per-basin normalization
-        if (
-            experiment_config.get("normalization_type") == "per_basin"
-            and basin_codes is not None
-        ):
+        if basin_codes is not None:
+            # Add code column if needed for per-basin normalization
             df_temp["code"] = (
                 basin_codes.values if hasattr(basin_codes, "values") else basin_codes
             )
-
-        # Add date column for long_term_mean normalization
-        if experiment_config.get("normalization_type") == "long_term_mean":
-            if val_dates is not None:
-                df_temp["date"] = (
-                    val_dates.values if hasattr(val_dates, "values") else val_dates
-                )
-            else:
-                # Fallback to dummy dates if actual dates not available
-                df_temp["date"] = pd.date_range(
-                    start="2020-01-01", periods=len(df_temp), freq="D"
-                )
+        
+        if val_dates is not None:
+            # Add date column for long_term_mean normalization
+            df_temp["date"] = (
+                val_dates.values if hasattr(val_dates, "values") else val_dates
+            )
 
         # Apply inverse transformation
         df_temp = post_process_predictions(
@@ -442,26 +437,17 @@ def _objective_lgbm(
             }
         )
 
-        # Add code column if needed for per-basin normalization
-        if (
-            experiment_config.get("normalization_type") == "per_basin"
-            and basin_codes is not None
-        ):
+        if basin_codes is not None:
+            # Add code column if needed for per-basin normalization
             df_temp["code"] = (
                 basin_codes.values if hasattr(basin_codes, "values") else basin_codes
             )
-
-        # Add date column for long_term_mean normalization
-        if experiment_config.get("normalization_type") == "long_term_mean":
-            if val_dates is not None:
-                df_temp["date"] = (
-                    val_dates.values if hasattr(val_dates, "values") else val_dates
-                )
-            else:
-                # Fallback to dummy dates if actual dates not available
-                df_temp["date"] = pd.date_range(
-                    start="2020-01-01", periods=len(df_temp), freq="D"
-                )
+        
+        if val_dates is not None:
+            # Add date column for long_term_mean normalization
+            df_temp["date"] = (
+                val_dates.values if hasattr(val_dates, "values") else val_dates
+            )
 
         # Apply inverse transformation
         df_temp = post_process_predictions(
@@ -527,26 +513,18 @@ def _objective_catboost(
             }
         )
 
-        # Add code column if needed for per-basin normalization
-        if (
-            experiment_config.get("normalization_type") == "per_basin"
-            and basin_codes is not None
-        ):
+
+        if basin_codes is not None:
+            # Add code column if needed for per-basin normalization
             df_temp["code"] = (
                 basin_codes.values if hasattr(basin_codes, "values") else basin_codes
             )
-
-        # Add date column for long_term_mean normalization
-        if experiment_config.get("normalization_type") == "long_term_mean":
-            if val_dates is not None:
-                df_temp["date"] = (
-                    val_dates.values if hasattr(val_dates, "values") else val_dates
-                )
-            else:
-                # Fallback to dummy dates if actual dates not available
-                df_temp["date"] = pd.date_range(
-                    start="2020-01-01", periods=len(df_temp), freq="D"
-                )
+        
+        if val_dates is not None:
+            # Add date column for long_term_mean normalization
+            df_temp["date"] = (
+                val_dates.values if hasattr(val_dates, "values") else val_dates
+            )
 
         # Apply inverse transformation
         df_temp = post_process_predictions(
@@ -611,26 +589,17 @@ def _objective_mlp(
             }
         )
 
-        # Add code column if needed for per-basin normalization
-        if (
-            experiment_config.get("normalization_type") == "per_basin"
-            and basin_codes is not None
-        ):
+        if basin_codes is not None:
+            # Add code column if needed for per-basin normalization
             df_temp["code"] = (
                 basin_codes.values if hasattr(basin_codes, "values") else basin_codes
             )
-
-        # Add date column for long_term_mean normalization
-        if experiment_config.get("normalization_type") == "long_term_mean":
-            if val_dates is not None:
-                df_temp["date"] = (
-                    val_dates.values if hasattr(val_dates, "values") else val_dates
-                )
-            else:
-                # Fallback to dummy dates if actual dates not available
-                df_temp["date"] = pd.date_range(
-                    start="2020-01-01", periods=len(df_temp), freq="D"
-                )
+        
+        if val_dates is not None:
+            # Add date column for long_term_mean normalization
+            df_temp["date"] = (
+                val_dates.values if hasattr(val_dates, "values") else val_dates
+            )
 
         # Apply inverse transformation
         df_temp = post_process_predictions(

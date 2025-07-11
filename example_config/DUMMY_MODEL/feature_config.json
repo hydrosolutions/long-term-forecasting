@@ -1,0 +1,146 @@
+{
+    "discharge": [
+        {
+            "operation": "mean",
+            "windows": [
+                15,
+                30
+            ],
+            "lags": {
+                "30": [
+                    30,
+                    335,
+                    365
+                ]
+            }
+        },
+        {
+            "operation": "slope",
+            "windows": [
+                15,
+                30
+            ],
+            "lags": {
+                "15": [
+                    365
+                ]
+            }
+        },
+        {
+            "operation": "peak_to_peak",
+            "windows": [
+                30
+            ],
+            "lags": {}
+        }
+    ],
+    "P": [
+        {
+            "operation": "sum",
+            "windows": [
+                15,
+                30
+            ],
+            "lags": {
+                "15": [
+                    -15
+                ],
+                "30": [
+                    30
+                ]
+            }
+        }
+    ],
+    "T": [
+        {
+            "operation": "mean",
+            "windows": [
+                15,
+                30
+            ],
+            "lags": {
+                "15": [
+                    -15
+                ],
+                "30": [
+                    30,
+                    60,
+                    365
+                ]
+            }
+        },
+        {
+            "operation": "slope",
+            "windows": [
+                5,
+                15
+            ],
+            "lags": {
+                "15": [
+                    -15
+                ]
+            }
+        }
+    ],
+    "ROF": [
+        {
+            "operation": "sum",
+            "windows": [
+                10,
+                30
+            ],
+            "lags": {
+                "10": [
+                    -10
+                ],
+                "30": [
+                    365
+                ]
+            }
+        }
+    ],
+    "SWE": [
+        {
+            "operation": "mean",
+            "windows": [
+                15,
+                30
+            ],
+            "lags": {
+                "30": [
+                    30,
+                    60,
+                    90,
+                    330,
+                    365
+                ]
+            }
+        },
+        {
+            "operation": "slope",
+            "windows": [
+                10,
+                30
+            ],
+            "lags": {
+                "10": [
+                    -10
+                ]
+            }
+        },
+        {
+            "operation": "max",
+            "windows": [
+                30
+            ],
+            "lags": {}
+        },
+        {
+            "operation": "time_distance_from_peak",
+            "windows": [
+                180
+            ],
+            "lags": {}
+        }
+    ]
+}
