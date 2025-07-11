@@ -493,23 +493,100 @@ def normalize_features_per_basin(df_train, df_test, features, target):
     return df_train_normalized, df_test_normalized, scaler
 
 
+def get_periods(df):
+    """
+    Add period column to DataFrame based on date.
+
+    Period format:
+    - Regular days: "<month>-<day>" (e.g., "3-15" for March 15th)
+    - Last day of month: "<month>-end" (e.g., "2-end" for last day of February)
+
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        DataFrame with 'date' column
+
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame with 'period' column added
+    """
+    df = df.copy()
+
+    # Create period suffix
+    df["period_suffix"] = np.where(
+        df["date"].dt.day == df["date"].dt.days_in_month,
+        "end",
+        df["date"].dt.day.astype(str),
+    )
+
+    # Create period column
+    df["period"] = df["date"].dt.month.astype(str) + "-" + df["period_suffix"]
+
+    # Clean up temporary column
+    df = df.drop(columns=["period_suffix"])
+
+    return df
+
+
 def get_long_term_mean_per_basin(df, features):
     """
-    Calculate long-term mean for each feature per basin and month.
+    Calculate long-term mean for each feature per basin and period.
+
+    Period represents day-of-year with format:
+    - Regular days: "<month>-<day>" (e.g., "3-15" for March 15th)
+    - Last day of month: "<month>-end" (e.g., "2-end" for last day of February)
     """
 
     df = df.copy()
 
-    df["month"] = df["date"].dt.month
+    # Add period column if not present
+    if "period" not in df.columns:
+        df = get_periods(df)
 
-    # groupy code and month
-    groupby_cols = ["code", "month"]
+    # Group by code and period (instead of month)
+    groupby_cols = ["code", "period"]
 
     grouped = df.groupby(groupby_cols)
 
     long_term_mean = grouped[features].agg(["mean"]).reset_index()
 
     return long_term_mean
+
+
+def get_relative_scaling_features(features, relative_scaling_vars):
+    """
+    Identify features that should use relative scaling based on variable patterns.
+
+    Parameters:
+    -----------
+    features : list
+        List of all feature names
+    relative_scaling_vars : list
+        List of variable patterns to match (e.g., ["SWE", "T", "discharge"])
+
+    Returns:
+    --------
+    tuple
+        (relative_features, per_basin_features) - Lists of features for each scaling type
+    """
+    relative_features = []
+    per_basin_features = []
+
+    for feature in features:
+        # Check if feature matches any relative scaling pattern
+        uses_relative = False
+        for var in relative_scaling_vars:
+            if f"{var}_" in feature:
+                uses_relative = True
+                break
+
+        if uses_relative:
+            relative_features.append(feature)
+        else:
+            per_basin_features.append(feature)
+
+    return relative_features, per_basin_features
 
 
 def apply_long_term_mean(df, long_term_mean, features):
@@ -551,14 +628,50 @@ def apply_long_term_mean(df, long_term_mean, features):
     return df.drop(columns=drop_cols)
 
 
-def apply_long_term_mean_scaling(df, long_term_mean, features):
+def apply_long_term_mean_scaling(
+    df, long_term_mean, features, relative_scaling_vars=None, use_relative_target=False
+):
     """
-    Apply long-term mean to the DataFrame in a vectorized way:
-      - merge on basin code and month
-      - scale the features by deviding by the corresponding long-term mean
+    Apply long-term mean scaling to the DataFrame with selective feature scaling.
+
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        DataFrame with features to scale
+    long_term_mean : pd.DataFrame
+        DataFrame with long-term means per basin and period
+    features : list
+        List of feature columns to scale
+    relative_scaling_vars : list, optional
+        List of variable patterns for relative scaling (e.g., ["SWE", "T", "discharge"])
+    use_relative_target : bool, optional
+        Whether to apply relative scaling to the target variable
+
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with scaled features
+    dict
+        Metadata about which features used which scaling type
     """
     df = df.copy()
-    df["month"] = df["date"].dt.month  # ensure month col exists
+
+    # Add period column if not present
+    if "period" not in df.columns:
+        df = get_periods(df)
+
+    # Determine which features use relative scaling
+    if relative_scaling_vars:
+        relative_features, per_basin_features = get_relative_scaling_features(
+            features, relative_scaling_vars
+        )
+    else:
+        relative_features = features
+        per_basin_features = []
+
+    # Handle target variable separately if requested
+    if use_relative_target and "target" in df.columns and "target" not in features:
+        relative_features.append("target")
 
     # --- 1) flatten multi-index columns if needed ---
     ltm = long_term_mean.copy()
@@ -567,7 +680,7 @@ def apply_long_term_mean_scaling(df, long_term_mean, features):
         # We need to flatten the MultiIndex properly
         new_columns = []
         for col in ltm.columns:
-            if col[1] == "":  # This is for 'code' and 'month' columns
+            if col[1] == "":  # This is for 'code' and 'period' columns
                 new_columns.append(col[0])
             elif col[1] == "mean":  # This is for feature columns
                 new_columns.append(f"{col[0]}_mean")
@@ -577,30 +690,53 @@ def apply_long_term_mean_scaling(df, long_term_mean, features):
         ltm.columns = new_columns
     else:
         # if you already ran grouped.mean(), you just need to rename
-        rename_map = {feat: f"{feat}_mean" for feat in features}
+        rename_map = {
+            feat: f"{feat}_mean"
+            for feat in features
+            + (["target"] if use_relative_target and "target" in df.columns else [])
+        }
         ltm = ltm.rename(columns=rename_map)
 
     # --- 2) merge the long-term means back onto the original ---
-    df = df.merge(ltm, on=["code", "month"], how="left")
+    df = df.merge(ltm, on=["code", "period"], how="left")
 
-    # --- 3) fill in missing values from the long-term mean ---
-    for feat in features:
-        mean_col = f"{feat}_mean"
-        long_term_mean = df[mean_col]
-        # replace 0 with 1 to avoid division by zero
-        long_term_mean = long_term_mean.replace(0, 1)
-        # Check if we have duplicate columns that cause df[mean_col] to return a DataFrame
-        if isinstance(long_term_mean, pd.DataFrame):
-            # Use the first occurrence of the column
-            df[feat] = df[feat] / long_term_mean.iloc[:, 0]
-        else:
-            # Normal case - mean_col is a Series
-            df[feat] = df[feat] / long_term_mean
+    # --- 3) Apply scaling based on feature type ---
+    scaling_metadata = {
+        "relative_features": relative_features,
+        "per_basin_features": per_basin_features,
+        "relative_scaling_vars": relative_scaling_vars,
+        "use_relative_target": use_relative_target,
+    }
+
+    # Scale features using relative scaling (long-term mean)
+    for feat in relative_features:
+        if feat in df.columns:
+            mean_col = f"{feat}_mean"
+            if mean_col in df.columns:
+                long_term_mean_values = df[mean_col]
+                # replace 0 with 1 to avoid division by zero
+                long_term_mean_values = long_term_mean_values.replace(0, 1)
+                # Check if we have duplicate columns
+                if isinstance(long_term_mean_values, pd.DataFrame):
+                    # Use the first occurrence of the column
+                    df[feat] = df[feat] / long_term_mean_values.iloc[:, 0]
+                else:
+                    # Normal case - mean_col is a Series
+                    df[feat] = df[feat] / long_term_mean_values
+
+    # For per-basin features, we would apply different scaling
+    # (This is a placeholder - actual implementation depends on requirements)
+    # For now, they remain unscaled by long-term mean
 
     # --- 4) drop helper columns and return ---
-    drop_cols = [f"{feat}_mean" for feat in features]
+    drop_cols = [
+        f"{feat}_mean"
+        for feat in features
+        + (["target"] if use_relative_target and "target" in df.columns else [])
+    ]
+    drop_cols = [col for col in drop_cols if col in df.columns]
 
-    return df.drop(columns=drop_cols)
+    return df.drop(columns=drop_cols), scaling_metadata
 
 
 def apply_inverse_long_term_mean_scaling(
@@ -608,6 +744,7 @@ def apply_inverse_long_term_mean_scaling(
     long_term_mean: pd.DataFrame,
     var_to_scale: str,
     var_used_for_scaling: list,
+    scaling_metadata: dict = None,
 ):
     """
     Inverse long-term mean scaling: multiply the features by the corresponding long-term mean.
@@ -617,9 +754,13 @@ def apply_inverse_long_term_mean_scaling(
     df : pd.DataFrame
         DataFrame with features to inverse scale
     long_term_mean : pd.DataFrame
-        DataFrame with long-term means for each feature per basin and month
-    features : list
-        List of feature columns to inverse scale
+        DataFrame with long-term means for each feature per basin and period
+    var_to_scale : str
+        The variable to scale (e.g., 'prediction')
+    var_used_for_scaling : list or str
+        The variable(s) used for getting the scaling statistics (e.g., 'target')
+    scaling_metadata : dict, optional
+        Metadata about which features used which scaling type
 
     Returns:
     --------
@@ -627,7 +768,10 @@ def apply_inverse_long_term_mean_scaling(
         DataFrame with features inverse scaled
     """
     df = df.copy()
-    df["month"] = df["date"].dt.month  # ensure month col exists
+
+    # Add period column if not present
+    if "period" not in df.columns:
+        df = get_periods(df)
 
     # check if var_used_for_scaling is a single string or a list
     if isinstance(var_used_for_scaling, str):
@@ -636,32 +780,45 @@ def apply_inverse_long_term_mean_scaling(
     # --- 1) flatten multi-index columns if needed ---
     ltm = long_term_mean.copy()
     if isinstance(ltm.columns, pd.MultiIndex):
-        ltm.columns = ["code", "month"] + [
-            f"{feat}_mean" for feat in var_used_for_scaling
-        ]
+        # Properly handle MultiIndex columns
+        new_columns = []
+        for col in ltm.columns:
+            if col[1] == "":  # This is for 'code' and 'period' columns
+                new_columns.append(col[0])
+            elif col[1] == "mean":  # This is for feature columns
+                new_columns.append(f"{col[0]}_mean")
+            else:
+                # Handle any other column structure
+                new_columns.append("_".join(str(x) for x in col if x))
+        ltm.columns = new_columns
     else:
         rename_map = {feat: f"{feat}_mean" for feat in var_used_for_scaling}
         ltm = ltm.rename(columns=rename_map)
 
     # --- 2) merge the long-term means back onto the original ---
-    df = df.merge(ltm, on=["code", "month"], how="left")
+    df = df.merge(ltm, on=["code", "period"], how="left")
 
     # --- 3) multiply the features by the long-term mean ---
-    for feat in var_used_for_scaling:
-        mean_col = f"{feat}_mean"
-        long_term_mean = df[mean_col]
-        # replace 0 with 1 to avoid division by zero
-        long_term_mean = long_term_mean.replace(0, 1)
-        # Check if we have duplicate columns that cause df[mean_col] to return a DataFrame
-        if isinstance(long_term_mean, pd.DataFrame):
+    # Use the first variable in var_used_for_scaling for scaling
+    # This is typically 'target' when rescaling predictions
+    scaling_var = var_used_for_scaling[0]
+    mean_col = f"{scaling_var}_mean"
+
+    if mean_col in df.columns:
+        long_term_mean_values = df[mean_col]
+        # replace 0 with 1 to avoid division errors
+        long_term_mean_values = long_term_mean_values.replace(0, 1)
+        # Check if we have duplicate columns
+        if isinstance(long_term_mean_values, pd.DataFrame):
             # Use the first occurrence of the column
-            df[var_to_scale] = df[feat] * long_term_mean.iloc[:, 0]
+            df[var_to_scale] = df[var_to_scale] * long_term_mean_values.iloc[:, 0]
         else:
             # Normal case - mean_col is a Series
-            df[var_to_scale] = df[feat] * long_term_mean
+            df[var_to_scale] = df[var_to_scale] * long_term_mean_values
 
     # --- 4) drop helper columns and return ---
     drop_cols = [f"{feat}_mean" for feat in var_used_for_scaling]
+    drop_cols = [col for col in drop_cols if col in df.columns]
 
     return df.drop(columns=drop_cols)
 
