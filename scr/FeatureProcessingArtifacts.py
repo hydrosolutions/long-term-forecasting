@@ -37,6 +37,12 @@ class FeatureProcessingArtifacts:
         self.experiment_config_hash = None
         self.feature_count = None
         self.target_col = None
+        # New attributes for selective scaling
+        self.relative_features = None
+        self.per_basin_features = None
+        self.relative_scaling_vars = None
+        self.use_relative_target = None
+        self.scaling_metadata = None
 
     def save(self, filepath: Union[str, Path], format: str = "joblib") -> None:
         """
@@ -94,6 +100,13 @@ class FeatureProcessingArtifacts:
             "creation_timestamp": self.creation_timestamp,
             "experiment_config_hash": self.experiment_config_hash,
             "feature_count": self.feature_count,
+            "target_col": self.target_col,
+            # New selective scaling attributes
+            "relative_features": self.relative_features,
+            "per_basin_features": self.per_basin_features,
+            "relative_scaling_vars": self.relative_scaling_vars,
+            "use_relative_target": self.use_relative_target,
+            "scaling_metadata": self.scaling_metadata,
         }
 
         with open(artifacts_dir / "metadata.json", "w") as f:
@@ -283,9 +296,17 @@ class FeatureProcessingArtifacts:
             artifacts.final_features = metadata.get("final_features")
             artifacts.cat_features = metadata.get("cat_features")
             artifacts.num_features = metadata.get("num_features")
+            artifacts.static_features = metadata.get("static_features")
             artifacts.creation_timestamp = metadata.get("creation_timestamp")
             artifacts.experiment_config_hash = metadata.get("experiment_config_hash")
             artifacts.feature_count = metadata.get("feature_count")
+            artifacts.target_col = metadata.get("target_col")
+            # Load new selective scaling attributes
+            artifacts.relative_features = metadata.get("relative_features")
+            artifacts.per_basin_features = metadata.get("per_basin_features")
+            artifacts.relative_scaling_vars = metadata.get("relative_scaling_vars")
+            artifacts.use_relative_target = metadata.get("use_relative_target")
+            artifacts.scaling_metadata = metadata.get("scaling_metadata")
 
         # Load sklearn objects
         sklearn_path = artifacts_dir / "sklearn_objects.joblib"
@@ -839,6 +860,10 @@ def _normalization_training(
             df, artifacts.scaler, numeric_features_to_scale + [target]
         )
     elif normalization_process == "long_term_mean":
+        # Get configuration parameters for selective scaling
+        relative_scaling_vars = experiment_config.get("relative_scaling_vars", None)
+        use_relative_target = experiment_config.get("use_relative_target", False)
+
         if artifacts.long_term_means is None:
             long_term_means = du.get_long_term_mean_per_basin(
                 df, features=numeric_features_to_scale + [target]
@@ -849,11 +874,21 @@ def _normalization_training(
         artifacts.long_term_means = long_term_means
         artifacts.scaler = long_term_means.to_dict()
 
-        df = du.apply_long_term_mean_scaling(
+        # Apply scaling with new parameters
+        df, scaling_metadata = du.apply_long_term_mean_scaling(
             df,
             long_term_mean=long_term_means,
             features=numeric_features_to_scale + [target],
+            relative_scaling_vars=relative_scaling_vars,
+            use_relative_target=use_relative_target,
         )
+
+        # Store scaling metadata in artifacts
+        artifacts.scaling_metadata = scaling_metadata
+        artifacts.relative_features = scaling_metadata.get("relative_features", [])
+        artifacts.per_basin_features = scaling_metadata.get("per_basin_features", [])
+        artifacts.relative_scaling_vars = relative_scaling_vars
+        artifacts.use_relative_target = use_relative_target
     else:
         raise ValueError(
             f"Unknown normalization process: {normalization_process}. "
@@ -994,10 +1029,13 @@ def _apply_normalization(
         numeric_features_to_scale.append(artifacts.target_col)
 
     if normalization_process == "long_term_mean":
-        df = du.apply_long_term_mean_scaling(
+        # Use stored scaling metadata from training
+        df, _ = du.apply_long_term_mean_scaling(
             df,
             long_term_mean=artifacts.long_term_means,
             features=numeric_features_to_scale,
+            relative_scaling_vars=artifacts.relative_scaling_vars,
+            use_relative_target=artifacts.use_relative_target and scale_target,
         )
     elif normalization_process == "per_basin":
         df = du.apply_normalization_per_basin(
@@ -1065,6 +1103,7 @@ def post_process_predictions(
             long_term_mean=artifacts.long_term_means,
             var_to_scale=prediction_column,
             var_used_for_scaling=target,
+            scaling_metadata=artifacts.scaling_metadata,
         )
 
         logger.info(f"Applied long-term mean denormalization to {prediction_column}")
