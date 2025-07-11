@@ -968,21 +968,9 @@ class SciRegressor(BaseForecastModel):
             X_val = df_val_processed[final_features]
             y_val = df_val_processed[self.target]
 
-            # Get basin codes and dates for validation data if needed
-            basin_codes_val = None
-            val_dates = None
-
-            if (
-                self.general_config.get("normalization_type") == "per_basin"
-                and "code" in df_val_processed.columns
-            ):
-                basin_codes_val = df_val_processed["code"]
-
-            if (
-                self.general_config.get("normalization_type") == "long_term_mean"
-                and "date" in df_val_processed.columns
-            ):
-                val_dates = df_val_processed["date"]
+            
+            basin_codes_val = df_val["code"].copy()
+            val_dates = df_val["date"].copy()
 
             best_params = sci_utils.optimize_hyperparams(
                 X_train=X_train,

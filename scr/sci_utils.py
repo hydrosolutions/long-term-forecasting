@@ -373,6 +373,13 @@ def _objective_xgb(
                     start="2020-01-01", periods=len(df_temp), freq="D"
                 )
 
+        if basin_codes is not None:
+            # Add basin codes if available
+            df_temp["code"] = (
+                basin_codes.values if hasattr(basin_codes, "values") else basin_codes
+            )
+
+            
         # Apply inverse transformation
         df_temp = post_process_predictions(
             df_predictions=df_temp,
@@ -463,6 +470,13 @@ def _objective_lgbm(
                     start="2020-01-01", periods=len(df_temp), freq="D"
                 )
 
+        if basin_codes is not None:
+            # Add basin codes if available
+            df_temp["code"] = (
+                basin_codes.values if hasattr(basin_codes, "values") else basin_codes
+            )
+            
+
         # Apply inverse transformation
         df_temp = post_process_predictions(
             df_predictions=df_temp,
@@ -548,6 +562,12 @@ def _objective_catboost(
                     start="2020-01-01", periods=len(df_temp), freq="D"
                 )
 
+        if basin_codes is not None:
+            # Add basin codes if available
+            df_temp["code"] = (
+                basin_codes.values if hasattr(basin_codes, "values") else basin_codes
+            )
+
         # Apply inverse transformation
         df_temp = post_process_predictions(
             df_predictions=df_temp,
@@ -631,6 +651,11 @@ def _objective_mlp(
                 df_temp["date"] = pd.date_range(
                     start="2020-01-01", periods=len(df_temp), freq="D"
                 )
+        if basin_codes is not None:
+            # Add basin codes if available
+            df_temp["code"] = (
+                basin_codes.values if hasattr(basin_codes, "values") else basin_codes
+            )
 
         # Apply inverse transformation
         df_temp = post_process_predictions(
