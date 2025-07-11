@@ -238,7 +238,7 @@ class TestUtilityFunctions:
             (datetime(2020, 5, 25), "5-25"),
             (datetime(2020, 6, 27), "6-27"),
             (datetime(2020, 7, 31), "7-End"),  # End of month
-            (datetime(2020, 8, 1), "8-End"),  # Any other day
+            (datetime(2020, 8, 1), "8-1"),  # First day of month
         ]
 
         for date, expected in test_cases:
@@ -537,8 +537,8 @@ class TestLongTermMeanFunctions:
         assert 1 in result["code"].values
         assert 2 in result["code"].values
 
-        # Check that we have month column
-        assert "month" in result.columns
+        # Check that we have period column
+        assert "period" in result.columns
 
         # Check that all features are present in the result
         for feature in features:
@@ -560,15 +560,20 @@ class TestLongTermMeanFunctions:
         df.loc[10:15, "feature1"] = np.nan
 
         # Create long-term mean DataFrame structure based on actual function
+        # Now using periods instead of months
+        periods = []
+        for month in range(1, 13):
+            periods.extend([f"{month}-10", f"{month}-20", f"{month}-end"])
+
         long_term_mean = pd.DataFrame(
             {
-                "code": [1] * 12,
-                "month": list(range(1, 13)),
-                ("feature1", "mean"): [10.0] * 12,
+                "code": [1] * len(periods),
+                "period": periods,
+                ("feature1", "mean"): [10.0] * len(periods),
             }
         )
         long_term_mean.columns = pd.MultiIndex.from_tuples(
-            [("code", ""), ("month", ""), ("feature1", "mean")]
+            [("code", ""), ("period", ""), ("feature1", "mean")]
         )
 
         features = ["feature1"]
@@ -688,13 +693,17 @@ class TestLongTermMeanScaling:
         )
 
         # Create long-term mean with regular columns (not MultiIndex)
+        # The function expects columns with _mean and _std suffixes
         long_term_mean = pd.DataFrame(
             {
                 "code": [1, 2],
-                "month": [1, 1],
-                "feature_1": [1.0, 2.0],
-                "feature_2": [1.5, 2.5],
-                "feature_3": [2.0, 3.0],
+                "period": ["1-10", "1-10"],
+                "feature_1_mean": [1.0, 2.0],
+                "feature_1_std": [0.5, 0.5],
+                "feature_2_mean": [1.5, 2.5],
+                "feature_2_std": [0.5, 0.5],
+                "feature_3_mean": [2.0, 3.0],
+                "feature_3_std": [0.5, 0.5],
             }
         )
 

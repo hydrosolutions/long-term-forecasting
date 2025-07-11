@@ -815,14 +815,19 @@ def _handle_missing_values_training(
 
         numeric_features = [col for col in features if df[col].dtype.kind in "ifc"]
 
-        artifacts.long_term_means = du.get_long_term_mean_per_basin(
-            df, features=numeric_features
-        )
+        # Get the full stats (mean and std)
+        long_term_stats = du.get_long_term_mean_per_basin(df, features=numeric_features)
+        # Store full stats in new attribute
+        artifacts.long_term_stats = long_term_stats
+        # For backward compatibility, also store the means
+        artifacts.long_term_means = long_term_stats
         df = du.apply_long_term_mean(
             df, long_term_mean=artifacts.long_term_means, features=numeric_features
         )
         logger.info("Created long-term mean artifacts")
-        logger.info(f"Long Term Means: {artifacts.long_term_means}")
+        logger.info(
+            f"Long Term Stats shape: {artifacts.long_term_stats.shape if hasattr(artifacts.long_term_stats, 'shape') else 'N/A'}"
+        )
 
     elif handle_na == "impute":
         impute_cols = [col for col in features if df[col].dtype.kind in "ifc"]

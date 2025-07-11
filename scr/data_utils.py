@@ -22,6 +22,37 @@ from log_config import setup_logging
 setup_logging()
 
 
+def get_position_name(row):
+    """
+    Get position name from a DataFrame row with a date.
+    Returns format like "1-5", "2-10", "3-15", "7-End", etc.
+
+    Parameters:
+    -----------
+    row : pd.Series
+        Series containing a 'date' field
+
+    Returns:
+    --------
+    str
+        Position name in format "month-day" or "month-End"
+    """
+    date = row["date"]
+    month = date.month
+    day = date.day
+
+    # Get the last day of the month
+    import calendar
+
+    last_day = calendar.monthrange(date.year, month)[1]
+
+    # Special case for last day of month
+    if day == last_day:
+        return f"{month}-End"
+    else:
+        return f"{month}-{day}"
+
+
 def get_periods(df) -> pd.DataFrame:
     """
     Get unique periods from the data.
@@ -589,24 +620,41 @@ def get_long_term_mean_per_basin(df, features):
 def apply_long_term_mean(df, long_term_mean, features):
     """
     Apply long-term mean to the DataFrame in a vectorized way:
-      - merge on basin code and month
+      - merge on basin code and period
       - fill missing feature values with the corresponding long-term mean
     """
     df = df.copy()
-    df["month"] = df["date"].dt.month  # ensure month col exists
+
+    # Add period column using existing get_periods function
+    df = get_periods(df)
 
     # --- 1) flatten multi-index columns if needed ---
     ltm = long_term_mean.copy()
     if isinstance(ltm.columns, pd.MultiIndex):
-        # after agg(['mean']), cols look like (feature, 'mean')
-        ltm.columns = ["code", "month"] + [f"{feat}_mean" for feat in features]
+        # After agg(['mean', 'std']), we need to extract just the mean columns
+        # Build new column names from the MultiIndex
+        new_columns = []
+        for col in ltm.columns:
+            if col[1] == "":  # This is for 'code' and 'period' columns
+                new_columns.append(col[0])
+            elif col[1] == "mean":  # This is for feature mean columns
+                new_columns.append(f"{col[0]}_mean")
+            # Skip 'std' columns as we don't need them for filling missing values
+
+        # Select only the columns we need (code, period, and means)
+        mean_cols = []
+        for i, col in enumerate(ltm.columns):
+            if col[1] == "" or col[1] == "mean":
+                mean_cols.append(i)
+        ltm = ltm.iloc[:, mean_cols]
+        ltm.columns = new_columns
     else:
         # if you already ran grouped.mean(), you just need to rename
         rename_map = {feat: f"{feat}_mean" for feat in features}
         ltm = ltm.rename(columns=rename_map)
 
     # --- 2) merge the long-term means back onto the original ---
-    df = df.merge(ltm, on=["code", "month"], how="left")
+    df = df.merge(ltm, on=["code", "period"], how="left")
 
     # --- 3) fill in missing values from the long-term mean ---
     for feat in features:
@@ -621,6 +669,9 @@ def apply_long_term_mean(df, long_term_mean, features):
 
     # --- 4) drop helper columns and return ---
     drop_cols = [f"{feat}_mean" for feat in features]
+    # Also drop the period column we added
+    if "period" in df.columns:
+        drop_cols.append("period")
 
     return df.drop(columns=drop_cols)
 
