@@ -22,21 +22,29 @@ from log_config import setup_logging
 setup_logging()
 
 
-def get_position_name(row):
-    if row["date"].day == 5:
-        return f"{row['date'].month}-5"
-    elif row["date"].day == 10:
-        return f"{row['date'].month}-10"
-    elif row["date"].day == 15:
-        return f"{row['date'].month}-15"
-    elif row["date"].day == 20:
-        return f"{row['date'].month}-20"
-    elif row["date"].day == 25:
-        return f"{row['date'].month}-25"
-    elif row["date"].day == 27:
-        return f"{row['date'].month}-27"
-    else:
-        return f"{row['date'].month}-End"
+def get_periods(df) -> pd.DataFrame:
+    """
+    Get unique periods from the data.
+    The period name is <month>-<day>.
+    if it is the last day of the month, the period name is <month>-end. (accounts for february)
+
+    Returns:
+        pd.DataFrame: DataFrame containing unique periods.
+    """
+    df = df.copy()
+    df["day"] = df["date"].dt.day
+    df["month"] = df["date"].dt.month
+    df["period_suffix"] = np.where(
+        df["date"].dt.day == df["date"].dt.days_in_month,
+        "end",
+        df["date"].dt.day.astype(str),
+    )
+    df["period"] = (
+        df["month"].astype(str) + "-" + df["period_suffix"]
+    )
+    df.drop(columns=["period_suffix"], inplace=True)
+
+    return df
 
 
 def discharge_m3_to_mm(df):
