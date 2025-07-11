@@ -105,6 +105,19 @@ The system now automatically uses period-based grouping instead of monthly group
 
 ## Backward Compatibility
 
-- Existing models without these parameters will continue to work
-- Default behavior maintains full relative scaling for all features
-- Period-based grouping is automatically applied when using long_term_mean normalization
+### For Existing Code
+- The `apply_long_term_mean_scaling` function now returns a tuple `(DataFrame, metadata)` by default
+- To maintain compatibility with existing code, use `return_metadata=False` to get only the DataFrame
+- Example: `df_scaled = apply_long_term_mean_scaling(df, ltm, features, return_metadata=False)`
+
+### For Existing Models
+- Models trained with month-based grouping will continue to work
+- The system automatically detects whether to use 'month' or 'period' columns
+- Existing models without the new configuration parameters will use default values:
+  - `relative_scaling_vars = None` (all features use relative scaling)
+  - `use_relative_target = False`
+
+### Period vs Month Grouping
+- New models automatically use period-based grouping (day-of-year)
+- Existing models using month-based grouping remain compatible
+- The system detects the grouping type from the long_term_mean DataFrame structure
