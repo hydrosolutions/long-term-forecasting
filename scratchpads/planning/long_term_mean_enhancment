@@ -1,0 +1,15 @@
+# Long Term Mean Enhancement
+
+Right now the long term mean aggreagation is performed on code and month, but it should be performed on code and period (see data_utils, get_period function)
+
+## New Specs
+
+- aggregation on period instead of month
+- also calculates the mean and std per period and month
+- long_term_mean_scale_vars: experiment config which state which variables should be scaled with z score per period and code - this can be a list like [SWE, discharge, T] the to be scaled variables need to be filted to include var + "_" in teh column name (e.g SWE_, discharge_ etc)
+- use_norm_target in experiment config: if also target should be scaled with z score long term mean per basin and period
+- all other variables should be scaled accoriding to "normalization_type" - this should now only cover the options global and per_basin -> if use_norm_target=False also scale the target accoridng to the normale scaling approach , if use_norm_target=True use long term only
+- Make sure that the predictions are properly rescaled with the statistics of the target per basin and period
+- integration in existing workflow - add artifacts variables where necessary 
+- make sure it supports loading and saving
+- write /adapt test functions for this new implementation

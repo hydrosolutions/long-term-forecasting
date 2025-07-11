@@ -25,7 +25,8 @@ class FeatureProcessingArtifacts:
         self.imputer = None
         self.scaler = None
         self.static_scaler = None  # Static features scaler
-        self.long_term_means = None
+        self.long_term_means = None  # Deprecated, kept for backward compatibility
+        self.long_term_stats = None  # New: stores mean and std per period
         self.feature_selector = None
         self.selected_features = None
         self.highly_correlated_features = None
@@ -37,6 +38,10 @@ class FeatureProcessingArtifacts:
         self.experiment_config_hash = None
         self.feature_count = None
         self.target_col = None
+        # New attributes for enhanced scaling
+        self.relative_features = None  # Features using relative scaling
+        self.relative_scaling_vars = None  # Config parameter value
+        self.use_relative_target = None  # Boolean flag for target scaling
 
     def save(self, filepath: Union[str, Path], format: str = "joblib") -> None:
         """
@@ -94,6 +99,11 @@ class FeatureProcessingArtifacts:
             "creation_timestamp": self.creation_timestamp,
             "experiment_config_hash": self.experiment_config_hash,
             "feature_count": self.feature_count,
+            "target_col": self.target_col,
+            # New attributes
+            "relative_features": self.relative_features,
+            "relative_scaling_vars": self.relative_scaling_vars,
+            "use_relative_target": self.use_relative_target,
         }
 
         with open(artifacts_dir / "metadata.json", "w") as f:
@@ -116,9 +126,13 @@ class FeatureProcessingArtifacts:
         if self.static_scaler is not None:
             self._save_scaler_safe(artifacts_dir, "static_scaler")
 
-        # Save long_term_means as Parquet
+        # Save long_term_means as Parquet (backward compatibility)
         if self.long_term_means is not None:
             self._save_long_term_means_safe(artifacts_dir)
+            
+        # Save long_term_stats as Parquet (new period-based stats)
+        if self.long_term_stats is not None:
+            self._save_long_term_stats_safe(artifacts_dir)
 
     def _save_scaler_safe(
         self, artifacts_dir: Path, scaler_name: str = "scaler"
@@ -228,6 +242,41 @@ class FeatureProcessingArtifacts:
             logger.info("Falling back to JSON format")
             self._save_long_term_means_json_fallback(artifacts_dir)
 
+    def _save_long_term_stats_safe(self, artifacts_dir: Path) -> None:
+        """
+        Save long_term_stats (mean and std per period) as a Parquet file.
+        
+        The long_term_stats is a DataFrame with MultiIndex columns from agg(['mean', 'std'])
+        """
+        if self.long_term_stats is None:
+            return
+            
+        try:
+            # Save directly as parquet - pandas handles MultiIndex columns well
+            self.long_term_stats.to_parquet(
+                artifacts_dir / "long_term_stats.parquet"
+            )
+            logger.info("Saved long_term_stats DataFrame as Parquet")
+        except Exception as e:
+            logger.error(f"Failed to save long_term_stats as Parquet: {e}")
+            # Fallback: flatten MultiIndex and save as CSV
+            logger.info("Falling back to CSV format for long_term_stats")
+            try:
+                # Flatten MultiIndex columns
+                flat_cols = []
+                for col in self.long_term_stats.columns:
+                    if isinstance(col, tuple):
+                        flat_cols.append("_".join(str(c) for c in col if c))
+                    else:
+                        flat_cols.append(str(col))
+                
+                df_flat = self.long_term_stats.copy()
+                df_flat.columns = flat_cols
+                df_flat.to_csv(artifacts_dir / "long_term_stats.csv", index=False)
+                logger.info("Saved flattened long_term_stats as CSV")
+            except Exception as e2:
+                logger.error(f"Failed to save long_term_stats as CSV: {e2}")
+    
     def _save_long_term_means_json_fallback(self, artifacts_dir: Path) -> None:
         """Fallback method to save as JSON if Parquet fails."""
         # ...existing code... (keep the original JSON implementation as fallback)
@@ -286,6 +335,11 @@ class FeatureProcessingArtifacts:
             artifacts.creation_timestamp = metadata.get("creation_timestamp")
             artifacts.experiment_config_hash = metadata.get("experiment_config_hash")
             artifacts.feature_count = metadata.get("feature_count")
+            artifacts.target_col = metadata.get("target_col")
+            # New attributes
+            artifacts.relative_features = metadata.get("relative_features")
+            artifacts.relative_scaling_vars = metadata.get("relative_scaling_vars")
+            artifacts.use_relative_target = metadata.get("use_relative_target")
 
         # Load sklearn objects
         sklearn_path = artifacts_dir / "sklearn_objects.joblib"
@@ -299,8 +353,11 @@ class FeatureProcessingArtifacts:
 
         artifacts.static_scaler = cls._load_scaler_safe(artifacts_dir, "static_scaler")
 
-        # Load long_term_means from Parquet or JSON
+        # Load long_term_means from Parquet or JSON (backward compatibility)
         artifacts.long_term_means = cls._load_long_term_means_safe(artifacts_dir)
+        
+        # Load long_term_stats from Parquet or CSV (new period-based stats)
+        artifacts.long_term_stats = cls._load_long_term_stats_safe(artifacts_dir)
 
         return artifacts
 
@@ -412,6 +469,50 @@ class FeatureProcessingArtifacts:
             )
             return long_term_means
 
+        return None
+    
+    @staticmethod
+    def _load_long_term_stats_safe(artifacts_dir: Path) -> Optional[pd.DataFrame]:
+        """Load long_term_stats (mean and std per period) from Parquet or CSV format."""
+        parquet_path = artifacts_dir / "long_term_stats.parquet"
+        csv_path = artifacts_dir / "long_term_stats.csv"
+        
+        # Try Parquet first
+        if parquet_path.exists():
+            try:
+                df = pd.read_parquet(parquet_path)
+                logger.info(f"Loaded long_term_stats from Parquet with shape {df.shape}")
+                return df
+            except Exception as e:
+                logger.warning(f"Failed to load Parquet file: {e}")
+                logger.info("Falling back to CSV format")
+        
+        # Fallback to CSV (with flattened column names)
+        if csv_path.exists():
+            try:
+                df = pd.read_csv(csv_path)
+                # Reconstruct MultiIndex columns
+                new_cols = []
+                for col in df.columns:
+                    if col in ["code", "period"]:
+                        new_cols.append(col)
+                    elif "_mean" in col:
+                        feature = col.replace("_mean", "")
+                        new_cols.append((feature, "mean"))
+                    elif "_std" in col:
+                        feature = col.replace("_std", "")
+                        new_cols.append((feature, "std"))
+                    else:
+                        new_cols.append(col)
+                
+                df.columns = pd.MultiIndex.from_tuples(
+                    [(c, "") if isinstance(c, str) else c for c in new_cols]
+                )
+                logger.info(f"Loaded long_term_stats from CSV with shape {df.shape}")
+                return df
+            except Exception as e:
+                logger.error(f"Failed to load CSV file: {e}")
+        
         return None
 
     @classmethod
@@ -818,41 +919,96 @@ def _normalization_training(
 
     normalization_process = experiment_config.get("normalization_type", "global")
 
-    if normalization_process not in ["global", "per_basin", "long_term_mean"]:
-        raise ValueError(
-            f"Unknown normalization type: {normalization_process}. "
-            "Use 'global', 'per_basin', or 'long_term_mean'."
+    # Handle mixed normalization with selective long-term mean scaling
+    relative_scaling_vars = experiment_config.get("relative_scaling_vars", [])
+    use_relative_target = experiment_config.get("use_relative_target", False)
+    
+    # Store config values in artifacts
+    artifacts.relative_scaling_vars = relative_scaling_vars
+    artifacts.use_relative_target = use_relative_target
+    
+    if relative_scaling_vars or use_relative_target:
+        # Mixed normalization approach
+        # 1. Identify features for relative scaling
+        artifacts.relative_features = du.get_relative_scaling_features(
+            numeric_features_to_scale, relative_scaling_vars
         )
-
-    if normalization_process == "per_basin":
+        
+        # 2. Calculate long-term stats for relative features
+        features_for_stats = artifacts.relative_features.copy()
+        if use_relative_target:
+            features_for_stats.append(target)
+            artifacts.relative_features.append(target)  # Track target as relative
+        
+        if features_for_stats:
+            artifacts.long_term_stats = du.get_long_term_mean_per_basin(
+                df, features=features_for_stats
+            )
+            
+            # Apply long-term mean scaling to relative features
+            df = du.apply_long_term_mean_scaling(
+                df,
+                long_term_stats=artifacts.long_term_stats,
+                features=numeric_features_to_scale + [target],
+                features_to_scale=features_for_stats,
+            )
+        
+        # 3. Apply global/per_basin normalization to non-relative features
+        non_relative_features = [
+            f for f in numeric_features_to_scale 
+            if f not in artifacts.relative_features
+        ]
+        
+        if normalization_process == "per_basin" and non_relative_features:
+            artifacts.scaler = du.get_normalization_params_per_basin(
+                df, non_relative_features, 
+                target if not use_relative_target else None
+            )
+            cols_to_normalize = non_relative_features
+            if not use_relative_target:
+                cols_to_normalize.append(target)
+            df = du.apply_normalization_per_basin(
+                df, artifacts.scaler, cols_to_normalize
+            )
+        elif normalization_process == "global" and non_relative_features:
+            artifacts.scaler = du.get_normalization_params(
+                df, non_relative_features,
+                target if not use_relative_target else None
+            )
+            cols_to_normalize = non_relative_features
+            if not use_relative_target:
+                cols_to_normalize.append(target)
+            df = du.apply_normalization(
+                df, artifacts.scaler, cols_to_normalize
+            )
+    
+    elif normalization_process == "long_term_mean":
+        # Legacy mode: all features use long-term mean
+        artifacts.long_term_stats = du.get_long_term_mean_per_basin(
+            df, features=numeric_features_to_scale + [target]
+        )
+        artifacts.relative_features = numeric_features_to_scale + [target]
+        
+        df = du.apply_long_term_mean_scaling(
+            df,
+            long_term_stats=artifacts.long_term_stats,
+            features=numeric_features_to_scale + [target],
+        )
+        
+    elif normalization_process == "per_basin":
         artifacts.scaler = du.get_normalization_params_per_basin(
             df, numeric_features_to_scale, target
         )
         df = du.apply_normalization_per_basin(
             df, artifacts.scaler, numeric_features_to_scale + [target]
         )
+        
     elif normalization_process == "global":
         artifacts.scaler = du.get_normalization_params(
             df, numeric_features_to_scale, target
         )
         df = du.apply_normalization(
             df, artifacts.scaler, numeric_features_to_scale + [target]
-        )
-    elif normalization_process == "long_term_mean":
-        if artifacts.long_term_means is None:
-            long_term_means = du.get_long_term_mean_per_basin(
-                df, features=numeric_features_to_scale + [target]
-            )
-        else:
-            long_term_means = artifacts.long_term_means
-
-        artifacts.long_term_means = long_term_means
-        artifacts.scaler = long_term_means.to_dict()
-
-        df = du.apply_long_term_mean_scaling(
-            df,
-            long_term_mean=long_term_means,
-            features=numeric_features_to_scale + [target],
         )
     else:
         raise ValueError(
@@ -967,7 +1123,7 @@ def _apply_normalization(
 ) -> pd.DataFrame:
     """Apply normalization using training artifacts."""
 
-    if not experiment_config.get("normalize", False) or artifacts.scaler is None:
+    if not experiment_config.get("normalize", False):
         return df
 
     # Import here to avoid circular imports
@@ -982,29 +1138,81 @@ def _apply_normalization(
         and col not in artifacts.static_features
     ]
 
-    normalization_process = experiment_config.get("normalization_type", "global")
+    # Handle mixed normalization with selective scaling
+    if artifacts.relative_features is not None and artifacts.long_term_stats is not None:
+        # Apply long-term mean scaling to relative features
+        relative_features_in_df = [
+            f for f in artifacts.relative_features 
+            if f in numeric_features_to_scale
+        ]
+        
+        # Add target if it uses relative scaling
+        if scale_target and artifacts.use_relative_target and artifacts.target_col in df.columns:
+            relative_features_in_df.append(artifacts.target_col)
+        
+        if relative_features_in_df:
+            df = du.apply_long_term_mean_scaling(
+                df,
+                long_term_stats=artifacts.long_term_stats,
+                features=numeric_features_to_scale + ([artifacts.target_col] if scale_target and artifacts.target_col in df.columns else []),
+                features_to_scale=relative_features_in_df,
+            )
+        
+        # Apply global/per_basin normalization to non-relative features
+        non_relative_features = [
+            f for f in numeric_features_to_scale 
+            if f not in artifacts.relative_features
+        ]
+        
+        # Add target if it doesn't use relative scaling
+        if scale_target and not artifacts.use_relative_target and artifacts.target_col in df.columns:
+            non_relative_features.append(artifacts.target_col)
+        
+        if non_relative_features and artifacts.scaler is not None:
+            normalization_process = experiment_config.get("normalization_type", "global")
+            if normalization_process == "per_basin":
+                df = du.apply_normalization_per_basin(
+                    df, artifacts.scaler, non_relative_features
+                )
+            elif normalization_process == "global":
+                df = du.apply_normalization(
+                    df, artifacts.scaler, non_relative_features
+                )
+    
+    else:
+        # Legacy mode or no mixed normalization
+        normalization_process = experiment_config.get("normalization_type", "global")
 
-    if normalization_process not in ["global", "per_basin", "long_term_mean"]:
-        raise ValueError(
-            f"Unknown normalization type: {normalization_process}. "
-            "Use 'global', 'per_basin', or 'long_term_mean'."
-        )
+        if normalization_process not in ["global", "per_basin", "long_term_mean"]:
+            raise ValueError(
+                f"Unknown normalization type: {normalization_process}. "
+                "Use 'global', 'per_basin', or 'long_term_mean'."
+            )
 
-    if scale_target and artifacts.target_col in df.columns:
-        numeric_features_to_scale.append(artifacts.target_col)
+        if scale_target and artifacts.target_col in df.columns:
+            numeric_features_to_scale.append(artifacts.target_col)
 
-    if normalization_process == "long_term_mean":
-        df = du.apply_long_term_mean_scaling(
-            df,
-            long_term_mean=artifacts.long_term_means,
-            features=numeric_features_to_scale,
-        )
-    elif normalization_process == "per_basin":
-        df = du.apply_normalization_per_basin(
-            df, artifacts.scaler, numeric_features_to_scale
-        )
-    elif normalization_process == "global":
-        df = du.apply_normalization(df, artifacts.scaler, numeric_features_to_scale)
+        if normalization_process == "long_term_mean":
+            # Use long_term_stats if available, otherwise fall back to long_term_means
+            if artifacts.long_term_stats is not None:
+                df = du.apply_long_term_mean_scaling(
+                    df,
+                    long_term_stats=artifacts.long_term_stats,
+                    features=numeric_features_to_scale,
+                )
+            elif artifacts.long_term_means is not None:
+                # Legacy fallback
+                df = du.apply_long_term_mean_scaling(
+                    df,
+                    long_term_stats=artifacts.long_term_means,
+                    features=numeric_features_to_scale,
+                )
+        elif normalization_process == "per_basin":
+            df = du.apply_normalization_per_basin(
+                df, artifacts.scaler, numeric_features_to_scale
+            )
+        elif normalization_process == "global":
+            df = du.apply_normalization(df, artifacts.scaler, numeric_features_to_scale)
     else:
         raise ValueError(
             f"Unknown normalization process: {normalization_process}. "
@@ -1021,10 +1229,10 @@ def post_process_predictions(
     target: str,
 ) -> pd.DataFrame:
     """
-    Simple implementation - reverse normalization of predictions using artifacts.
+    Reverse normalization of predictions using artifacts.
 
     Args:
-        df_predictions: DataFrame with predictions
+        df_predictions: DataFrame with predictions (must have 'date' and 'code' columns)
         target: Target variable name
         artifacts: FeatureProcessingArtifacts containing scaler
         experiment_config: Configuration dictionary
@@ -1038,77 +1246,100 @@ def post_process_predictions(
 
     df_predictions = df_predictions.copy()
 
-    if not experiment_config.get("normalize", False) or artifacts.scaler is None:
+    if not experiment_config.get("normalize", False):
         return df_predictions
 
-    normalization_process = experiment_config.get("normalization_type", "global")
-
-    if normalization_process not in ["global", "per_basin", "long_term_mean"]:
-        raise ValueError(
-            f"Unknown normalization type: {normalization_process}. "
-            "Use 'global', 'per_basin', or 'long_term_mean'."
-        )
-
+    # Check for required columns
     if prediction_column not in df_predictions.columns:
         logger.warning(
             f"Prediction column '{prediction_column}' not found in DataFrame"
         )
         return df_predictions
+    
+    if "date" not in df_predictions.columns or "code" not in df_predictions.columns:
+        logger.warning("Missing required 'date' or 'code' columns for denormalization")
+        return df_predictions
 
-    if normalization_process == "long_term_mean":
-        if artifacts.long_term_means is None:
-            logger.warning("Long-term means not available for denormalization")
-            return df_predictions
-
-        df_predictions = du.apply_inverse_long_term_mean_scaling(
+    # Handle mixed normalization with selective scaling
+    if artifacts.use_relative_target and artifacts.long_term_stats is not None:
+        # Target uses relative scaling - use the new prediction-specific function
+        df_predictions = du.apply_inverse_long_term_mean_scaling_predictions(
             df=df_predictions,
-            long_term_mean=artifacts.long_term_means,
-            var_to_scale=prediction_column,
-            var_used_for_scaling=target,
+            long_term_stats=artifacts.long_term_stats,
+            prediction_col=prediction_column,
+            target_col=target,
         )
-
-        logger.info(f"Applied long-term mean denormalization to {prediction_column}")
-
-    elif normalization_process == "per_basin":
-        if artifacts.scaler is None:
-            logger.warning("Per-basin scaler not available for denormalization")
-            return df_predictions
-
-        # Check if 'code' column exists for per-basin denormalization
-        if "code" not in df_predictions.columns:
-            logger.warning("Basin code column not found for per-basin denormalization")
-            return df_predictions
-
-        df_predictions = du.apply_inverse_normalization_per_basin(
-            df=df_predictions,
-            scaler=artifacts.scaler,
-            var_to_scale=prediction_column,
-            var_used_for_scaling=target,
-        )
-
-        logger.info(f"Applied per-basin denormalization to {prediction_column}")
-
-    elif normalization_process == "global":
-        if artifacts.scaler is None:
-            logger.warning("Global scaler not available for denormalization")
-            return df_predictions
-
-        # Check if target exists in scaler
-        if target not in artifacts.scaler:
-            logger.warning(f"Target {target} not found in global scaler")
-            return df_predictions
-
-        df_predictions = du.apply_inverse_normalization(
-            df=df_predictions,
-            scaler=artifacts.scaler,
-            var_to_scale=prediction_column,
-            var_used_for_scaling=target,
-        )
-
+        logger.info(f"Applied period-based denormalization to {prediction_column}")
+        
     else:
-        raise ValueError(
-            f"Unknown normalization process: {normalization_process}. "
-            "Use 'global', 'per_basin', or 'long_term_mean'."
+        # Target uses global/per_basin normalization
+        normalization_process = experiment_config.get("normalization_type", "global")
+
+        if normalization_process == "long_term_mean":
+            # Legacy mode: all features including target use long-term mean
+            if artifacts.long_term_stats is not None:
+                df_predictions = du.apply_inverse_long_term_mean_scaling_predictions(
+                    df=df_predictions,
+                    long_term_stats=artifacts.long_term_stats,
+                    prediction_col=prediction_column,
+                    target_col=target,
+                )
+            elif artifacts.long_term_means is not None:
+                # Legacy fallback
+                df_predictions = du.apply_inverse_long_term_mean_scaling(
+                    df=df_predictions,
+                    long_term_mean=artifacts.long_term_means,
+                    var_to_scale=prediction_column,
+                    var_used_for_scaling=target,
+                )
+            else:
+                logger.warning("Long-term stats/means not available for denormalization")
+                return df_predictions
+
+            logger.info(f"Applied long-term mean denormalization to {prediction_column}")
+
+        elif normalization_process == "per_basin":
+            if artifacts.scaler is None:
+                logger.warning("Per-basin scaler not available for denormalization")
+                return df_predictions
+
+            # Check if 'code' column exists for per-basin denormalization
+            if "code" not in df_predictions.columns:
+                logger.warning("Basin code column not found for per-basin denormalization")
+                return df_predictions
+
+            df_predictions = du.apply_inverse_normalization_per_basin(
+                df=df_predictions,
+                scaler=artifacts.scaler,
+                var_to_scale=prediction_column,
+                var_used_for_scaling=target,
+            )
+
+            logger.info(f"Applied per-basin denormalization to {prediction_column}")
+
+        elif normalization_process == "global":
+            if artifacts.scaler is None:
+                logger.warning("Global scaler not available for denormalization")
+                return df_predictions
+
+            # Check if target exists in scaler
+            if target not in artifacts.scaler:
+                logger.warning(f"Target {target} not found in global scaler")
+                return df_predictions
+
+            df_predictions = du.apply_inverse_normalization(
+                df=df_predictions,
+                scaler=artifacts.scaler,
+                var_to_scale=prediction_column,
+                var_used_for_scaling=target,
+            )
+            
+            logger.info(f"Applied global denormalization to {prediction_column}")
+
+        else:
+            raise ValueError(
+                f"Unknown normalization process: {normalization_process}. "
+                "Use 'global', 'per_basin', or 'long_term_mean'."
         )
 
     logger.info(f"Applied denormalization to {prediction_column}")
