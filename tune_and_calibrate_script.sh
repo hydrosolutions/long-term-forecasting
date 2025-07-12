@@ -5,8 +5,8 @@
 set -e  # Exit on any error
 
 # Configuration
-CONFIG_DIR="../monthly_forecasting_models/GlacierMapper_Based/Correction"  # Path to model configuration directory
-MODEL_NAME="Correction"  # Model name
+CONFIG_DIR="../monthly_forecasting_models/GlacierMapper_Based/MiniCorrection"  # Path to model configuration directory
+MODEL_NAME="MiniCorrection"  # Model name
 INPUT_FAMILY="GlacierMapper_Based"  # Input family for the model
 LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
 
