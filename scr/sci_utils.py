@@ -46,6 +46,7 @@ setup_logging()
 
 logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logger
 
+
 def get_model(
     model_type: str, params: Dict[str, Any], cat_features: Optional[List[str]] = None
 ):
@@ -361,7 +362,7 @@ def _objective_xgb(
             df_temp["code"] = (
                 basin_codes.values if hasattr(basin_codes, "values") else basin_codes
             )
-        
+
         if val_dates is not None:
             # Add date column for long_term_mean normalization
             df_temp["date"] = (
@@ -442,7 +443,7 @@ def _objective_lgbm(
             df_temp["code"] = (
                 basin_codes.values if hasattr(basin_codes, "values") else basin_codes
             )
-        
+
         if val_dates is not None:
             # Add date column for long_term_mean normalization
             df_temp["date"] = (
@@ -513,13 +514,12 @@ def _objective_catboost(
             }
         )
 
-
         if basin_codes is not None:
             # Add code column if needed for per-basin normalization
             df_temp["code"] = (
                 basin_codes.values if hasattr(basin_codes, "values") else basin_codes
             )
-        
+
         if val_dates is not None:
             # Add date column for long_term_mean normalization
             df_temp["date"] = (
@@ -594,7 +594,7 @@ def _objective_mlp(
             df_temp["code"] = (
                 basin_codes.values if hasattr(basin_codes, "values") else basin_codes
             )
-        
+
         if val_dates is not None:
             # Add date column for long_term_mean normalization
             df_temp["date"] = (

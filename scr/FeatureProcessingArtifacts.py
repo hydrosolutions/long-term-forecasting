@@ -949,7 +949,7 @@ def _normalization_training(
         if use_relative_target:
             features_for_stats.append(target)
             artifacts.relative_features.append(target)  # Track target as relative
-            
+
             logger.info(
                 f"Using target '{target}' as a relative feature for normalization"
             )
@@ -973,14 +973,18 @@ def _normalization_training(
             logger.info(
                 f"Applied long-term mean scaling to features: {features_for_stats}"
             )
-            logger.info(f"Description of the long-term stats: {df[features_for_stats].describe()}")
+            logger.info(
+                f"Description of the long-term stats: {df[features_for_stats].describe()}"
+            )
 
         # 3. Apply global/per_basin normalization to non-relative features
         non_relative_features = [
             f for f in numeric_features_to_scale if f not in artifacts.relative_features
         ]
 
-        logger.debug(f"Non-relative features: {non_relative_features} scaling with {normalization_process}")
+        logger.debug(
+            f"Non-relative features: {non_relative_features} scaling with {normalization_process}"
+        )
 
         if normalization_process == "per_basin" and non_relative_features:
             artifacts.scaler = du.get_normalization_params_per_basin(
@@ -1000,7 +1004,6 @@ def _normalization_training(
             if not use_relative_target:
                 cols_to_normalize.append(target)
             df = du.apply_normalization(df, artifacts.scaler, cols_to_normalize)
-
 
     elif normalization_process == "per_basin":
         artifacts.scaler = du.get_normalization_params_per_basin(
@@ -1216,7 +1219,6 @@ def _apply_normalization(
 
         if scale_target and artifacts.target_col in df.columns:
             numeric_features_to_scale.append(artifacts.target_col)
-
 
         if normalization_process == "per_basin":
             df = du.apply_normalization_per_basin(
