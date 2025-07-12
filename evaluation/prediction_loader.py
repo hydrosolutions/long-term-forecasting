@@ -20,15 +20,14 @@ logger = logging.getLogger(__name__)
 # Model family mappings
 MODEL_FAMILIES = {
     "BaseCase": [
-        "DeviationLR",
         "LR_Q_T_P",
         "PerBasinScalingLR",
         "ShortTermLR",
         "ShortTerm_Features",
+        "NormBased",
     ],
     "SCA_Based": ["LR_Q_SCA", "LR_Q_T_SCA"],
     "SnowMapper_Based": [
-        "CondenseLR",
         "LR_Q_SWE",
         "LR_Q_SWE_T",
         "LR_Q_T_P_SWE",
@@ -36,6 +35,12 @@ MODEL_FAMILIES = {
         "LongTermLR",
         "ShortTermLR",
         "ShortTerm_Features",
+        "NormBased",
+    ],
+    "GlacierMapper_Based": [
+        "NormBased",
+        "Correction",
+        "MiniCorrection",
     ],
 }
 

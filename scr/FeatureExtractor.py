@@ -41,6 +41,31 @@ def last_value(x):
         return x_non_nan[-1]
 
 
+def mean_difference(signal):
+    """Computes the mean difference of the signal.
+    For all non NaN values, it computes the mean of the differences between consecutive values.
+
+    Feature computational cost: 1
+
+    Parameters
+    ----------
+    signal : nd-array
+        Input from which mean difference is computed
+
+    Returns
+    -------
+    float
+        Mean difference result
+    """
+    non_nan_signal = signal[~np.isnan(signal)]
+    if len(non_nan_signal) < 2:
+        return np.nan
+    differences = np.diff(non_nan_signal)
+    if len(differences) == 0:
+        return np.nan
+    return np.mean(differences)
+
+
 def median_abs_deviation(signal):
     """Computes median absolute deviation of the signal.
 
@@ -83,17 +108,20 @@ def time_distance_from_peak(signal):
 
 
 def time_of_occurrence_last_value(signal):
-    """computes the distance to the last value of the signal.
-    Feature computational cost: 1
+    """
+    Computes how many time steps ago the last non-NaN value occurred,
+    measured from the end of the signal.
+
     Parameters
     ----------
-    signal : nd-array
-        Input from which last value is computed
+    signal : np.ndarray
+        Time series array with possible NaNs.
 
     Returns
     -------
-    float
-        Last value result
+    int or float
+        Number of steps since the last valid value.
+        Returns NaN if no valid values are present.
     """
     x_non_nan = signal[~np.isnan(signal)]
     if len(x_non_nan) == 0:
@@ -211,6 +239,11 @@ class StreamflowFeatureExtractor:
                     basin_feature = basin_data.rolling(
                         window=window, min_periods=min_periods
                     ).apply(time_of_occurrence_last_value, raw=True)
+                elif config["operation"] == "mean_difference":
+                    min_periods = 2
+                    basin_feature = basin_data.rolling(
+                        window=window, min_periods=min_periods
+                    ).apply(mean_difference, raw=True)
                 else:
                     raise ValueError(f"Unsupported operation: {config['operation']}")
 

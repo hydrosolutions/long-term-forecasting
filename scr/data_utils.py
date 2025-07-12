@@ -15,11 +15,15 @@ import seaborn as sns
 import tqdm
 from collections import defaultdict
 
+# IMport all variables from __init__.py
+from . import AREA_KM2_COL, GLACIER_FRACTION_COL, H_MIN_COL, H_MAX_COL
+
 # Shared logging
 import logging
 from log_config import setup_logging
 
 setup_logging()
+logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logger
 
 
 def get_position_name(row):
@@ -82,69 +86,34 @@ def get_periods(df) -> pd.DataFrame:
     return df
 
 
-def discharge_m3_to_mm(df):
-    pass
-
-
-def discharge_mm_to_m3(df):
-    pass
-
-
-def create_target(df, column="discharge", prediction_horizon=30, offset=None):
-    """
-    Create target variable: average discharge for next N days, by basin.
-
-    Parameters:
-    -----------
-    df : pandas.DataFrame
-        Input DataFrame with 'code' column
-    column : str, default='discharge'
-        Column to create target from
-
-    Returns:
-    --------
-    pandas.DataFrame
-        DataFrame with target column added
-    """
-    if offset is None:
-        offset = prediction_horizon
-
-    min_periods = min(int(prediction_horizon * 0.75), 15)
-    target = pd.Series(index=df.index, dtype=float)
-
-    # Calculate target for each basin separately
-    for code in df["code"].unique():
-        basin_data = df[df["code"] == code][column]
-
-        # Calculate future average
-        future_avg = (
-            basin_data.rolling(window=prediction_horizon, min_periods=min_periods)
-            .mean()
-            .shift(-offset)
-        )
-
-        # Assign values back to the correct rows
-        target.loc[basin_data.index] = future_avg
-
-    #
-    # Add target to the original DataFrame
-    df["target"] = target
-    return df
-
-
 def glacier_mapper_features(
     df: pd.DataFrame,
     static: pd.DataFrame,
+    cols_to_keep: list[str] = ["SLA_Avr", "glacier_melt_potential", "fsc_basin"],
+    sla_data_cols: list[str] = [
+        "SLA_East",
+        "SLA_West",
+        "SLA_North",
+        "SLA_South",
+        "SLA_Avr",
+        "gla_area_below_sl50",
+        "gla_fsc_total",
+        "gla_fsc_below_sl50",
+        "fsc_basin",
+    ],
 ) -> pd.DataFrame:
+    """
+    Map glacier-related features to the DataFrame.
+    """
     df = df.copy()
     static = static.copy()
 
     for code in df["code"].unique():
-        area = static.loc[static["code"] == code, "area_km2"].values[0]
-        gl_fr = static.loc[static["code"] == code, "gl_fr"].values[0]
+        area = static.loc[static["code"] == code, AREA_KM2_COL].values[0]
+        gl_fr = static.loc[static["code"] == code, GLACIER_FRACTION_COL].values[0]
         glacier_area = area * gl_fr
-        h_min = static.loc[static["code"] == code, "h_min"].values[0]
-        h_max = static.loc[static["code"] == code, "h_max"].values[0]
+        h_min = static.loc[static["code"] == code, H_MIN_COL].values[0]
+        h_max = static.loc[static["code"] == code, H_MAX_COL].values[0]
 
         df.loc[df["code"] == code, "gla_area_below_sl50"] /= glacier_area
         df.loc[df["code"] == code, "gla_area_below_sl50"] *= 100
@@ -176,6 +145,20 @@ def glacier_mapper_features(
             + df.loc[df["code"] == code, "SLA_North"]
             + df.loc[df["code"] == code, "SLA_South"]
         ) / 4
+
+    # Keep only the specified columns
+    logger.info(f"Keeping columns: {cols_to_keep}")
+
+    cols_to_drop = [
+        col for col in sla_data_cols if col not in cols_to_keep and col in df.columns
+    ]
+
+    logger.info(f"Dropping columns: {cols_to_drop}")
+
+    df.drop(columns=cols_to_drop, inplace=True)
+
+    logger.info("GlacierMapper features added successfully.")
+
     return df
 
 
@@ -977,70 +960,3 @@ def average_by_elevation_band(df, elevation_band_areas):
                     print(e)
 
     return df
-
-
-def create_lag_features(df, features, lags):
-    df = df.copy()
-
-    for code in df.code.unique():
-        mask = df.code == code
-
-        for feature in features:
-            for lag in lags:
-                df.loc[mask, f"{feature}_lag_{lag}"] = df.loc[mask, feature].shift(lag)
-
-    return df
-
-
-def agg_with_min_obs(x, func="mean", min_obs=15):
-    """
-    Aggregate data only if there are enough valid observations
-
-    Parameters:
-    -----------
-    x : Series
-        Data to aggregate
-    func : str
-        'mean' or 'sum'
-    min_obs : int
-        Minimum number of non-NaN observations required
-
-    Returns:
-    --------
-    float or NaN
-        Aggregated value if enough observations, NaN otherwise
-    """
-    valid_count = x.notna().sum()
-    if valid_count >= min_obs:
-        if func == "last":
-            return np.nanmean(x.iloc[-5:])  # Get last value this way instead
-        return x.agg(func)
-    return np.nan
-
-
-def create_monthly_df(df, feature_cols):
-    df = df.copy()
-
-    df["month"] = df["date"].dt.month
-    df["year"] = df["date"].dt.year
-
-    groupby_cols = ["year", "month"]
-
-    # Base aggregations
-    agg_dict = {
-        "discharge": lambda y: agg_with_min_obs(y, "mean"),
-        "T": "mean",
-        "P": "sum",
-    }
-
-    # Add feature column aggregations
-    for col in feature_cols:
-        df[f"{col}_mean"] = df[col].bfill().values
-        # df[f'{col}_mean_last'] = df[col].bfill().values
-        agg_dict[f"{col}_mean"] = "mean"
-        # agg_dict[f'{col}_mean_last'] = lambda y: agg_with_min_obs(y, 'last')
-
-    # Apply the groupby with all aggregations
-    hydro_df = df.groupby(groupby_cols).agg(agg_dict).reset_index()
-
-    return hydro_df
