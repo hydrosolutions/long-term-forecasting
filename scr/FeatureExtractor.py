@@ -10,6 +10,7 @@ setup_logging()
 
 logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logger
 
+
 # Calculate slope using linear regression on each rolling window
 def rolling_slope(x):
     if len(x) < 2:  # Need at least 2 points for slope

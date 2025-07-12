@@ -33,8 +33,9 @@ from log_config import setup_logging
 setup_logging()
 
 logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logger
-logging.getLogger('fiona.ogrext').setLevel(logging.WARNING)
-logging.getLogger('fiona').setLevel(logging.WARNING)
+logging.getLogger("fiona.ogrext").setLevel(logging.WARNING)
+logging.getLogger("fiona").setLevel(logging.WARNING)
+
 
 class SciRegressor(BaseForecastModel):
     """
