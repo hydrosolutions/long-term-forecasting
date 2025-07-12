@@ -264,6 +264,18 @@ wheels = [
 ]
 
 [[package]]
+name = "dash-bootstrap-components"
+version = "1.7.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dash" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/68/fa/f702d729a4b788293b796dc92f3d529909641de1e2e13f967211169b807a/dash_bootstrap_components-1.7.1.tar.gz", hash = "sha256:30d48340d6dc89831d6c06e400cd4236f0d5363562c05b2a922f21545695a082", size = 136579, upload-time = "2025-01-16T07:11:28.74Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c3/87/4db3b56e9a6813d413a0f20e053aa163d652babb629a8bf7b871af4a075f/dash_bootstrap_components-1.7.1-py3-none-any.whl", hash = "sha256:5e8eae7ee1d013f69e272c68c1015b53ab71802460152088f33fffa90d245199", size = 229294, upload-time = "2025-01-16T07:11:24.635Z" },
+]
+
+[[package]]
 name = "dash-core-components"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -672,6 +684,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "catboost" },
     { name = "dash" },
+    { name = "dash-bootstrap-components" },
     { name = "fiona" },
     { name = "geopandas" },
     { name = "lightgbm" },
@@ -699,6 +712,7 @@ dev = [
 requires-dist = [
     { name = "catboost", specifier = "==1.2.3" },
     { name = "dash", specifier = ">=2.14.0" },
+    { name = "dash-bootstrap-components", specifier = ">=1.7.1" },
     { name = "fiona", specifier = "==1.9.5" },
     { name = "geopandas", specifier = "==0.14.3" },
     { name = "lightgbm", specifier = "==4.5.0" },
