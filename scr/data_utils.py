@@ -205,7 +205,7 @@ def get_elevation_bands_per_percentile(
     # Initialize result dictionary
     result = {}
     for i in range(num_bands):
-        band_name = f"Perc_Elev_{i + 1}"
+        band_name = f"elev_{i + 1}"
         result[band_name] = {"bands": [], "relative_area": []}
 
     # Assign bands to percentiles
@@ -223,7 +223,7 @@ def get_elevation_bands_per_percentile(
                 break
             band_idx = j + 1
 
-        band_name = f"Perc_Elev_{band_idx + 1}"
+        band_name = f"elev_{band_idx + 1}"
         result[band_name]["bands"].append(int(row["elevation_band"]))
         result[band_name]["relative_area"].append(row[rel_area_col])
 
@@ -244,7 +244,7 @@ def calculate_percentile_snow_bands(
 
     # Initialize the new SWE percentile columns
     for i in range(1, num_bands + 1):
-        hydro_df[f"{col_name}_Perc_Elev_{i}"] = 0.0
+        hydro_df[f"{col_name}_elev_{i}"] = 0.0
 
     # Process each basin code separately
     for code in hydro_df.code.unique():

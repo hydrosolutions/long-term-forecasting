@@ -11,7 +11,7 @@ Follow these steps:
    -    Search the scratchpads for previous thoughts related to the issue
    -    Search PRs to see if you can find history of this issue
    -    Search the codebase for relevant files
-5. Think harder about how to break the issue donw into a series of small manageable tasks.
+5. Think harder about how to break the issue down into a series of small manageable tasks.
 6. Document your plan in a new scratchpad
    - include the issue name in the filename
    - include a link to the issue in the scratchpad

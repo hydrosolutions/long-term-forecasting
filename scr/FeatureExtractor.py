@@ -2,6 +2,14 @@ import pandas as pd
 import numpy as np
 import scipy.stats
 
+# Shared logging
+import logging
+from log_config import setup_logging
+
+setup_logging()
+
+logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logger
+
 
 # Calculate slope using linear regression on each rolling window
 def rolling_slope(x):
@@ -311,8 +319,10 @@ class StreamflowFeatureExtractor:
         # Create features for each variable
         feature_dfs = []
         for column, config in self.feature_configs.items():
-            print(f"Creating features for {column}")
+            logger.info(f"Creating features for column: {column}")
             features_with_column = [col for col in df.columns if column in col]
+            logger.info(f"Features with column '{column}': {features_with_column}")
+            logger.info(f"Configuration for column '{column}': {config}")
             for c in config:
                 for col in features_with_column:
                     features = self._create_rolling_features(df, col, c)
