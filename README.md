@@ -1,16 +1,31 @@
 # Monthly Discharge Forecasting
 
-Author: Sandro Hunziker
+A comprehensive machine learning system for predicting river discharge at monthly timescales using ensemble methods and advanced feature engineering.
+
+**Author**: Sandro Hunziker
 
 ## Overview
 
-The Monthly Discharge Forecasting System is a comprehensive machine learning pipeline for predicting river discharge at monthly timescales. It employs a modular architecture with multiple model types, advanced feature engineering, and ensemble methods to achieve robust forecasts.
+The Monthly Discharge Forecasting System implements a modular pipeline that integrates multiple data sources, employs various machine learning algorithms, and uses ensemble techniques to produce robust discharge predictions. The system is designed for operational forecasting in Central Asian basins with complex hydrology influenced by snow and glacier dynamics.
 
-For detailed system architecture and workflows, see:
-- [Overview.md](Overview.md) - Complete system architecture with workflow diagrams
-- [model_description.md](model_description.md) - Detailed model descriptions and guidelines
+### Key Features
+
+- **Multiple Model Families**: Linear regression baselines and advanced tree-based models (XGBoost, LightGBM, CatBoost)
+- **Advanced Feature Engineering**: Time-series features, elevation band aggregation, and glacier-related features
+- **Ensemble Methods**: Naive averaging, temporal meta-models, and uncertainty quantification
+- **Comprehensive Evaluation**: Interactive dashboards and extensive metrics
+- **Modular Architecture**: Easy to extend with new models and data sources
+
+For detailed technical documentation:
+- [docs/Overview.md](docs/Overview.md) - Complete system architecture with workflow diagrams
+- [docs/model_description.md](docs/model_description.md) - Detailed model descriptions and guidelines
 
 ## Quick Start
+
+### Prerequisites
+
+- Python 3.9+
+- [uv](https://github.com/astral-sh/uv) package manager
 
 ### Installation
 
@@ -19,22 +34,27 @@ For detailed system architecture and workflows, see:
 git clone [repository-url]
 cd monthly_forecasting
 
-# Install dependencies using uv
+# Install uv if not already installed
 pip install uv
+
+# Install project dependencies
 uv sync
 ```
 
-### Running a Model
+### Basic Usage
 
 ```bash
-# Run calibration and hindcast
+# Run calibration and hindcast for a model
 uv run calibrate_hindcast.py --config_path example_config/DUMMY_MODEL
 
 # Run hyperparameter tuning
 uv run tune_hyperparams.py --config_path example_config/DUMMY_MODEL
 
-# Run evaluation pipeline
+# Run complete evaluation pipeline
 ./run_evaluation_pipeline.sh
+
+# Launch interactive dashboard
+uv run python visualization/dashboard.py
 ```
 
 ## General Concept
@@ -61,97 +81,125 @@ Example ensemble strategy:
 
 ## Project Structure
 
-### Core Components
-
 ```
 monthly_forecasting/
-├── scr/                        # Source code for data processing
+├── scr/                        # Data processing and feature engineering
 │   ├── data_loading.py         # Data ingestion and merging
 │   ├── data_utils.py           # Preprocessing and transformations
 │   ├── FeatureExtractor.py     # Time-series feature engineering
 │   ├── FeatureProcessingArtifacts.py  # Preprocessing state management
 │   ├── sci_utils.py            # ML utilities
-│   └── tree_utils.py           # Tree model utilities
+│   └── [documentation.md](scr/documentation.md)  # Component documentation
 │
 ├── forecast_models/            # Model implementations
-│   ├── base_class.py          # Abstract base class
-│   ├── LINEAR_REGRESSION.py   # Linear regression implementation
-│   └── SciRegressor.py        # Tree-based models (XGB, LGBM, CatBoost)
+│   ├── base_class.py          # Abstract base class for all models
+│   ├── LINEAR_REGRESSION.py   # Period-specific linear regression
+│   ├── SciRegressor.py        # Tree-based models (XGB, LGBM, CatBoost)
+│   └── [documentation.md](forecast_models/documentation.md)  # Model details
 │
 ├── eval_scr/                  # Evaluation utilities
-│   ├── metric_functions.py    # Performance metrics
-│   └── eval_helper.py         # Evaluation helpers
+│   ├── metric_functions.py    # Performance metrics (NSE, KGE, R², etc.)
+│   ├── eval_helper.py         # Evaluation helper functions
+│   └── [description.md](eval_scr/description.md)  # Metrics documentation
 │
 ├── evaluation/                # Evaluation pipeline
 │   ├── evaluate_pipeline.py   # Main evaluation orchestrator
-│   ├── ensemble_builder.py    # Ensemble creation
-│   └── prediction_loader.py   # Load model predictions
+│   ├── ensemble_builder.py    # Ensemble creation and management
+│   ├── prediction_loader.py   # Load and process predictions
+│   └── [README.md](evaluation/README.md)  # Pipeline documentation
 │
-├── visualization/             # Dashboard and plotting
-│   ├── dashboard.py          # Interactive dashboard
+├── visualization/             # Interactive dashboard and plotting
+│   ├── dashboard.py          # Streamlit-based dashboard
 │   ├── dashboard_components.py # UI components
-│   └── plotting_utils.py     # Plotting functions
+│   ├── plotting_utils.py     # Visualization functions
+│   └── [README.md](visualization/README.md)  # Dashboard guide
 │
 ├── example_config/           # Configuration templates
-│   └── DUMMY_MODEL/         # Example configuration set
+│   ├── DUMMY_MODEL/         # Example configuration set
+│   └── [description.md](example_config/description.md)  # Config guide
 │
-├── tests/                   # Test suite
+├── tests/                   # Comprehensive test suite
 │   ├── test_*.py           # Unit and integration tests
-│   └── comprehensive_test_*.py  # Comprehensive test utilities
+│   ├── comprehensive_test_*.py  # End-to-end test utilities
+│   └── [README.md](tests/README.md)  # Testing guide
 │
-├── docs/                    # Documentation
-│   ├── README.md           # Documentation index
-│   └── *.md                # Various documentation files
+├── docs/                    # Project documentation
+│   ├── [Overview.md](docs/Overview.md)  # System architecture
+│   └── [model_description.md](docs/model_description.md)  # Model details
 │
 ├── scratchpads/            # Development notes and planning
 │   ├── issues/            # Issue-specific work
-│   └── planning/          # Feature planning
+│   ├── planning/          # Feature planning
+│   └── [README.md](scratchpads/README.md)  # Development workflow
 │
 └── Main Scripts:
-    ├── calibrate_hindcast.py    # Model training script
+    ├── calibrate_hindcast.py    # Model training and prediction
     ├── tune_hyperparams.py      # Hyperparameter optimization
-    ├── test_evaluation_pipeline.py  # Evaluation testing
-    └── *.sh                     # Shell scripts for workflows
+    ├── test_evaluation_pipeline.py  # Test evaluation system
+    └── Shell Scripts:
+        ├── calibration_script.sh         # Basic calibration
+        ├── tune_and_calibrate_script.sh  # Tuning + calibration
+        ├── run_evaluation_pipeline.sh    # Full evaluation
+        └── run_model_workflow.sh         # Complete workflow
 ```
 
-### Configuration Files
+### Configuration Structure
 
-Each model experiment requires configuration files in a dedicated directory:
+Each model experiment requires a configuration directory with:
 - `data_paths.json` - Input data file paths
-- `experiment_config.json` - Experiment setup and basins
+- `experiment_config.json` - Experiment setup and basin selection
 - `feature_config.json` - Feature engineering parameters
 - `general_config.json` - Model and processing settings
 - `model_config.json` - Algorithm-specific hyperparameters
 
+See [example_config/](example_config/) for templates.
 
 
-## Methods
 
-### Calibration & Validation
+## Methodology
 
-The yearly leave-one-out cross-validation is used on all of the years except the last 3 available years. Those are left out as a final test set. So the predictions.csv set of each model is the prediction on these left out years + the test years. For meta-learning and cascade like models, we assume that those LOO-CV prediction represent how the model behave on unseen data. 
+### Calibration & Validation Strategy
 
-### Base Learner Models
+The system uses a robust validation approach:
+- **Leave-One-Out Cross-Validation (LOO-CV)**: Applied to all years except the last 3
+- **Hold-out Test Set**: Final 3 years reserved for unbiased evaluation
+- **Meta-learning Assumption**: LOO-CV predictions represent model behavior on unseen data
 
-We use a set of periodic Linear Regression Models. Predictos include features based on past discharge, precipitation, temperature and snow information from Snowmapper FSM based on different elevation zones. 
-For the tree based models we can create a bunch of possible features also based on discharge, precipitation, temperature and snow information from Snowmapper FSM (lumped). Additionally we can use data from GlacierMapper as a earth observation based data source. Some tree based models can also take the predictions from the linear regressions as an additional input.
+### Model Families
 
-### Ensemble and Meta-Model
+#### 1. Linear Regression Models
+- Period-specific models (36 periods = 3 per month)
+- Features from discharge, precipitation, temperature
+- Snow information from SnowMapper FSM (elevation zones)
+- Serves as baseline and input for advanced models
 
-1. For the naive ensemble we have use just the naive mean of all the base predictos (Ensemble Mean).
-2. Use a temporal meta-model - which should detect sharp drifts and changes from single model and ingore those - adjust final prediction based on past forecasts and some observations.
-3. Uncertainty net: Uses context and the base-learner predictions to introduce a prediction interval (following the asymetric-laplace distribution). 
+#### 2. Tree-Based Models (SciRegressor)
+- **Algorithms**: XGBoost, LightGBM, CatBoost, Random Forest
+- **Extended Features**: 
+  - All linear regression features
+  - GlacierMapper data (SLA, FSC)
+  - Linear regression predictions as meta-features
+- **Advantages**: Captures non-linear relationships and interactions
 
+### Ensemble Strategies
 
-## Output format
+1. **Naive Ensemble**: Simple average of all base predictors
+2. **Temporal Meta-Model**: Detects and corrects model drift using historical forecasts
+3. **Uncertainty Quantification**: Asymmetric Laplace distribution for prediction intervals
 
-$\textbf{predictions.csv}$ \
+## Output Formats
+
+### Standard Predictions
+```
+predictions.csv:
 date | Q_model1 | Q_model2 | Q_model3 | Q_mean | valid_from | valid_to
+```
 
-Q_model corresponds to the prediction of a ensmeble member and Q_mean is the average over these models. \
-
-$\textbf{predictions.csv}$  (for the meta model with uncertainty)\
-date | Q_05| Q_10 | Q_50 | Q_90 | Q_95 | Q_mean | valid_from | valid_to
+### Predictions with Uncertainty
+```
+predictions_uncertainty.csv:
+date | Q_05 | Q_10 | Q_50 | Q_90 | Q_95 | Q_mean | valid_from | valid_to
+```
 
 
 ## Data Sources
@@ -187,37 +235,147 @@ The system supports extensive feature engineering:
 
 ## Recent Updates
 
-- **GlacierMapper Integration**: Added support for SLA features
-- **Enhanced Elevation Bands**: Configurable number of elevation zones
-- **Improved Scaling**: Period-based temporal grouping (36 periods)
-- **Dashboard Visualization**: Interactive model evaluation dashboard
+### GlacierMapper Integration (2024)
+- Added support for Snow Line Altitude (SLA) features
+- Integrated Fractional Snow Cover (FSC) data
+- Enhanced glacier dynamics representation
 
-## Shell Scripts
+### Enhanced Elevation Zones
+- Configurable number of elevation bands (default: 5)
+- Improved representation of vertical gradients
+- Better snow process modeling at different elevations
 
-- `calibration_script.sh` - Run model calibration
-- `tune_and_calibrate_script.sh` - Hyperparameter tuning + calibration
-- `run_evaluation_pipeline.sh` - Run evaluation pipeline
-- `run_model_workflow.sh` - Complete model workflow
+### Improved Temporal Scaling
+- Period-based normalization (36 periods = 3 per month)
+- Long-term mean scaling enhancements
+- Better handling of seasonal patterns
+
+### Interactive Dashboard
+- Streamlit-based evaluation dashboard
+- Real-time model comparison
+- Performance metrics visualization
+- Feature importance analysis
+
+## Advanced Usage
+
+### Running Complete Workflows
+
+```bash
+# Full model workflow (tuning + calibration + evaluation)
+./run_model_workflow.sh
+
+# Hyperparameter tuning followed by calibration
+./tune_and_calibrate_script.sh
+
+# Evaluation pipeline for multiple models
+./run_evaluation_pipeline.sh
+
+# Basic calibration only
+./calibration_script.sh
+```
+
+### Dashboard Usage
+
+```bash
+# Launch interactive dashboard
+uv run python visualization/dashboard.py
+
+# Dashboard will be available at http://localhost:8501
+```
+
+### Creating Custom Configurations
+
+1. Copy the example configuration:
+   ```bash
+   cp -r example_config/DUMMY_MODEL example_config/MY_MODEL
+   ```
+
+2. Edit configuration files according to your needs:
+   - Update data paths in `data_paths.json`
+   - Select basins in `experiment_config.json`
+   - Configure features in `feature_config.json`
+   - Set model parameters in `model_config.json`
 
 ## Development
 
 ### Running Tests
+
 ```bash
+# Run all tests
 uv run pytest -v
+
+# Run specific test file
+uv run pytest tests/test_linear_regression.py -v
+
+# Run with coverage
+uv run pytest --cov=. --cov-report=html
 ```
 
-### Code Formatting
+### Code Quality
+
 ```bash
+# Format code with ruff
 uv run ruff format
+
+# Check code style
+uv run ruff check
+
+# Type checking (if configured)
+uv run mypy .
 ```
 
-### Contributing
-See [scratchpads/README.md](scratchpads/README.md) for development workflow and planning.
+### Development Workflow
+
+1. Create a scratchpad for complex features:
+   ```bash
+   touch scratchpads/planning/my-feature.md
+   ```
+
+2. Use the scratchpad template (see [scratchpads/README.md](scratchpads/README.md))
+
+3. Follow test-driven development practices
+
+4. Document architectural decisions
+
+## Contributing
+
+We welcome contributions! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Follow the coding standards
+4. Write tests for new functionality
+5. Update documentation as needed
+6. Submit a pull request
+
+See [CLAUDE.md](CLAUDE.md) for detailed development guidelines.
 
 ## Documentation
 
-- [Overview.md](Overview.md) - System architecture and workflows
-- [model_description.md](model_description.md) - Detailed model descriptions
-- [docs/](docs/) - Additional documentation
-- Component-specific READMEs in each directory
+### Core Documentation
+- [docs/Overview.md](docs/Overview.md) - System architecture and data flow
+- [docs/model_description.md](docs/model_description.md) - Detailed model specifications
+
+### Component Documentation
+- [scr/documentation.md](scr/documentation.md) - Data processing components
+- [forecast_models/documentation.md](forecast_models/documentation.md) - Model implementations
+- [evaluation/README.md](evaluation/README.md) - Evaluation pipeline
+- [visualization/README.md](visualization/README.md) - Dashboard guide
+- [tests/README.md](tests/README.md) - Testing guidelines
+
+### Development Documentation
+- [scratchpads/README.md](scratchpads/README.md) - Development workflow
+- [CLAUDE.md](CLAUDE.md) - Project-specific development instructions
+
+## License
+
+[Add license information here]
+
+## Contact
+
+Sandro Hunziker - [Add contact information]
+
+## Acknowledgments
+
+[Add acknowledgments for data sources, collaborators, funding, etc.]
 

@@ -539,11 +539,12 @@ graph TB
 >>>>>>> Stashed changes
 ## Best Practices
 
-1. **Start Simple**: Begin with linear regression baseline
-2. **Iterative Improvement**: Gradually increase complexity
-3. **Cross-Validation**: Always use proper validation strategy
-4. **Feature Engineering**: Often more impactful than model choice
-5. **Ensemble When Possible**: Combines strengths of different approaches
-6. **Monitor Performance**: Track metrics in production
-7. **Regular Retraining**: Update models with new data
-8. **Document Experiments**: Track what works and what doesn't
+1. **Start Simple**: Begin with BaseCase family for baseline
+2. **Incremental Complexity**: Add snow/glacier features only if they improve performance significantly
+3. **Data Quality First**: Better to use simpler models with good data than complex models with poor data
+4. **Family Ensembles**: Combine models within families before global ensembling
+5. **Cross-Validation**: Always use proper temporal validation strategy
+6. **Feature Engineering**: Often more impactful than model choice
+7. **Monitor Performance**: Track family-specific metrics in production
+8. **Regular Retraining**: Update models with new data, especially for snow/glacier features
+9. **Document Experiments**: Track what works for each basin type
