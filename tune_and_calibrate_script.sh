@@ -5,9 +5,9 @@
 set -e  # Exit on any error
 
 # Configuration
-CONFIG_DIR="../monthly_forecasting_models/BaseCase/NormBased"  # Path to model configuration directory
-MODEL_NAME="NormBased"  # Model name
-INPUT_FAMILY="BaseCase"  # Input family for the model
+CONFIG_DIR="../monthly_forecasting_models/SnowMapper_Based/ElevationZones"  # Path to model configuration directory
+MODEL_NAME="ElevationZones"  # Model name
+INPUT_FAMILY="SnowMapper_Based"  # Input family for the model
 LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
 
 # Hyperparameter tuning specific settings

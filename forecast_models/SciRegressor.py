@@ -33,7 +33,8 @@ from log_config import setup_logging
 setup_logging()
 
 logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logger
-
+logging.getLogger('fiona.ogrext').setLevel(logging.WARNING)
+logging.getLogger('fiona').setLevel(logging.WARNING)
 
 class SciRegressor(BaseForecastModel):
     """
@@ -108,6 +109,11 @@ class SciRegressor(BaseForecastModel):
         """
         Preprocess the data by adding position and other derived features.
         """
+        logger.info(f"-" * 50)
+        logger.info(f"Starting data preprocessing for {self.name}")
+        logger.info(f"Initial data shape: {self.data.shape}")
+        logger.info(f"Initial columns: {self.data.columns.tolist()}")
+        logger.info(f"-" * 50)
         try:
             self.data = du.glacier_mapper_features(
                 df=self.data,
@@ -146,20 +152,21 @@ class SciRegressor(BaseForecastModel):
         if self.path_config["path_to_hru_shp"] is not None:
             elevation_band_shp = gpd.read_file(self.path_config["path_to_hru_shp"])
             # rename CODE to code
-            elevation_band_shp.rename(columns={"CODE": "code"}, inplace=True)
+            if "CODE" in elevation_band_shp.columns:
+                elevation_band_shp.rename(columns={"CODE": "code"}, inplace=True)
             elevation_band_shp["code"] = elevation_band_shp["code"].astype(int)
 
             for snow_var in self.snow_vars:
                 self.data = du.calculate_percentile_snow_bands(
                     self.data,
                     elevation_band_shp,
-                    num_bands=self.experiment_config["num_elevation_zones"],
+                    num_bands=self.general_config["num_elevation_zones"],
                     col_name=snow_var,
                 )
                 snow_vars_drop = [
                     col
                     for col in self.data.columns
-                    if snow_var in col and "P" not in col
+                    if snow_var in col and "elev" not in col
                 ]
                 self.data = self.data.drop(columns=snow_vars_drop)
 
