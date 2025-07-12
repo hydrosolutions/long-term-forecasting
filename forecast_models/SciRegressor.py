@@ -119,6 +119,7 @@ class SciRegressor(BaseForecastModel):
             self.data = du.glacier_mapper_features(
                 df=self.data,
                 static=self.static_data,
+                cols_to_keep=self.general_config["glacier_mapper_features_to_keep"],
             )
         except Exception as e:
             logger.error(f"Error in glacier_mapper_features: {e}")

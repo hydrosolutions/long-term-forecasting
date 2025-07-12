@@ -102,6 +102,7 @@ def load_data(data_config: Dict[str, Any], path_config: Dict[str, Any]) -> tuple
         HRU_SWE=path_config["HRU_SWE"],
         HRU_HS=path_config["HRU_HS"],
         HRU_ROF=path_config["HRU_ROF"],
+        path_to_sla=path_config.get("path_to_sla", None),
     )
 
     # if log_discharge in columns - drop
