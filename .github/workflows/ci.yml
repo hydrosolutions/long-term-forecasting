@@ -25,10 +25,10 @@ jobs:
         cache-dependency-glob: "uv.lock"
     
     - name: Sync dependencies
-      run: uv sync
+      run: uv sync --dev --frozen
     
     - name: Run ruff format check
       run: uv run ruff format --check
     
     - name: Run tests
-      run: uv run pytest -v
+      run: uv run pytest tests/ -v --tb=short
