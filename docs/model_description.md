@@ -165,7 +165,7 @@ Combine multiple models of the same type (e.g., all XGBoost models with differen
 
 ```mermaid
 graph TD
-    A[SnowMapper A ] --> D[SnowMapper Family Ensemble (n=9)]
+    A[SnowMapper A ] --> D[SnowMapper Family Ensemble]
     B[SnowMapper B ] --> D
     C[SnowMapper C ] --> D
     
