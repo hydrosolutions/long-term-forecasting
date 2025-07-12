@@ -1,237 +1,334 @@
-# Monthly Discharge Forecasting System - Overview
+# Monthly Discharge Forecasting System Overview
+
+## Table of Contents
+1. [System Architecture](#system-architecture)
+2. [Data Flow](#data-flow)
+3. [Core Components](#core-components)
+4. [Model Families](#model-families)
+5. [Workflow Overview](#workflow-overview)
+6. [Recent Developments](#recent-developments)
+7. [Integration Guide](#integration-guide)
 
 ## System Architecture
 
-The Monthly Discharge Forecasting System is a comprehensive machine learning pipeline designed to predict river discharge at monthly timescales using various environmental features including temperature, precipitation, snow data, and glacier characteristics.
+The Monthly Discharge Forecasting System is a comprehensive machine learning pipeline designed to predict river discharge at monthly timescales. The system employs a modular architecture that enables:
 
-## High-Level Workflow
+- Multiple model families with different approaches
+- Advanced feature engineering from diverse data sources
+- Ensemble methods for robust predictions
+- Comprehensive evaluation and visualization
+
+### High-Level Architecture Diagram
 
 ```mermaid
-graph TD
-    A[Raw Data Sources] --> B[Data Loading & Integration]
-    B --> C[Feature Engineering]
-    C --> D[Data Preprocessing]
-    D --> E[Model Training]
-    E --> F[Prediction Generation]
-    F --> G[Ensemble Building]
-    G --> H[Evaluation & Metrics]
-    H --> I[Visualization Dashboard]
-    
-    J[Configuration Files] --> B
-    J --> C
-    J --> D
-    J --> E
-    
-    K[Hyperparameter Tuning] --> E
-    
-    style A fill:#e1f5e1
-    style I fill:#e1e5f5
-    style J fill:#f5e1e1
+graph TB
+    subgraph "Data Sources"
+        DS1[Discharge Data]
+        DS2[Forcing Data<br/>T, P]
+        DS3[Snow Data<br/>SWE, HS, ROF]
+        DS4[Snow Cover Area]
+        DS5[Static Basin Data]
+        DS6[GlacierMapper<br/>SLA, FSC]
+    end
+
+    subgraph "Data Processing Layer"
+        DL[data_loading.py]
+        DU[data_utils.py]
+        FE[FeatureExtractor.py]
+        FPA[FeatureProcessingArtifacts.py]
+    end
+
+    subgraph "Model Layer"
+        subgraph "Model Families"
+            BC[BaseCase Models]
+            SCA[SCA_Based Models]
+            SM[SnowMapper_Based]
+            GM[GlacierMapper_Based]
+        end
+        
+        subgraph "Model Types"
+            LR[LinearRegression]
+            SR[SciRegressor<br/>XGB, LGBM, CatBoost]
+        end
+    end
+
+    subgraph "Evaluation & Output"
+        EV[Evaluation Pipeline]
+        ENS[Ensemble Builder]
+        VIS[Dashboard Visualization]
+    end
+
+    DS1 & DS2 & DS3 & DS4 & DS5 & DS6 --> DL
+    DL --> DU
+    DU --> FE
+    FE --> FPA
+    FPA --> BC & SCA & SM & GM
+    BC & SCA & SM & GM --> LR & SR
+    LR & SR --> EV
+    EV --> ENS
+    ENS --> VIS
 ```
 
-## Detailed Component Flow
+## Data Flow
+
+### 1. Data Ingestion
+The system integrates multiple data sources through `scr/data_loading.py`:
+
+- **Discharge Data**: Historical river discharge observations (m³/s)
+- **Forcing Data**: Temperature (°C) and precipitation (mm)
+- **Snow Data**: 
+  - SWE (Snow Water Equivalent)
+  - HS (Height of Snow)
+  - ROF (Runoff)
+- **Snow Cover Area (SCA)**: Satellite-based snow coverage percentages
+- **Static Basin Characteristics**: Elevation range, area, glacier fraction
+- **GlacierMapper Data**: Snow line altitude (SLA), fractional snow cover (FSC)
+
+### 2. Feature Engineering Pipeline
 
 ```mermaid
 graph LR
-    subgraph "Data Sources"
-        DS1[Discharge Data]
-        DS2[Forcing Data<br/>Temp/Precip]
-        DS3[Snow Data<br/>SWE/HS/ROF]
-        DS4[Static Basin<br/>Characteristics]
-        DS5[Snow Cover Area]
-        DS6[GlacierMapper<br/>SLA Data]
+    subgraph "Raw Data"
+        RD[Time Series Data]
+        SD[Static Data]
     end
-    
-    subgraph "Data Processing"
-        DP1[data_loading.py]
-        DP2[data_utils.py]
-        DP3[FeatureExtractor.py]
-        DP4[FeatureProcessing<br/>Artifacts.py]
+
+    subgraph "Feature Creation"
+        TS[Time Series Features<br/>- Rolling statistics<br/>- Lags<br/>- Slopes]
+        SP[Spatial Features<br/>- Elevation bands<br/>- Basin characteristics]
+        GM[GlacierMapper Features<br/>- SLA variations<br/>- Melt potential]
     end
-    
-    subgraph "Models"
-        M1[LINEAR_REGRESSION]
-        M2[SciRegressor<br/>XGBoost/LightGBM/<br/>CatBoost]
-        M3[Future Models]
+
+    subgraph "Preprocessing"
+        NRM[Normalization<br/>- Global<br/>- Per-basin<br/>- Period-based]
+        IMP[Imputation<br/>- Missing values<br/>- Long-term means]
     end
-    
+
+    RD --> TS
+    RD & SD --> SP
+    RD --> GM
+    TS & SP & GM --> NRM
+    NRM --> IMP
+```
+
+### 3. Model Training & Prediction
+
+The system supports two main model types:
+
+#### LinearRegression Models
+- Period-specific models (6 periods per month)
+- Dynamic feature selection based on correlation
+- Leave-one-year-out cross-validation
+
+#### SciRegressor Models
+- Global models trained on all basins
+- Ensemble methods: XGBoost, LightGBM, CatBoost
+- Advanced hyperparameter optimization with Optuna
+
+### 4. Evaluation & Ensemble Creation
+
+```mermaid
+graph TD
+    subgraph "Individual Models"
+        M1[Model 1]
+        M2[Model 2]
+        MN[Model N]
+    end
+
+    subgraph "Ensemble Levels"
+        FE[Family Ensembles<br/>- BaseCase<br/>- SCA_Based<br/>- SnowMapper_Based<br/>- GlacierMapper_Based]
+        GE[Global Ensemble]
+    end
+
     subgraph "Evaluation"
-        E1[evaluate_pipeline.py]
-        E2[ensemble_builder.py]
-        E3[metric_functions.py]
+        MET[Metrics Calculation<br/>- R², RMSE, NSE<br/>- KGE, MAE, Bias]
+        AGG[Aggregation Levels<br/>- Overall<br/>- Per-basin<br/>- Per-month<br/>- Per-basin-month]
     end
-    
-    subgraph "Outputs"
-        O1[Predictions]
-        O2[Metrics]
-        O3[Dashboard]
+
+    M1 & M2 & MN --> FE
+    FE --> GE
+    M1 & M2 & MN & FE & GE --> MET
+    MET --> AGG
+```
+
+## Core Components
+
+### 1. SCR Module (`scr/`)
+Core utilities for data processing and feature engineering:
+
+- **data_loading.py**: Unified data loading interface
+- **data_utils.py**: Preprocessing, normalization, elevation band processing
+- **FeatureExtractor.py**: Time series feature engineering
+- **FeatureProcessingArtifacts.py**: Preprocessing state management
+- **sci_utils.py**: Machine learning utilities
+
+### 2. Forecast Models (`forecast_models/`)
+Model implementations following a common interface:
+
+- **base_class.py**: Abstract base class defining the interface
+- **LINEAR_REGRESSION.py**: Statistical baseline models
+- **SciRegressor.py**: Tree-based ensemble models
+
+### 3. Evaluation (`evaluation/`)
+Comprehensive evaluation pipeline:
+
+- **evaluate_pipeline.py**: Main orchestrator
+- **prediction_loader.py**: Loads model predictions
+- **ensemble_builder.py**: Creates family and global ensembles
+- **evaluate_models.py**: Calculates performance metrics
+
+### 4. Visualization (`visualization/`)
+Interactive dashboard for model comparison:
+
+- **dashboard.py**: Main Dash application
+- **data_handlers.py**: Data management for visualization
+- **plotting_utils.py**: Consistent styling and color schemes
+- **dashboard_components.py**: Reusable UI components
+
+## Model Families
+
+The system organizes models into families based on their input features:
+
+### 1. BaseCase Models
+- Basic features: discharge (Q), temperature (T), precipitation (P)
+- Examples: LR_Q_T_P, PerBasinScalingLR, ShortTermLR
+
+### 2. SCA_Based Models
+- Incorporate Snow Cover Area data
+- Examples: LR_Q_SCA, LR_Q_T_SCA
+
+### 3. SnowMapper_Based Models
+- Use detailed snow data (SWE, HS, ROF)
+- Support multiple elevation zones
+- Examples: Various configurations with elevation band features
+
+### 4. GlacierMapper_Based Models
+- Leverage GlacierMapper features (SLA, FSC)
+- Include glacier melt potential calculations
+- Examples: NormBased, Correction, MiniCorrection
+
+## Workflow Overview
+
+### Complete Model Development Workflow
+
+```mermaid
+graph LR
+    subgraph "Development"
+        HP[Hyperparameter<br/>Tuning]
+        CAL[Model<br/>Calibration]
+        HC[Hindcast<br/>Generation]
     end
-    
-    DS1 --> DP1
-    DS2 --> DP1
-    DS3 --> DP1
-    DS4 --> DP1
-    DS5 --> DP1
-    DS6 --> DP1
-    
-    DP1 --> DP2
-    DP2 --> DP3
-    DP3 --> DP4
-    
-    DP4 --> M1
-    DP4 --> M2
-    DP4 --> M3
-    
-    M1 --> E1
-    M2 --> E1
-    M3 --> E1
-    
-    E1 --> E2
-    E2 --> E3
-    E3 --> O1
-    E3 --> O2
-    O2 --> O3
+
+    subgraph "Evaluation"
+        EVAL[Run Evaluation<br/>Pipeline]
+        ENS[Create<br/>Ensembles]
+        RANK[Model<br/>Rankings]
+    end
+
+    subgraph "Visualization"
+        DASH[Interactive<br/>Dashboard]
+        EXP[Export<br/>Results]
+    end
+
+    HP --> CAL
+    CAL --> HC
+    HC --> EVAL
+    EVAL --> ENS
+    ENS --> RANK
+    RANK --> DASH
+    DASH --> EXP
 ```
 
-## Key System Features
+### Key Scripts
 
-### 1. Modular Architecture
-- **Clear Separation of Concerns**: Each component has a specific responsibility
-- **Extensible Design**: Easy to add new models, features, or data sources
-- **Configuration-Driven**: Behavior controlled through JSON configuration files
+1. **tune_hyperparams.py**: Optimize model hyperparameters
+2. **calibrate_hindcast.py**: Train models and generate historical predictions
+3. **evaluate_pipeline.py**: Run comprehensive evaluation
+4. **dashboard.py**: Launch interactive visualization
 
-### 2. Advanced Feature Engineering
-- **Multi-Scale Temporal Features**: Rolling windows with various statistical operations
-- **Elevation Band Processing**: Configurable number of elevation zones
-- **Glacier Features**: Integration with GlacierMapper for snow line altitude
-- **Period-Based Scaling**: 36 periods (3 per month) for capturing sub-monthly patterns
+### Shell Scripts for Automation
 
-### 3. Multiple Normalization Strategies
-- **Global Normalization**: Across all basins and time
-- **Per-Basin Normalization**: Basin-specific scaling
-- **Long-Term Mean Scaling**: Relative to historical periods
-- **Mixed Strategies**: Combine different approaches
+- `tune_and_calibrate_script.sh`: Combined tuning and calibration
+- `run_evaluation_pipeline.sh`: Execute evaluation pipeline
+- `run_model_workflow.sh`: Complete end-to-end workflow
 
-### 4. Ensemble Modeling
-- **Model Diversity**: Linear regression, tree-based models (XGBoost, LightGBM, CatBoost)
-- **Family Ensembles**: Combine models of the same type
-- **Global Ensembles**: Combine all available models
-- **Flexible Aggregation**: Mean, median, weighted approaches
+## Recent Developments
 
-### 5. Comprehensive Evaluation
-- **Multiple Metrics**: R², NSE, KGE, RMSE, MAE, Bias, Correlation
-- **Cross-Validation**: Leave-One-Year-Out (LOOCV) approach
-- **Basin-Specific Analysis**: Performance breakdown by catchment
-- **Temporal Analysis**: Performance across different seasons/periods
+### 1. GlacierMapper Integration
+- Added support for snow line altitude (SLA) features
+- Integrated fractional snow cover (FSC) data
+- Implemented glacier melt potential calculations
+- Created specialized GlacierMapper_Based model family
 
-## Data Flow Details
+### 2. Enhanced Elevation Zone Support
+- Configurable number of elevation bands (not fixed to 5)
+- Percentile-based elevation band calculation
+- Improved snow data aggregation by elevation
 
-### 1. Input Data Processing
+### 3. Period-Based Temporal Grouping
+- Implemented 36 annual periods (3 per month)
+- Period-specific normalization and scaling
+- Improved handling of seasonal patterns
+
+### 4. Dashboard Improvements
+- Interactive model comparison across metrics
+- Basin-specific performance analysis
+- Monthly performance heatmaps
+- Export functionality for further analysis
+
+## Integration Guide
+
+### Adding a New Data Source
+
+1. Update `scr/data_loading.py` to load the new data
+2. Add preprocessing in `scr/data_utils.py` if needed
+3. Configure features in `FeatureExtractor.py`
+4. Update model configurations to use new features
+
+### Adding a New Model Type
+
+1. Create a new class inheriting from `BaseForecastModel`
+2. Implement required methods:
+   - `calibrate_model_and_hindcast()`
+   - `predict_operational()`
+   - `save_model()` / `load_model()`
+3. Add model to appropriate family in evaluation pipeline
+4. Update configuration templates
+
+### Running a Complete Experiment
+
+```bash
+# 1. Prepare configuration files
+cp -r example_config/DUMMY_MODEL example_config/MY_EXPERIMENT
+
+# 2. Edit configuration files
+# Update data_paths.json, general_config.json, etc.
+
+# 3. Run hyperparameter tuning (optional)
+uv run tune_hyperparams.py --config_path example_config/MY_EXPERIMENT
+
+# 4. Calibrate and generate hindcasts
+uv run calibrate_hindcast.py --config_path example_config/MY_EXPERIMENT
+
+# 5. Run evaluation pipeline
+./run_evaluation_pipeline.sh
+
+# 6. Launch dashboard
+uv run python visualization/dashboard.py
 ```
-Raw Files → data_loading.load_data() → Merged DataFrame
-                    ↓
-            Quality Checks
-                    ↓
-            Missing Data Handling
-                    ↓
-            Initial Transformations
-```
-
-### 2. Feature Engineering Pipeline
-```
-Merged Data → FeatureExtractor → Rolling Window Features
-                    ↓
-            Elevation Band Features
-                    ↓
-            Glacier Features
-                    ↓
-            Temporal Features
-                    ↓
-            Complete Feature Set
-```
-
-### 3. Model Training Workflow
-```
-Features → Train/Test Split → Preprocessing → Model Training
-                                    ↓              ↓
-                              Artifacts      Predictions
-                                    ↓              ↓
-                              Saved for    Evaluation
-                              Production
-```
-
-## Configuration Management
-
-The system uses a hierarchical configuration structure:
-
-1. **data_paths.json**: File paths for all input data
-2. **experiment_config.json**: Experiment setup and basin selection
-3. **feature_config.json**: Feature engineering parameters
-4. **general_config.json**: Overall system settings
-5. **model_config.json**: Algorithm-specific hyperparameters
-
-## Production Deployment
-
-### Operational Forecasting Mode
-```python
-# Load trained model and artifacts
-model = load_model("path/to/saved/model")
-artifacts = load_artifacts("path/to/artifacts")
-
-# Process new data
-new_features = process_operational_data(new_data, artifacts)
-
-# Generate forecast
-forecast = model.predict_operational(new_features)
-```
-
-### Key Production Features
-- **Artifact Persistence**: Preprocessing state saved for consistency
-- **Model Versioning**: Track model versions and configurations
-- **Logging System**: Comprehensive logging for debugging
-- **Error Handling**: Graceful degradation and informative error messages
-
-## System Requirements
-
-### Software Dependencies
-- Python 3.8+
-- Scientific Computing: numpy, pandas, scikit-learn
-- ML Libraries: xgboost, lightgbm, catboost
-- Optimization: optuna
-- Visualization: plotly, dash
-- Data Processing: geopandas, xarray
-
-### Hardware Recommendations
-- **Memory**: 16GB+ RAM for large basin sets
-- **Storage**: 50GB+ for data and model artifacts
-- **CPU**: Multi-core processor for parallel processing
-- **GPU**: Optional, beneficial for tree-based models
-
-## Development Workflow
-
-1. **Configuration Setup**: Define experiment parameters
-2. **Data Preparation**: Load and validate input data
-3. **Feature Engineering**: Create relevant features
-4. **Model Training**: Train individual models
-5. **Hyperparameter Tuning**: Optimize model parameters
-6. **Ensemble Creation**: Combine model predictions
-7. **Evaluation**: Assess performance
-8. **Visualization**: Analyze results in dashboard
 
 ## Best Practices
 
-1. **Version Control**: Track configurations and code changes
-2. **Testing**: Run test suite before major changes
-3. **Documentation**: Update docs when adding features
-4. **Reproducibility**: Use fixed random seeds
-5. **Monitoring**: Check logs for anomalies
-6. **Validation**: Verify data quality at each step
+1. **Feature Engineering**: Use `StreamflowFeatureExtractor` for consistent feature creation
+2. **Preprocessing**: Always save and reuse `FeatureProcessingArtifacts`
+3. **Model Organization**: Place models in appropriate families for ensemble creation
+4. **Evaluation**: Use the standard evaluation pipeline for comparable results
+5. **Documentation**: Update model descriptions when adding new approaches
 
-## Future Enhancements
+## Future Directions
 
-- Real-time data integration
-- Uncertainty quantification
-- Automated model selection
-- Cloud deployment options
-- API for external access
-- Extended forecast horizons
+- Integration of additional Earth observation data sources
+- Development of uncertainty quantification methods
+- Implementation of online learning capabilities
+- Extension to sub-monthly forecast horizons
+- Enhanced ensemble weighting strategies

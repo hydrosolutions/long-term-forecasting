@@ -12,6 +12,59 @@ This dashboard provides comprehensive visualizations for comparing model perform
 4. **Monthly Performance Analysis** - Heatmaps and bar charts showing seasonal patterns
 5. **Interactive Data Table** - Filterable/sortable table with export functionality
 
+## File Structure
+
+### Core Files
+
+#### `dashboard.py`
+The main application file that:
+- Initializes the Dash app and defines the overall layout
+- Creates the 5 different tabs with their specific layouts
+- Implements all callback functions for interactivity
+- Handles user interactions and updates visualizations dynamically
+- Integrates all other modules to create the complete dashboard
+
+#### `data_handlers.py`
+Provides data management classes:
+- **`MetricsDataHandler`**: Loads and manages metrics data from CSV files
+  - Lazy loading with caching for performance
+  - Provides filtered data access by model, basin, month, and evaluation level
+  - Handles model family classification
+- **`PredictionDataHandler`**: Manages prediction data loading
+  - Caches all predictions for efficient access
+  - Provides observed vs predicted comparisons
+  - Integrates with the evaluation module's prediction loader
+
+#### `plotting_utils.py`
+Contains visualization utilities and constants:
+- **Color Schemes**: Consistent color mappings for model families and individual models
+- **Metric Definitions**: Display names, formatting, and optimization direction for all metrics
+- **Helper Functions**: 
+  - `get_color_mapping()`: Creates consistent color mappings
+  - `apply_default_layout()`: Applies standard styling to plots
+  - `format_metric_value()`: Formats metric values for display
+  - `highlight_best_performers()`: Identifies top-performing models
+- **Month Names**: Maps month numbers to names (shifted for prediction timing)
+
+#### `dashboard_components.py`
+Provides reusable UI components:
+- **Selectors**: Model, metric, basin, month, and date range selectors
+- **Filters**: Evaluation level and metric filters
+- **Layout Elements**: Headers, control panels, loading wrappers
+- **Data Display**: Table column definitions and export functionality
+- Ensures consistent UI/UX across all dashboard tabs
+
+#### `__init__.py`
+Empty initialization file for Python package structure.
+
+## Integration with Evaluation Module
+
+The visualization module integrates tightly with the evaluation outputs:
+- Reads metrics from `../monthly_forecasting_results/evaluation/metrics.csv`
+- Loads predictions from the structured directory hierarchy
+- Uses the evaluation module's `prediction_loader` for consistent data access
+- Respects the same model family classifications defined in the evaluation module
+
 ## Prerequisites
 
 The dashboard requires:
