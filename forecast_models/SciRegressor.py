@@ -897,6 +897,20 @@ class SciRegressor(BaseForecastModel):
         self.fitted_models = fitted_models
         self.save_model(is_fitted=True)
 
+        #  Calculate valid period
+        if not self.general_config.get("offset"):
+            self.general_config["offset"] = self.general_config["prediction_horizon"]
+        shift = (
+            self.general_config["offset"] - self.general_config["prediction_horizon"]
+        )
+        valid_from = hindcast_df['date'] + datetime.timedelta(days=1) + datetime.timedelta(days=shift)
+        valid_to = valid_from + datetime.timedelta(
+            days=self.general_config["prediction_horizon"]
+        )
+
+        hindcast_df["valid_from"] = valid_from
+        hindcast_df["valid_to"] = valid_to
+
         return hindcast_df
 
     def tune_hyperparameters(self) -> Tuple[bool, str]:

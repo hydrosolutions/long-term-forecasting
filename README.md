@@ -24,7 +24,7 @@ For detailed technical documentation:
 
 ### Prerequisites
 
-- Python 3.9+
+- Python 3.11
 - [uv](https://github.com/astral-sh/uv) package manager
 
 ### Installation
@@ -192,8 +192,9 @@ The system uses a robust validation approach:
 ### Standard Predictions
 ```
 predictions.csv:
-date | Q_model1 | Q_model2 | Q_model3 | Q_mean | valid_from | valid_to
+date | Q_model1 | Q_model2 | Q_model3 | Q_model_name | valid_from | valid_to
 ```
+model_name referes to the feature set used and Q_model_name is the mean of model_1 ... model_n.
 
 ### Predictions with Uncertainty
 ```
@@ -235,7 +236,7 @@ The system supports extensive feature engineering:
 
 ## Recent Updates
 
-### GlacierMapper Integration (2024)
+### GlacierMapper Integration
 - Added support for Snow Line Altitude (SLA) features
 - Integrated Fractional Snow Cover (FSC) data
 - Enhanced glacier dynamics representation
@@ -251,10 +252,9 @@ The system supports extensive feature engineering:
 - Better handling of seasonal patterns
 
 ### Interactive Dashboard
-- Streamlit-based evaluation dashboard
+- Dash-based evaluation dashboard
 - Real-time model comparison
 - Performance metrics visualization
-- Feature importance analysis
 
 ## Advanced Usage
 
@@ -320,8 +320,6 @@ uv run ruff format
 # Check code style
 uv run ruff check
 
-# Type checking (if configured)
-uv run mypy .
 ```
 
 ### Development Workflow
@@ -373,7 +371,7 @@ See [CLAUDE.md](CLAUDE.md) for detailed development guidelines.
 
 ## Contact
 
-Sandro Hunziker - [Add contact information]
+Sandro Hunziker - hunziker@hydrosolutions.ch
 
 ## Acknowledgments
 

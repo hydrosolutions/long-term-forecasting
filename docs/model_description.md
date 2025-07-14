@@ -261,28 +261,10 @@ graph TD
 ## Model Persistence and Deployment
 
 ### Saving Models
-```python
-# Save model
-model.save_model('model.pkl')
-
-# Save preprocessing artifacts
-artifacts.save('artifacts.pkl')
-
-# Save configuration
-json.dump(config, 'config.json')
-```
+The Forecasting model save the relevant models and objects directly into their directory (where the config is defined). 
 
 ### Loading for Production
-```python
-# Load components
-model = load_model('model.pkl')
-artifacts = load_artifacts('artifacts.pkl')
-config = load_config('config.json')
-
-# Process new data
-features = artifacts.transform(new_data)
-predictions = model.predict(features)
-```
+The Forecast model classes save the relevant objects directly in the directory, where their confifuration is saved. For the Linear Regression, the model gets refitted each time - nothing gets scaled. For the SciRegressor each model gets saved as a.joblib file and the scalers and pre-processing objects are saved via the Artifacts pipeline.
 
 ## Performance Monitoring
 
