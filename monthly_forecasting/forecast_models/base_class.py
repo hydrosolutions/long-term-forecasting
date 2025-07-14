@@ -33,12 +33,9 @@ class BaseForecastModel(ABC):
         self.name = general_config["model_name"]
 
     @abstractmethod
-    def predict_operational(self, data: pd.DataFrame) -> pd.DataFrame:
+    def predict_operational(self) -> pd.DataFrame:
         """
         Predict in operational mode.
-
-        Args:
-            data (pd.DataFrame): DataFrame containing the operational data.
 
         returns:
             forecast (pd.DataFrame): DataFrame containing the forecasted values.
@@ -47,12 +44,9 @@ class BaseForecastModel(ABC):
         pass
 
     @abstractmethod
-    def calibrate_model_and_hindcast(self, data: pd.DataFrame) -> pd.DataFrame:
+    def calibrate_model_and_hindcast(self) -> pd.DataFrame:
         """
         Calibrate the model using the provided data.
-
-        Args:
-            data (pd.DataFrame): DataFrame containing the calibration data.
 
         Returns:
             hindcast (pd.DataFrame): DataFrame containing the hindcasted values.

@@ -382,15 +382,33 @@ def run_operational_prediction() -> Dict[str, Any]:
                 # Create model instance
                 model = create_model_instance(model_type, model_name, configs, data, static_data)
                 
-                # Run prediction (this would need to be implemented in the model classes)
-                # For now, we'll simulate predictions
-                predictions = simulate_predictions(model, data)
+                # Run operational prediction
+                raw_predictions = model.predict_operational()
+                
+                # Process predictions to standardize format
+                predictions = process_predictions(raw_predictions)
                 
                 # Store predictions
                 predictions['model_family'] = family_name
                 predictions['model_type'] = model_type
                 predictions['model_name'] = model_name
                 all_predictions.append(predictions)
+                
+                # Calculate performance metrics if predictions are available
+                if 'predicted_avg_discharge' in predictions.columns and 'code' in predictions.columns:
+                    # Calculate observed averages for evaluation period
+                    # Use the last 30 days of data for evaluation
+                    end_date = data['date'].max()
+                    start_date = end_date - pd.DateOffset(days=30)
+                    
+                    observations = calculate_average_discharge(data, start_date, end_date)
+                    
+                    # Evaluate predictions
+                    model_metrics = evaluate_predictions(predictions, observations)
+                    model_metrics['model_family'] = family_name
+                    model_metrics['model_type'] = model_type
+                    model_metrics['model_name'] = model_name
+                    all_metrics.append(model_metrics)
                 
                 # Calculate model timing
                 model_end_time = datetime.datetime.now()
@@ -423,27 +441,26 @@ def run_operational_prediction() -> Dict[str, Any]:
     }
 
 
-def simulate_predictions(model, data: pd.DataFrame) -> pd.DataFrame:
+def process_predictions(predictions: pd.DataFrame) -> pd.DataFrame:
     """
-    Simulate predictions for testing purposes.
-    This should be replaced with actual model prediction logic.
+    Process predictions from model to standardize format.
     
     Args:
-        model: Model instance
-        data: Input data
+        predictions: DataFrame with model predictions
         
     Returns:
-        DataFrame with predictions
+        DataFrame with standardized predictions
     """
-    # Get unique basin codes
-    basin_codes = data['code'].unique()
+    # Standardize column names for consistency
+    if 'Q' in predictions.columns:
+        predictions = predictions.rename(columns={'Q': 'predicted_avg_discharge'})
+    elif 'Q_pred' in predictions.columns:
+        predictions = predictions.rename(columns={'Q_pred': 'predicted_avg_discharge'})
     
-    # Simulate predictions (random values for testing)
-    np.random.seed(42)  # For reproducible results
-    predictions = pd.DataFrame({
-        'code': basin_codes,
-        'predicted_avg_discharge': np.random.uniform(10, 100, len(basin_codes))
-    })
+    # Ensure we have the required columns
+    if 'predicted_avg_discharge' not in predictions.columns:
+        logger.warning("No prediction column found in model output")
+        return predictions
     
     return predictions
 
