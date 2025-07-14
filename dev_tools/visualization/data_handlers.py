@@ -13,9 +13,7 @@ import logging
 from functools import lru_cache
 import sys
 
-# Add parent directory to path to import evaluation modules
-sys.path.append(str(Path(__file__).parent.parent))
-from evaluation.prediction_loader import (
+from dev_tools.evaluation.prediction_loader import (
     load_all_predictions,
     MODEL_FAMILIES,
     scan_prediction_files,

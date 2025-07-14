@@ -77,10 +77,10 @@ except ImportError:
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 # Import the modules to test
-from forecast_models.LINEAR_REGRESSION import LinearRegressionModel
-from scr import FeatureExtractor as FE
-from eval_scr import metric_functions
-import calibrate_hindcast
+from monthly_forecasting.forecast_models.LINEAR_REGRESSION import LinearRegressionModel
+from monthly_forecasting.scr import FeatureExtractor as FE
+from dev_tools.eval_scr import metric_functions
+from scripts import calibrate_hindcast
 
 # Test configurations
 GENERAL_CONFIG = {

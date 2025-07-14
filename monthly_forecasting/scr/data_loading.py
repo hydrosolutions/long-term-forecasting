@@ -12,7 +12,7 @@ from pathlib import Path
 
 # Shared logging
 import logging
-from log_config import setup_logging
+from ..log_config import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logger

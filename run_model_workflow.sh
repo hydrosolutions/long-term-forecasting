@@ -203,8 +203,8 @@ fi
 
 # Check if required Python scripts exist
 script_dir="$(dirname "$0")"
-tune_script="$script_dir/tune_hyperparams.py"
-calibrate_script="$script_dir/calibrate_hindcast.py"
+tune_script="$script_dir/scripts/tune_hyperparams.py"
+calibrate_script="$script_dir/scripts/calibrate_hindcast.py"
 
 if [[ "$TUNE_HYPERPARAMS" == true && ! -f "$tune_script" ]]; then
     print_error "Hyperparameter tuning script not found: $tune_script"

@@ -12,3 +12,13 @@
 *.log
 /evaluation/__pycache__
 /visualization/__pycache__
+/dev_tools/__pycache__
+/dev_tools/eval_scr/__pycache__
+/dev_tools/evaluation/__pycache__
+/dev_tools/visualization/__pycache__
+/monthly_forecasting/__pycache__
+/monthly_forecasting/forecast_models/__pycache__
+/monthly_forecasting/scr/__pycache__
+/scripts/__pycache__
+/tests/functionality/__pycache__
+/tests/unit/__pycache__

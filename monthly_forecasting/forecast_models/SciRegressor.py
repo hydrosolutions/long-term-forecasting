@@ -12,23 +12,25 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-from forecast_models.base_class import BaseForecastModel
+from monthly_forecasting.forecast_models.base_class import BaseForecastModel
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from sklearn.metrics import mean_squared_error, r2_score
 
-from scr import FeatureExtractor as FE
-from scr.FeatureProcessingArtifacts import (
+from monthly_forecasting.scr import FeatureExtractor as FE
+from monthly_forecasting.scr.FeatureProcessingArtifacts import (
     process_training_data,
     process_test_data,
     post_process_predictions,
 )
-from scr.FeatureProcessingArtifacts import FeatureProcessingArtifacts
-from scr import data_utils as du
-from scr import sci_utils
+from monthly_forecasting.scr.FeatureProcessingArtifacts import (
+    FeatureProcessingArtifacts,
+)
+from monthly_forecasting.scr import data_utils as du
+from monthly_forecasting.scr import sci_utils
 
 # Shared logging
 import logging
-from log_config import setup_logging
+from monthly_forecasting.log_config import setup_logging
 
 setup_logging()
 

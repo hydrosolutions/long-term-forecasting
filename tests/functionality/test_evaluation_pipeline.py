@@ -7,10 +7,7 @@ import sys
 import os
 from pathlib import Path
 
-# Add current directory to path so we can import the evaluation modules
-sys.path.insert(0, str(Path(__file__).parent))
-
-from evaluation.evaluate_pipeline import run_evaluation_pipeline
+from dev_tools.evaluation.evaluate_pipeline import run_evaluation_pipeline
 
 if __name__ == "__main__":
     print("Testing Evaluation Pipeline...")

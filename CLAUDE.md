@@ -1,5 +1,27 @@
 # MONTHLY DISCHARGE FORECASTING
 
+## PROJECT STRUCTURE
+
+The project has been restructured for production deployment:
+
+```
+monthly_forecasting/
+├── monthly_forecasting/     # Core production package
+│   ├── forecast_models/     # Model implementations
+│   ├── scr/                 # Data processing utilities
+│   └── log_config.py        # Logging configuration
+├── dev_tools/               # Development-only tools
+│   ├── evaluation/          # Evaluation pipeline
+│   ├── visualization/       # Dashboard and plotting
+│   └── eval_scr/            # Evaluation metrics
+├── scripts/                 # Development scripts
+│   ├── calibrate_hindcast.py
+│   └── tune_hyperparams.py
+└── tests/                   # Test suite
+    ├── unit/                # Unit tests
+    ├── functionality/       # Functionality tests
+    └── integration/         # Integration tests
+```
 
 ## COMMON BASH COMMANDS:
 
@@ -7,20 +29,27 @@
 As we are working we do not need to activate the venv specifically but can just use
 bash 
 '
-uv run some_script.py
+uv run python scripts/some_script.py
 '
 
 2. Run ruff
 bash
 'uv run ruff format'
 
-1. run the tests:
+3. run the tests:
 bash 
 '
 uv run pytest -v
 '
 
-1. Run the  shell scripts:
+4. Run specific test categories:
+bash
+'
+uv run pytest tests/unit/ -v       # Run unit tests
+uv run pytest tests/functionality/ -v  # Run functionality tests
+'
+
+5. Run the shell scripts:
 bash
 '
 ./tune_and_calibrate_script.sh

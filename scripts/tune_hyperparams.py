@@ -10,17 +10,17 @@ from typing import Dict, Any, Optional
 import datetime
 
 # Add the project root to Python path
-project_root = Path(__file__).parent
+project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # Import forecast models
-from forecast_models.LINEAR_REGRESSION import LinearRegressionModel
-from forecast_models.SciRegressor import SciRegressor
-from scr import data_loading as dl
-from eval_scr import eval_helper, metric_functions
+from monthly_forecasting.forecast_models.LINEAR_REGRESSION import LinearRegressionModel
+from monthly_forecasting.forecast_models.SciRegressor import SciRegressor
+from monthly_forecasting.scr import data_loading as dl
+from dev_tools.eval_scr import eval_helper, metric_functions
 
 # Setup logging
-from log_config import setup_logging
+from monthly_forecasting.log_config import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)

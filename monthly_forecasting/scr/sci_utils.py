@@ -36,11 +36,11 @@ from catboost import CatBoostRegressor
 import optuna
 
 # Custom modules
-from scr import data_utils as du
+from . import data_utils as du
 
 # Shared logging
 import logging
-from log_config import setup_logging
+from ..log_config import setup_logging
 
 setup_logging()
 
@@ -347,7 +347,7 @@ def _objective_xgb(
         and target is not None
     ):
         # Import here to avoid circular imports
-        from scr.FeatureProcessingArtifacts import post_process_predictions
+        from .FeatureProcessingArtifacts import post_process_predictions
 
         # Create temporary DataFrame for post-processing
         df_temp = pd.DataFrame(
@@ -428,7 +428,7 @@ def _objective_lgbm(
         and target is not None
     ):
         # Import here to avoid circular imports
-        from scr.FeatureProcessingArtifacts import post_process_predictions
+        from .FeatureProcessingArtifacts import post_process_predictions
 
         # Create temporary DataFrame for post-processing
         df_temp = pd.DataFrame(
@@ -504,7 +504,7 @@ def _objective_catboost(
         and target is not None
     ):
         # Import here to avoid circular imports
-        from scr.FeatureProcessingArtifacts import post_process_predictions
+        from .FeatureProcessingArtifacts import post_process_predictions
 
         # Create temporary DataFrame for post-processing
         df_temp = pd.DataFrame(
@@ -579,7 +579,7 @@ def _objective_mlp(
         and target is not None
     ):
         # Import here to avoid circular imports
-        from scr.FeatureProcessingArtifacts import post_process_predictions
+        from .FeatureProcessingArtifacts import post_process_predictions
 
         # Create temporary DataFrame for post-processing
         df_temp = pd.DataFrame(

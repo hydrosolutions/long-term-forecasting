@@ -186,7 +186,7 @@ if [[ ! -d "$RESULTS_DIR" ]]; then
 fi
 
 # Build the command
-CMD="uv run python -m evaluation.evaluate_pipeline"
+CMD="uv run python -m dev_tools.evaluation.evaluate_pipeline"
 CMD="$CMD --results_dir \"$RESULTS_DIR\""
 CMD="$CMD --output_dir \"$OUTPUT_DIR\""
 CMD="$CMD --evaluation_day \"$EVALUATION_DAY\""
