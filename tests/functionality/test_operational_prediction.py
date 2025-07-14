@@ -37,47 +37,69 @@ from scripts.run_operational_prediction import (
 class TestConfigurationLoading:
     """Test configuration loading functionality."""
 
+    def _check_model_availability(
+        self, model_type: str, input_family: str, model_name: str
+    ) -> bool:
+        """Check if model files are available locally."""
+        try:
+            load_operational_configs(model_type, input_family, model_name)
+            return True
+        except ValueError as e:
+            if "not found" in str(e).lower() or "missing" in str(e).lower():
+                return False
+            raise  # Re-raise if it's a different kind of ValueError
+
+    @pytest.mark.skipif(
+        "CI" in os.environ or "GITHUB_ACTIONS" in os.environ,
+        reason="Models not available in CI environment",
+    )
     def test_load_operational_configs_LR_model(self):
         """Test loading configurations with LR model."""
-        try:
-            configs = load_operational_configs(
-                "LR",
-                "BaseCase",
-                "LR_Q_T_P",
-            )
-        except ValueError as e:
-            # raise a warning as the model is not able to be found on github
-            print(f"Warning: {e}")
-        else:
-            # If no exception, check that configs are loaded correctly
-            assert "general_config" in configs
-            assert "model_config" in configs
-            assert "feature_config" in configs
-            assert "data_config" in configs
-            assert "path_config" in configs
+        if not self._check_model_availability("LR", "BaseCase", "LR_Q_T_P"):
+            pytest.skip("LR model files not available locally")
 
-            # Check that model type is set correctly
-            assert configs["general_config"]["model_type"] == "linear_regression"
+        configs = load_operational_configs("LR", "BaseCase", "LR_Q_T_P")
 
+        # Verify all required config sections are present
+        required_sections = [
+            "general_config",
+            "model_config",
+            "feature_config",
+            "data_config",
+            "path_config",
+        ]
+        for section in required_sections:
+            assert section in configs, f"Missing required config section: {section}"
+
+        # Verify model type is set correctly
+        assert configs["general_config"]["model_type"] == "linear_regression"
+
+    @pytest.mark.skipif(
+        "CI" in os.environ or "GITHUB_ACTIONS" in os.environ,
+        reason="Models not available in CI environment",
+    )
     def test_load_operational_configs_sciregressor(self):
         """Test loading configurations for SciRegressor model."""
-        try:
-            configs = load_operational_configs(
-                "SciRegressor", "BaseCase", "GradBoostTrees"
-            )
-        except ValueError as e:
-            # raise a warning as the model is not able to be found on github
-            print(f"Warning: {e}")
-        else:
-            # If no exception, check that configs are loaded correctly
-            assert "general_config" in configs
-            assert "model_config" in configs
-            assert "feature_config" in configs
-            assert "data_config" in configs
-            assert "path_config" in configs
+        if not self._check_model_availability(
+            "SciRegressor", "BaseCase", "GradBoostTrees"
+        ):
+            pytest.skip("SciRegressor model files not available locally")
 
-            # Check that model type is set correctly
-            assert configs["general_config"]["model_type"] == "sciregressor"
+        configs = load_operational_configs("SciRegressor", "BaseCase", "GradBoostTrees")
+
+        # Verify all required config sections are present
+        required_sections = [
+            "general_config",
+            "model_config",
+            "feature_config",
+            "data_config",
+            "path_config",
+        ]
+        for section in required_sections:
+            assert section in configs, f"Missing required config section: {section}"
+
+        # Verify model type is set correctly
+        assert configs["general_config"]["model_type"] == "sciregressor"
 
 
 class TestDataProcessing:
