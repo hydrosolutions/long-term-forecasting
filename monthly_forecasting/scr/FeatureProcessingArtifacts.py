@@ -6,7 +6,7 @@ from sklearn.impute import SimpleImputer, KNNImputer
 
 # Shared logging
 import logging
-from log_config import setup_logging
+from ..log_config import setup_logging
 
 setup_logging()
 
@@ -816,7 +816,7 @@ def _handle_missing_values_training(
 
     elif handle_na == "long_term_mean":
         # Import here to avoid circular imports
-        from scr import data_utils as du
+        from . import data_utils as du
 
         numeric_features = [col for col in features if df[col].dtype.kind in "ifc"]
 
@@ -918,7 +918,7 @@ def _normalization_training(
         return df, artifacts
 
     # Import here to avoid circular imports
-    from scr import data_utils as du
+    from . import data_utils as du
 
     # Get numeric features from selected features
     numeric_features_to_scale = [
@@ -1086,7 +1086,7 @@ def _apply_missing_value_handling(
             df = df.dropna(subset=artifacts.final_features)
 
     elif handle_na == "long_term_mean" and artifacts.long_term_means is not None:
-        from scr import data_utils as du
+        from . import data_utils as du
 
         df = du.apply_long_term_mean(
             df,
@@ -1137,7 +1137,7 @@ def _apply_normalization(
         return df
 
     # Import here to avoid circular imports
-    from scr import data_utils as du
+    from . import data_utils as du
 
     # Get numeric features that were normalized during training
     numeric_features_to_scale = [
@@ -1256,7 +1256,7 @@ def post_process_predictions(
         DataFrame with denormalized predictions
     """
     # Import here to avoid circular imports
-    from scr import data_utils as du
+    from . import data_utils as du
 
     df_predictions = df_predictions.copy()
 

@@ -51,7 +51,7 @@ except ImportError:
 # Add the parent directory to the path (one folder above)
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-from scr.FeatureProcessingArtifacts import (
+from monthly_forecasting.scr.FeatureProcessingArtifacts import (
     FeatureProcessingArtifacts,
     process_training_data,
     process_test_data,

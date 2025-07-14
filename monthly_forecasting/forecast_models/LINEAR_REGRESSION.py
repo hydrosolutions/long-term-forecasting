@@ -10,21 +10,21 @@ import datetime
 
 # Shared logging
 import logging
-from log_config import setup_logging
+from monthly_forecasting.log_config import setup_logging
 
 setup_logging()
 
 logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logger
 
 
-from forecast_models.base_class import BaseForecastModel
+from monthly_forecasting.forecast_models.base_class import BaseForecastModel
 from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.metrics import mean_squared_error, r2_score
 import pickle
 import json
 from tqdm import tqdm
 
-from scr import FeatureExtractor as FE
+from monthly_forecasting.scr import FeatureExtractor as FE
 
 
 class LinearRegressionModel(BaseForecastModel):

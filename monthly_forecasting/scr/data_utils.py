@@ -20,7 +20,7 @@ from . import AREA_KM2_COL, GLACIER_FRACTION_COL, H_MIN_COL, H_MAX_COL
 
 # Shared logging
 import logging
-from log_config import setup_logging
+from ..log_config import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logger

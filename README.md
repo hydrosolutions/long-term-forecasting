@@ -45,16 +45,16 @@ uv sync
 
 ```bash
 # Run calibration and hindcast for a model
-uv run calibrate_hindcast.py --config_path example_config/DUMMY_MODEL
+uv run python scripts/calibrate_hindcast.py --config_path example_config/DUMMY_MODEL
 
 # Run hyperparameter tuning
-uv run tune_hyperparams.py --config_path example_config/DUMMY_MODEL
+uv run python scripts/tune_hyperparams.py --config_path example_config/DUMMY_MODEL
 
 # Run complete evaluation pipeline
 ./run_evaluation_pipeline.sh
 
 # Launch interactive dashboard
-uv run python visualization/dashboard.py
+uv run python -m dev_tools.visualization.dashboard
 ```
 
 ## General Concept
@@ -83,44 +83,54 @@ Example ensemble strategy:
 
 ```
 monthly_forecasting/
-├── scr/                        # Data processing and feature engineering
-│   ├── data_loading.py         # Data ingestion and merging
-│   ├── data_utils.py           # Preprocessing and transformations
-│   ├── FeatureExtractor.py     # Time-series feature engineering
-│   ├── FeatureProcessingArtifacts.py  # Preprocessing state management
-│   ├── sci_utils.py            # ML utilities
-│   └── [documentation.md](scr/documentation.md)  # Component documentation
+├── monthly_forecasting/        # Core production package
+│   ├── __init__.py            # Package initialization
+│   ├── scr/                   # Data processing and feature engineering
+│   │   ├── data_loading.py    # Data ingestion and merging
+│   │   ├── data_utils.py      # Preprocessing and transformations
+│   │   ├── FeatureExtractor.py # Time-series feature engineering
+│   │   ├── FeatureProcessingArtifacts.py  # Preprocessing state management
+│   │   ├── sci_utils.py       # ML utilities
+│   │   └── [documentation.md](monthly_forecasting/scr/documentation.md)  # Component documentation
+│   │
+│   ├── forecast_models/       # Model implementations
+│   │   ├── base_class.py      # Abstract base class for all models
+│   │   ├── LINEAR_REGRESSION.py # Period-specific linear regression
+│   │   ├── SciRegressor.py    # Tree-based models (XGB, LGBM, CatBoost)
+│   │   └── [documentation.md](monthly_forecasting/forecast_models/documentation.md)  # Model details
+│   │
+│   └── log_config.py          # Logging configuration
 │
-├── forecast_models/            # Model implementations
-│   ├── base_class.py          # Abstract base class for all models
-│   ├── LINEAR_REGRESSION.py   # Period-specific linear regression
-│   ├── SciRegressor.py        # Tree-based models (XGB, LGBM, CatBoost)
-│   └── [documentation.md](forecast_models/documentation.md)  # Model details
-│
-├── eval_scr/                  # Evaluation utilities
-│   ├── metric_functions.py    # Performance metrics (NSE, KGE, R², etc.)
-│   ├── eval_helper.py         # Evaluation helper functions
-│   └── [description.md](eval_scr/description.md)  # Metrics documentation
-│
-├── evaluation/                # Evaluation pipeline
-│   ├── evaluate_pipeline.py   # Main evaluation orchestrator
-│   ├── ensemble_builder.py    # Ensemble creation and management
-│   ├── prediction_loader.py   # Load and process predictions
-│   └── [README.md](evaluation/README.md)  # Pipeline documentation
-│
-├── visualization/             # Interactive dashboard and plotting
-│   ├── dashboard.py          # Streamlit-based dashboard
-│   ├── dashboard_components.py # UI components
-│   ├── plotting_utils.py     # Visualization functions
-│   └── [README.md](visualization/README.md)  # Dashboard guide
+├── dev_tools/                 # Development-only tools
+│   ├── eval_scr/              # Evaluation utilities
+│   │   ├── metric_functions.py # Performance metrics (NSE, KGE, R², etc.)
+│   │   ├── eval_helper.py     # Evaluation helper functions
+│   │   └── [description.md](dev_tools/eval_scr/description.md)  # Metrics documentation
+│   │
+│   ├── evaluation/            # Evaluation pipeline
+│   │   ├── evaluate_pipeline.py # Main evaluation orchestrator
+│   │   ├── ensemble_builder.py # Ensemble creation and management
+│   │   ├── prediction_loader.py # Load and process predictions
+│   │   └── [README.md](dev_tools/evaluation/README.md)  # Pipeline documentation
+│   │
+│   └── visualization/         # Interactive dashboard and plotting
+│       ├── dashboard.py       # Streamlit-based dashboard
+│       ├── dashboard_components.py # UI components
+│       ├── plotting_utils.py  # Visualization functions
+│       └── [README.md](dev_tools/visualization/README.md)  # Dashboard guide
 │
 ├── example_config/           # Configuration templates
 │   ├── DUMMY_MODEL/         # Example configuration set
 │   └── [description.md](example_config/description.md)  # Config guide
 │
+├── scripts/                 # Development scripts
+│   ├── calibrate_hindcast.py    # Model training and prediction
+│   └── tune_hyperparams.py      # Hyperparameter optimization
+│
 ├── tests/                   # Comprehensive test suite
-│   ├── test_*.py           # Unit and integration tests
-│   ├── comprehensive_test_*.py  # End-to-end test utilities
+│   ├── unit/               # Unit tests for individual components
+│   ├── functionality/      # Functionality and integration tests
+│   ├── integration/        # Full integration tests
 │   └── [README.md](tests/README.md)  # Testing guide
 │
 ├── docs/                    # Project documentation
@@ -132,15 +142,13 @@ monthly_forecasting/
 │   ├── planning/          # Feature planning
 │   └── [README.md](scratchpads/README.md)  # Development workflow
 │
-└── Main Scripts:
-    ├── calibrate_hindcast.py    # Model training and prediction
-    ├── tune_hyperparams.py      # Hyperparameter optimization
-    ├── test_evaluation_pipeline.py  # Test evaluation system
-    └── Shell Scripts:
-        ├── calibration_script.sh         # Basic calibration
-        ├── tune_and_calibrate_script.sh  # Tuning + calibration
-        ├── run_evaluation_pipeline.sh    # Full evaluation
-        └── run_model_workflow.sh         # Complete workflow
+├── setup.py                # Package installation script
+├── pyproject.toml          # Project configuration
+└── Shell Scripts:
+    ├── calibration_script.sh         # Basic calibration
+    ├── tune_and_calibrate_script.sh  # Tuning + calibration
+    ├── run_evaluation_pipeline.sh    # Full evaluation
+    └── run_model_workflow.sh         # Complete workflow
 ```
 
 ### Configuration Structure

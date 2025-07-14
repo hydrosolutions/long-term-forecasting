@@ -89,7 +89,7 @@ run_hyperparameter_tuning() {
     print_status "Configuration directory: $CONFIG_DIR"
 
     # Check if tuning script exists
-    TUNING_SCRIPT="tune_hyperparams.py"
+    TUNING_SCRIPT="scripts/tune_hyperparams.py"
     check_python_script "$TUNING_SCRIPT"
     
     # Run hyperparameter tuning
@@ -121,7 +121,7 @@ run_calibration_hindcasting() {
     print_status "Configuration directory: $CONFIG_DIR"
     
     # Check if calibration script exists
-    CALIBRATION_SCRIPT="calibrate_hindcast.py"
+    CALIBRATION_SCRIPT="scripts/calibrate_hindcast.py"
     check_python_script "$CALIBRATION_SCRIPT"
     
     # Run the calibration script

@@ -6,7 +6,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from abc import ABC
-from forecast_models.base_class import BaseForecastModel
+from monthly_forecasting.forecast_models.base_class import BaseForecastModel
 
 
 class TestBaseForecastModel:
