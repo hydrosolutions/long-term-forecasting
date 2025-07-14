@@ -22,3 +22,4 @@
 /scripts/__pycache__
 /tests/functionality/__pycache__
 /tests/unit/__pycache__
+.env
