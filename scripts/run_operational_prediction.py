@@ -174,79 +174,88 @@ def create_data_frame(config: Dict[str, Any]) -> pd.DataFrame:
 def load_operational_configs(model_type: str, model_name: str) -> Dict[str, Any]:
     """
     Load all configuration files for an operational model.
-    
+
     Args:
         model_type: Type of model ('LR' or 'SciRegressor')
         model_name: Name of the model configuration
-        
+
     Returns:
         Dictionary containing all configurations
     """
     # Determine configuration directory based on model type and name
     config_dir = Path(MODELS_DIR) / model_name
-    
+
     if not config_dir.exists():
         # Try alternative structure
         config_dir = Path(project_root) / "example_config" / "DUMMY_MODEL"
         logger.warning(f"Using dummy configuration from {config_dir}")
-    
+
     # Load required configuration files
     config_files = {
         "general_config": "general_config.json",
-        "model_config": "model_config.json", 
+        "model_config": "model_config.json",
         "feature_config": "feature_config.json",
         "data_config": "data_config.json",
-        "path_config": "data_paths.json"
+        "path_config": "data_paths.json",
     }
-    
+
     configs = {}
-    
+
     for config_name, config_file in config_files.items():
         config_path = config_dir / config_file
-        
+
         if config_path.exists():
-            with open(config_path, 'r') as f:
+            with open(config_path, "r") as f:
                 configs[config_name] = json.load(f)
             logger.info(f"Loaded {config_name} from {config_path}")
         else:
             logger.warning(f"Configuration file not found: {config_path}")
             configs[config_name] = {}
-    
+
     # Set model type in general config
     if configs["general_config"]:
-        configs["general_config"]["model_type"] = "linear_regression" if model_type == "LR" else "sciregressor"
-    
+        configs["general_config"]["model_type"] = (
+            "linear_regression" if model_type == "LR" else "sciregressor"
+        )
+
     return configs
 
 
-def shift_data_to_current_year(data_df: pd.DataFrame, shift_years: int = 1) -> pd.DataFrame:
+def shift_data_to_current_year(
+    data_df: pd.DataFrame, shift_years: int = 1
+) -> pd.DataFrame:
     """
     Shift data dates by specified years to mock current year.
-    
+
     Args:
         data_df: DataFrame with 'date' column
         shift_years: Number of years to shift forward
-        
+
     Returns:
         DataFrame with shifted dates
     """
     data_df_shifted = data_df.copy()
-    data_df_shifted['date'] = data_df_shifted['date'] + pd.DateOffset(years=shift_years)
+    data_df_shifted["date"] = data_df_shifted["date"] + pd.DateOffset(years=shift_years)
     return data_df_shifted
 
 
-def create_model_instance(model_type: str, model_name: str, configs: Dict[str, Any], 
-                         data: pd.DataFrame, static_data: pd.DataFrame):
+def create_model_instance(
+    model_type: str,
+    model_name: str,
+    configs: Dict[str, Any],
+    data: pd.DataFrame,
+    static_data: pd.DataFrame,
+):
     """
     Create the appropriate model instance based on the model type.
-    
+
     Args:
         model_type: 'LR' or 'SciRegressor'
         model_name: Name of the model configuration
         configs: All configuration dictionaries
         data: Time series data
         static_data: Static basin characteristics
-        
+
     Returns:
         Model instance
     """
@@ -254,10 +263,10 @@ def create_model_instance(model_type: str, model_name: str, configs: Dict[str, A
     model_config = configs["model_config"]
     feature_config = configs["feature_config"]
     path_config = configs["path_config"]
-    
+
     # Set model name in general config
     general_config["model_name"] = model_name
-    
+
     # Create model instance based on type
     if model_type == "LR":
         model = LinearRegressionModel(
@@ -279,273 +288,307 @@ def create_model_instance(model_type: str, model_name: str, configs: Dict[str, A
         )
     else:
         raise ValueError(f"Unknown model type: {model_type}")
-    
+
     return model
 
 
-def calculate_average_discharge(data: pd.DataFrame, valid_from: str, valid_to: str) -> pd.DataFrame:
+def calculate_average_discharge(
+    data: pd.DataFrame, valid_from: str, valid_to: str
+) -> pd.DataFrame:
     """
     Calculate average discharge for each basin from valid_from to valid_to period.
-    
+
     Args:
         data: DataFrame with discharge data
         valid_from: Start date for averaging period
         valid_to: End date for averaging period
-        
+
     Returns:
         DataFrame with basin codes and average discharge
     """
     # Filter data for the specified period
-    mask = (data['date'] >= valid_from) & (data['date'] <= valid_to)
+    mask = (data["date"] >= valid_from) & (data["date"] <= valid_to)
     period_data = data[mask]
-    
+
     # Calculate average discharge per basin
-    avg_discharge = period_data.groupby('code')['discharge'].mean().reset_index()
-    avg_discharge.columns = ['code', 'observed_avg_discharge']
-    
+    avg_discharge = period_data.groupby("code")["discharge"].mean().reset_index()
+    avg_discharge.columns = ["code", "observed_avg_discharge"]
+
     return avg_discharge
 
 
-def evaluate_predictions(predictions: pd.DataFrame, observations: pd.DataFrame, model_name: str) -> Dict[str, Any]:
+def evaluate_predictions(
+    predictions: pd.DataFrame, observations: pd.DataFrame, model_name: str
+) -> Dict[str, Any]:
     """
     Calculate performance metrics for predictions.
-    
+
     Args:
         predictions: DataFrame with model predictions
         observations: DataFrame with observed values
         model_name: Name of the model for finding the correct prediction column
-        
+
     Returns:
         Dictionary with performance metrics
     """
     # Find the prediction column for this model
     q_column_name = f"Q_{model_name}"
-    
+
     if q_column_name not in predictions.columns:
         logger.warning(f"Prediction column {q_column_name} not found in predictions")
         return {
-            'overall_r2': np.nan,
-            'num_predictions': 0,
-            'num_poor_predictions': 0,
-            'poor_prediction_rate': 0,
-            'poor_prediction_basins': []
+            "overall_r2": np.nan,
+            "num_predictions": 0,
+            "num_poor_predictions": 0,
+            "poor_prediction_rate": 0,
+            "poor_prediction_basins": [],
         }
-    
+
     # Merge predictions and observations
-    merged = pd.merge(predictions, observations, on='code', how='inner')
-    
+    merged = pd.merge(predictions, observations, on="code", how="inner")
+
     if len(merged) == 0:
         logger.warning("No matching basins found between predictions and observations")
         return {
-            'overall_r2': np.nan,
-            'num_predictions': 0,
-            'num_poor_predictions': 0,
-            'poor_prediction_rate': 0,
-            'poor_prediction_basins': []
+            "overall_r2": np.nan,
+            "num_predictions": 0,
+            "num_poor_predictions": 0,
+            "poor_prediction_rate": 0,
+            "poor_prediction_basins": [],
         }
-    
+
     # Calculate R² score
     from sklearn.metrics import r2_score
+
     try:
-        r2 = r2_score(merged['observed_avg_discharge'], merged[q_column_name])
+        r2 = r2_score(merged["observed_avg_discharge"], merged[q_column_name])
     except Exception as e:
         logger.warning(f"Error calculating R² score: {e}")
         r2 = np.nan
-    
+
     # Calculate relative error
-    merged['relative_error'] = abs(merged[q_column_name] - merged['observed_avg_discharge']) / merged['observed_avg_discharge']
-    
+    merged["relative_error"] = (
+        abs(merged[q_column_name] - merged["observed_avg_discharge"])
+        / merged["observed_avg_discharge"]
+    )
+
     # Identify poor predictions (>30% error)
-    poor_predictions = merged[merged['relative_error'] > 0.3]
-    
+    poor_predictions = merged[merged["relative_error"] > 0.3]
+
     metrics = {
-        'overall_r2': r2,
-        'num_predictions': len(merged),
-        'num_poor_predictions': len(poor_predictions),
-        'poor_prediction_rate': len(poor_predictions) / len(merged) if len(merged) > 0 else 0,
-        'poor_prediction_basins': poor_predictions['code'].tolist()
+        "overall_r2": r2,
+        "num_predictions": len(merged),
+        "num_poor_predictions": len(poor_predictions),
+        "poor_prediction_rate": len(poor_predictions) / len(merged)
+        if len(merged) > 0
+        else 0,
+        "poor_prediction_basins": poor_predictions["code"].tolist(),
     }
-    
+
     return metrics
 
 
 def run_operational_prediction() -> Dict[str, Any]:
     """
     Main operational prediction workflow.
-    
+
     Returns:
         Dictionary with all results and metrics
     """
     logger.info("Starting operational prediction workflow...")
-    
+
     # Initialize results storage
     all_predictions = []
     all_metrics = []
     timing_results = {}
-    
+
     # Start overall timing
     overall_start_time = datetime.datetime.now()
-    
+
     # Process each model family
     for family_name, models in MODELS_OPERATIONAL.items():
         logger.info(f"Processing model family: {family_name}")
-        
+
         for model_type, model_name in models:
             logger.info(f"Processing model: {model_type} - {model_name}")
-            
+
             # Start model timing
             model_start_time = datetime.datetime.now()
-            
+
             try:
                 # Load configurations
                 configs = load_operational_configs(model_type, model_name)
-                
+
                 # Load and prepare data
                 # Use environment variables for data loading since configs might not have data_config
                 data, static_data = create_data_frame(config=configs["data_config"])
-                
+
                 # Shift data to current year
                 data = shift_data_to_current_year(data, shift_years=1)
-                
+
                 # Create model instance
-                model = create_model_instance(model_type, model_name, configs, data, static_data)
-                
+                model = create_model_instance(
+                    model_type, model_name, configs, data, static_data
+                )
+
                 # Run operational prediction
                 raw_predictions = model.predict_operational()
-                
+
                 # Process predictions to standardize format
                 predictions = process_predictions(raw_predictions, model_name)
-                
+
                 # Store predictions
-                predictions['model_family'] = family_name
-                predictions['model_type'] = model_type
-                predictions['model_name'] = model_name
+                predictions["model_family"] = family_name
+                predictions["model_type"] = model_type
+                predictions["model_name"] = model_name
                 all_predictions.append(predictions)
-                
+
                 # Calculate performance metrics if predictions are available
                 q_column_name = f"Q_{model_name}"
-                if q_column_name in predictions.columns and 'code' in predictions.columns:
+                if (
+                    q_column_name in predictions.columns
+                    and "code" in predictions.columns
+                ):
                     # Use valid_from and valid_to from predictions if available
-                    if 'valid_from' in predictions.columns and 'valid_to' in predictions.columns:
+                    if (
+                        "valid_from" in predictions.columns
+                        and "valid_to" in predictions.columns
+                    ):
                         # Use the first prediction's validation period for observation calculation
                         first_pred = predictions.iloc[0]
-                        start_date = first_pred['valid_from']
-                        end_date = first_pred['valid_to']
+                        start_date = first_pred["valid_from"]
+                        end_date = first_pred["valid_to"]
                     else:
                         # Fallback: Use the last 30 days of data for evaluation
-                        end_date = data['date'].max()
+                        end_date = data["date"].max()
                         start_date = end_date - pd.DateOffset(days=30)
-                    
-                    observations = calculate_average_discharge(data, start_date, end_date)
-                    
+
+                    observations = calculate_average_discharge(
+                        data, start_date, end_date
+                    )
+
                     # Evaluate predictions
-                    model_metrics = evaluate_predictions(predictions, observations, model_name)
-                    model_metrics['model_family'] = family_name
-                    model_metrics['model_type'] = model_type
-                    model_metrics['model_name'] = model_name
+                    model_metrics = evaluate_predictions(
+                        predictions, observations, model_name
+                    )
+                    model_metrics["model_family"] = family_name
+                    model_metrics["model_type"] = model_type
+                    model_metrics["model_name"] = model_name
                     all_metrics.append(model_metrics)
-                
+
                 # Calculate model timing
                 model_end_time = datetime.datetime.now()
                 model_duration = (model_end_time - model_start_time).total_seconds()
-                timing_results[f"{family_name}_{model_type}_{model_name}"] = model_duration
-                
-                logger.info(f"Completed {model_type} - {model_name} in {model_duration:.2f}s")
-                
+                timing_results[f"{family_name}_{model_type}_{model_name}"] = (
+                    model_duration
+                )
+
+                logger.info(
+                    f"Completed {model_type} - {model_name} in {model_duration:.2f}s"
+                )
+
             except Exception as e:
                 logger.error(f"Error processing {model_type} - {model_name}: {str(e)}")
                 continue
-    
+
     # Calculate overall timing
     overall_end_time = datetime.datetime.now()
     overall_duration = (overall_end_time - overall_start_time).total_seconds()
-    timing_results['overall_duration'] = overall_duration
-    
+    timing_results["overall_duration"] = overall_duration
+
     # Combine all predictions
     if all_predictions:
         combined_predictions = pd.concat(all_predictions, ignore_index=True)
     else:
         combined_predictions = pd.DataFrame()
-    
+
     logger.info(f"Completed operational prediction workflow in {overall_duration:.2f}s")
-    
+
     return {
-        'predictions': combined_predictions,
-        'timing': timing_results,
-        'metrics': all_metrics
+        "predictions": combined_predictions,
+        "timing": timing_results,
+        "metrics": all_metrics,
     }
 
 
 def process_predictions(predictions: pd.DataFrame, model_name: str) -> pd.DataFrame:
     """
     Process predictions from model to standardize format.
-    
+
     Args:
         predictions: DataFrame with model predictions
         model_name: Name of the model for column naming
-        
+
     Returns:
         DataFrame with standardized predictions
     """
     predictions = predictions.copy()
-    
+
     # Create the Q_model_name column from Q column
     q_column_name = f"Q_{model_name}"
-    if 'Q' in predictions.columns:
-        predictions[q_column_name] = predictions['Q']
-    elif 'Q_pred' in predictions.columns:
-        predictions[q_column_name] = predictions['Q_pred']
+    if "Q" in predictions.columns:
+        predictions[q_column_name] = predictions["Q"]
+    elif "Q_pred" in predictions.columns:
+        predictions[q_column_name] = predictions["Q_pred"]
     else:
         logger.warning(f"No prediction column found in model output for {model_name}")
         return predictions
-    
+
     # Ensure we have valid_from and valid_to columns
-    if 'valid_from' not in predictions.columns or 'valid_to' not in predictions.columns:
-        logger.warning(f"Missing valid_from or valid_to columns in predictions for {model_name}")
+    if "valid_from" not in predictions.columns or "valid_to" not in predictions.columns:
+        logger.warning(
+            f"Missing valid_from or valid_to columns in predictions for {model_name}"
+        )
         # If missing, we can't evaluate properly but we'll still process
-    
+
     return predictions
 
 
 def generate_outputs(results: Dict[str, Any], output_dir: str = "output"):
     """
     Generate all required output files.
-    
+
     Args:
         results: Results dictionary from run_operational_prediction
         output_dir: Directory to save outputs
     """
     output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True)
-    
+
     # Save predictions
-    if not results['predictions'].empty:
+    if not results["predictions"].empty:
         predictions_file = output_path / "operational_predictions.csv"
-        results['predictions'].to_csv(predictions_file, index=False)
+        results["predictions"].to_csv(predictions_file, index=False)
         logger.info(f"Saved predictions to {predictions_file}")
-    
+
     # Save timing report
     timing_file = output_path / "timing_report.json"
-    with open(timing_file, 'w') as f:
-        json.dump(results['timing'], f, indent=2)
+    with open(timing_file, "w") as f:
+        json.dump(results["timing"], f, indent=2)
     logger.info(f"Saved timing report to {timing_file}")
-    
+
     # Save performance metrics
-    if results['metrics']:
+    if results["metrics"]:
         metrics_file = output_path / "performance_metrics.csv"
-        pd.DataFrame(results['metrics']).to_csv(metrics_file, index=False)
+        pd.DataFrame(results["metrics"]).to_csv(metrics_file, index=False)
         logger.info(f"Saved performance metrics to {metrics_file}")
-    
+
     # Generate quality report
     quality_file = output_path / "quality_report.txt"
-    with open(quality_file, 'w') as f:
+    with open(quality_file, "w") as f:
         f.write("Operational Prediction Quality Report\n")
         f.write("=" * 40 + "\n\n")
-        f.write(f"Total models processed: {len(results['timing']) - 1}\n")  # -1 for overall_duration
-        f.write(f"Total processing time: {results['timing']['overall_duration']:.2f}s\n")
+        f.write(
+            f"Total models processed: {len(results['timing']) - 1}\n"
+        )  # -1 for overall_duration
+        f.write(
+            f"Total processing time: {results['timing']['overall_duration']:.2f}s\n"
+        )
         f.write(f"Total predictions: {len(results['predictions'])}\n")
-        if results['metrics']:
-            f.write(f"Average R² score: {np.mean([m['overall_r2'] for m in results['metrics']]):.3f}\n")
+        if results["metrics"]:
+            f.write(
+                f"Average R² score: {np.mean([m['overall_r2'] for m in results['metrics']]):.3f}\n"
+            )
     logger.info(f"Saved quality report to {quality_file}")
 
 
@@ -557,15 +600,15 @@ def run_operational():
         logger.info("=" * 50)
         logger.info("OPERATIONAL PREDICTION WORKFLOW")
         logger.info("=" * 50)
-        
+
         # Run the prediction workflow
         results = run_operational_prediction()
-        
+
         # Generate outputs
         generate_outputs(results)
-        
+
         logger.info("Operational prediction workflow completed successfully!")
-        
+
     except Exception as e:
         logger.error(f"Error in operational prediction workflow: {str(e)}")
         raise
