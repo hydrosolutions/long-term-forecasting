@@ -306,26 +306,54 @@ def calculate_average_discharge(data: pd.DataFrame, valid_from: str, valid_to: s
     return avg_discharge
 
 
-def evaluate_predictions(predictions: pd.DataFrame, observations: pd.DataFrame) -> Dict[str, Any]:
+def evaluate_predictions(predictions: pd.DataFrame, observations: pd.DataFrame, model_name: str) -> Dict[str, Any]:
     """
     Calculate performance metrics for predictions.
     
     Args:
         predictions: DataFrame with model predictions
         observations: DataFrame with observed values
+        model_name: Name of the model for finding the correct prediction column
         
     Returns:
         Dictionary with performance metrics
     """
+    # Find the prediction column for this model
+    q_column_name = f"Q_{model_name}"
+    
+    if q_column_name not in predictions.columns:
+        logger.warning(f"Prediction column {q_column_name} not found in predictions")
+        return {
+            'overall_r2': np.nan,
+            'num_predictions': 0,
+            'num_poor_predictions': 0,
+            'poor_prediction_rate': 0,
+            'poor_prediction_basins': []
+        }
+    
     # Merge predictions and observations
     merged = pd.merge(predictions, observations, on='code', how='inner')
     
+    if len(merged) == 0:
+        logger.warning("No matching basins found between predictions and observations")
+        return {
+            'overall_r2': np.nan,
+            'num_predictions': 0,
+            'num_poor_predictions': 0,
+            'poor_prediction_rate': 0,
+            'poor_prediction_basins': []
+        }
+    
     # Calculate R² score
     from sklearn.metrics import r2_score
-    r2 = r2_score(merged['observed_avg_discharge'], merged['predicted_avg_discharge'])
+    try:
+        r2 = r2_score(merged['observed_avg_discharge'], merged[q_column_name])
+    except Exception as e:
+        logger.warning(f"Error calculating R² score: {e}")
+        r2 = np.nan
     
     # Calculate relative error
-    merged['relative_error'] = abs(merged['predicted_avg_discharge'] - merged['observed_avg_discharge']) / merged['observed_avg_discharge']
+    merged['relative_error'] = abs(merged[q_column_name] - merged['observed_avg_discharge']) / merged['observed_avg_discharge']
     
     # Identify poor predictions (>30% error)
     poor_predictions = merged[merged['relative_error'] > 0.3]
@@ -374,7 +402,7 @@ def run_operational_prediction() -> Dict[str, Any]:
                 
                 # Load and prepare data
                 # Use environment variables for data loading since configs might not have data_config
-                data, static_data = create_data_frame({"HRU_SWE": "HRU_00003", "HRU_ROF": "HRU_00003"})
+                data, static_data = create_data_frame(config=configs["data_config"])
                 
                 # Shift data to current year
                 data = shift_data_to_current_year(data, shift_years=1)
@@ -386,7 +414,7 @@ def run_operational_prediction() -> Dict[str, Any]:
                 raw_predictions = model.predict_operational()
                 
                 # Process predictions to standardize format
-                predictions = process_predictions(raw_predictions)
+                predictions = process_predictions(raw_predictions, model_name)
                 
                 # Store predictions
                 predictions['model_family'] = family_name
@@ -395,16 +423,23 @@ def run_operational_prediction() -> Dict[str, Any]:
                 all_predictions.append(predictions)
                 
                 # Calculate performance metrics if predictions are available
-                if 'predicted_avg_discharge' in predictions.columns and 'code' in predictions.columns:
-                    # Calculate observed averages for evaluation period
-                    # Use the last 30 days of data for evaluation
-                    end_date = data['date'].max()
-                    start_date = end_date - pd.DateOffset(days=30)
+                q_column_name = f"Q_{model_name}"
+                if q_column_name in predictions.columns and 'code' in predictions.columns:
+                    # Use valid_from and valid_to from predictions if available
+                    if 'valid_from' in predictions.columns and 'valid_to' in predictions.columns:
+                        # Use the first prediction's validation period for observation calculation
+                        first_pred = predictions.iloc[0]
+                        start_date = first_pred['valid_from']
+                        end_date = first_pred['valid_to']
+                    else:
+                        # Fallback: Use the last 30 days of data for evaluation
+                        end_date = data['date'].max()
+                        start_date = end_date - pd.DateOffset(days=30)
                     
                     observations = calculate_average_discharge(data, start_date, end_date)
                     
                     # Evaluate predictions
-                    model_metrics = evaluate_predictions(predictions, observations)
+                    model_metrics = evaluate_predictions(predictions, observations, model_name)
                     model_metrics['model_family'] = family_name
                     model_metrics['model_type'] = model_type
                     model_metrics['model_name'] = model_name
@@ -441,26 +476,33 @@ def run_operational_prediction() -> Dict[str, Any]:
     }
 
 
-def process_predictions(predictions: pd.DataFrame) -> pd.DataFrame:
+def process_predictions(predictions: pd.DataFrame, model_name: str) -> pd.DataFrame:
     """
     Process predictions from model to standardize format.
     
     Args:
         predictions: DataFrame with model predictions
+        model_name: Name of the model for column naming
         
     Returns:
         DataFrame with standardized predictions
     """
-    # Standardize column names for consistency
-    if 'Q' in predictions.columns:
-        predictions = predictions.rename(columns={'Q': 'predicted_avg_discharge'})
-    elif 'Q_pred' in predictions.columns:
-        predictions = predictions.rename(columns={'Q_pred': 'predicted_avg_discharge'})
+    predictions = predictions.copy()
     
-    # Ensure we have the required columns
-    if 'predicted_avg_discharge' not in predictions.columns:
-        logger.warning("No prediction column found in model output")
+    # Create the Q_model_name column from Q column
+    q_column_name = f"Q_{model_name}"
+    if 'Q' in predictions.columns:
+        predictions[q_column_name] = predictions['Q']
+    elif 'Q_pred' in predictions.columns:
+        predictions[q_column_name] = predictions['Q_pred']
+    else:
+        logger.warning(f"No prediction column found in model output for {model_name}")
         return predictions
+    
+    # Ensure we have valid_from and valid_to columns
+    if 'valid_from' not in predictions.columns or 'valid_to' not in predictions.columns:
+        logger.warning(f"Missing valid_from or valid_to columns in predictions for {model_name}")
+        # If missing, we can't evaluate properly but we'll still process
     
     return predictions
 
