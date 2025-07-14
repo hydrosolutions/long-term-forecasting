@@ -521,7 +521,11 @@ class LinearRegressionModel(BaseForecastModel):
         shift = (
             self.general_config["offset"] - self.general_config["prediction_horizon"]
         )
-        valid_from = hindcast_df['date'] + datetime.timedelta(days=1) + datetime.timedelta(days=shift)
+        valid_from = (
+            hindcast_df["date"]
+            + datetime.timedelta(days=1)
+            + datetime.timedelta(days=shift)
+        )
         valid_to = valid_from + datetime.timedelta(
             days=self.general_config["prediction_horizon"]
         )
