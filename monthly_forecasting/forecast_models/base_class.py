@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import datetime
 from abc import ABC, abstractmethod
 from typing import Dict, Any
 
@@ -33,12 +34,13 @@ class BaseForecastModel(ABC):
         self.name = general_config["model_name"]
 
     @abstractmethod
-    def predict_operational(self, data: pd.DataFrame) -> pd.DataFrame:
+    def predict_operational(self, today: datetime.datetime = None) -> pd.DataFrame:
         """
         Predict in operational mode.
 
         Args:
-            data (pd.DataFrame): DataFrame containing the operational data.
+            today (datetime.datetime, optional): Date to use as "today" for prediction.
+                If None, uses current datetime.
 
         returns:
             forecast (pd.DataFrame): DataFrame containing the forecasted values.
@@ -47,12 +49,9 @@ class BaseForecastModel(ABC):
         pass
 
     @abstractmethod
-    def calibrate_model_and_hindcast(self, data: pd.DataFrame) -> pd.DataFrame:
+    def calibrate_model_and_hindcast(self) -> pd.DataFrame:
         """
         Calibrate the model using the provided data.
-
-        Args:
-            data (pd.DataFrame): DataFrame containing the calibration data.
 
         Returns:
             hindcast (pd.DataFrame): DataFrame containing the hindcasted values.

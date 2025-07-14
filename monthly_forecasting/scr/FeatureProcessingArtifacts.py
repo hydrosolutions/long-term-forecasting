@@ -109,6 +109,7 @@ class FeatureProcessingArtifacts:
             "relative_features": self.relative_features,
             "relative_scaling_vars": self.relative_scaling_vars,
             "use_relative_target": self.use_relative_target,
+            "static_features": self.static_features or [],
         }
 
         with open(artifacts_dir / "metadata.json", "w") as f:
@@ -343,6 +344,7 @@ class FeatureProcessingArtifacts:
             artifacts.relative_features = metadata.get("relative_features")
             artifacts.relative_scaling_vars = metadata.get("relative_scaling_vars")
             artifacts.use_relative_target = metadata.get("use_relative_target")
+            artifacts.static_features = metadata.get("static_features", [])
 
         # Load sklearn objects
         sklearn_path = artifacts_dir / "sklearn_objects.joblib"
@@ -406,79 +408,40 @@ class FeatureProcessingArtifacts:
         return scaler
 
     @staticmethod
-    def _load_long_term_means_safe(artifacts_dir: Path) -> Optional[Dict]:
-        """Load long_term_means from Parquet or JSON format."""
+    def _load_long_term_means_safe(artifacts_dir: Path) -> Optional[pd.DataFrame]:
+        """Load long_term_means from Parquet format.
+
+        Args:
+            artifacts_dir: Directory containing the artifacts
+
+        Returns:
+            DataFrame containing long_term_means or None if not found
+
+        Note:
+            The long_term_means is expected to be a pandas DataFrame
+            (typically from a groupby operation) stored in Parquet format.
+        """
         parquet_path = artifacts_dir / "long_term_means.parquet"
-        json_path = artifacts_dir / "long_term_means.json"
 
-        # Try Parquet first
-        if parquet_path.exists():
-            try:
-                df = pd.read_parquet(parquet_path)
+        if not parquet_path.exists():
+            logger.debug("long_term_means.parquet not found")
+            return None
 
-                # Convert back to nested structure
-                if "code" in df.columns:
-                    long_term_means = {}
-
-                    for basin_code in df["code"].unique():
-                        basin_data = df[df["code"] == basin_code].drop("code", axis=1)
-
-                        if len(basin_data) == 1:
-                            # Single row: convert to dict
-                            long_term_means[basin_code] = basin_data.iloc[0].to_dict()
-                        else:
-                            # Multiple rows: keep as DataFrame
-                            long_term_means[basin_code] = basin_data.reset_index(
-                                drop=True
-                            )
-
-                    logger.info(
-                        f"Loaded long_term_means for {len(long_term_means)} basins from Parquet"
-                    )
-                    return long_term_means
-                else:
-                    # Direct DataFrame case
-                    logger.info("Loaded long_term_means DataFrame from Parquet")
-                    return df.to_dict()
-
-            except Exception as e:
-                logger.warning(f"Failed to load Parquet file: {e}")
-                logger.info("Falling back to JSON format")
-
-        # Fallback to JSON
-        if json_path.exists():
-            with open(json_path, "r") as f:
-                flattened_means = json.load(f)
-
-            # Reconstruct the nested structure
-            long_term_means = {}
-
-            for key, value in flattened_means.items():
-                if "_" not in key:
-                    logger.warning(f"Unexpected key format: {key}")
-                    continue
-
-                # Split basin_code and feature_name
-                parts = key.split("_", 1)  # Split only on first underscore
-                basin_code, feature_name = parts[0], parts[1]
-
-                if basin_code not in long_term_means:
-                    long_term_means[basin_code] = {}
-
-                long_term_means[basin_code][feature_name] = value
-
+        try:
+            df = pd.read_parquet(parquet_path)
             logger.info(
-                f"Loaded long_term_means for {len(long_term_means)} basins from JSON"
+                f"Loaded long_term_means DataFrame from Parquet with shape {df.shape}"
             )
-            return long_term_means
+            return df
 
-        return None
+        except Exception as e:
+            logger.error(f"Failed to load long_term_means from Parquet: {e}")
+            return None
 
     @staticmethod
     def _load_long_term_stats_safe(artifacts_dir: Path) -> Optional[pd.DataFrame]:
         """Load long_term_stats (mean and std per period) from Parquet or CSV format."""
         parquet_path = artifacts_dir / "long_term_stats.parquet"
-        csv_path = artifacts_dir / "long_term_stats.csv"
 
         # Try Parquet first
         if parquet_path.exists():
@@ -490,33 +453,6 @@ class FeatureProcessingArtifacts:
                 return df
             except Exception as e:
                 logger.warning(f"Failed to load Parquet file: {e}")
-                logger.info("Falling back to CSV format")
-
-        # Fallback to CSV (with flattened column names)
-        if csv_path.exists():
-            try:
-                df = pd.read_csv(csv_path)
-                # Reconstruct MultiIndex columns
-                new_cols = []
-                for col in df.columns:
-                    if col in ["code", "period"]:
-                        new_cols.append(col)
-                    elif "_mean" in col:
-                        feature = col.replace("_mean", "")
-                        new_cols.append((feature, "mean"))
-                    elif "_std" in col:
-                        feature = col.replace("_std", "")
-                        new_cols.append((feature, "std"))
-                    else:
-                        new_cols.append(col)
-
-                df.columns = pd.MultiIndex.from_tuples(
-                    [(c, "") if isinstance(c, str) else c for c in new_cols]
-                )
-                logger.info(f"Loaded long_term_stats from CSV with shape {df.shape}")
-                return df
-            except Exception as e:
-                logger.error(f"Failed to load CSV file: {e}")
 
         return None
 
@@ -773,10 +709,19 @@ def process_test_data(
     """
     df_processed = df_test.copy()
 
+    static_scaler = artifacts.static_scaler or {}
+
+    if artifacts.static_features is None:
+        if static_scaler is not None:
+            logger.warning(
+                "Static features scaler found but no static features defined in artifacts"
+            )
+        artifacts.static_features = static_scaler.keys()
+
     for stat_feature in artifacts.static_features:
         if stat_feature in df_processed.columns:
             # Apply static feature scaling
-            mean, std = artifacts.static_scaler.get(stat_feature, (None, None))
+            mean, std = static_scaler.get(stat_feature, (None, None))
             if mean is not None and std is not None:
                 df_processed[stat_feature] = (df_processed[stat_feature] - mean) / std
         else:
