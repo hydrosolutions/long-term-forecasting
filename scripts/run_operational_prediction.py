@@ -32,14 +32,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 PATH_TO_DISCHARGE = os.getenv("path_discharge")
-PATH_TO_FORCING_ERA5 = os.getenv("path_forcing_era5")
+PATH_TO_FORCING_ERA5 = os.getenv("PATH_TO_FORCING_ERA5")
 PATH_TO_FORCING_OPERATIONAL = os.getenv("path_forcing_operational")
 PATH_SWE_00003 = os.getenv("path_SWE_00003")
-PATH_SWE_500m = os.getenv("path_SWE_500m")
+PATH_SWE_500m = os.getenv("PATH_SWE_500m")
 PATH_ROF_00003 = os.getenv("path_ROF_00003")
-PATH_ROF_500m = os.getenv("path_ROF_500m")
+PATH_ROF_500m = os.getenv("PATH_ROF_500m")
 PATH_TO_SHP = os.getenv("path_to_shp")
-PATH_TO_STATIC = os.getenv("path_to_static")
+PATH_TO_STATIC = os.getenv("PATH_TO_STATIC")
 
 MODELS_OPERATIONAL = {
     "BaseCase": [
@@ -132,7 +132,7 @@ def load_snowmapper():
 
 
 def load_static_data():
-    df_static = pd.read_csv(PATH_TO_STATIC, parse_dates=["date"])
+    df_static = pd.read_csv(PATH_TO_STATIC)
 
     if "CODE" in df_static.columns:
         df_static.rename(columns={"CODE": "code"}, inplace=True)
@@ -373,7 +373,8 @@ def run_operational_prediction() -> Dict[str, Any]:
                 configs = load_operational_configs(model_type, model_name)
                 
                 # Load and prepare data
-                data, static_data = create_data_frame(configs.get("data_config", {}))
+                # Use environment variables for data loading since configs might not have data_config
+                data, static_data = create_data_frame({"HRU_SWE": "HRU_00003", "HRU_ROF": "HRU_00003"})
                 
                 # Shift data to current year
                 data = shift_data_to_current_year(data, shift_years=1)
