@@ -52,7 +52,7 @@ setup(
     name="monthly-forecasting",
     version=get_version(),
     author="Sandro Hunziker",
-    author_email="sandro.hunziker@hydrosolutions.ch",
+    author_email="hunziker@hydrosolutions.ch",
     description="A machine learning package for monthly hydrological forecasting",
     long_description=long_description,
     long_description_content_type="text/markdown",
