@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import datetime
 from abc import ABC, abstractmethod
 from typing import Dict, Any
 
@@ -33,9 +34,13 @@ class BaseForecastModel(ABC):
         self.name = general_config["model_name"]
 
     @abstractmethod
-    def predict_operational(self) -> pd.DataFrame:
+    def predict_operational(self, today: datetime.datetime = None) -> pd.DataFrame:
         """
         Predict in operational mode.
+
+        Args:
+            today (datetime.datetime, optional): Date to use as "today" for prediction.
+                If None, uses current datetime.
 
         returns:
             forecast (pd.DataFrame): DataFrame containing the forecasted values.

@@ -213,25 +213,27 @@ class LinearRegressionModel(BaseForecastModel):
         r2_calibration = r2_score(y_calibration, y_pred_calibration)
         return y_pred, y_pred_calibration, r2_calibration, model
 
-    def predict_operational(self) -> pd.DataFrame:
+    def predict_operational(self, today: datetime.datetime = None) -> pd.DataFrame:
         """
         Predict in operational mode.
 
         Args:
-            data (pd.DataFrame): DataFrame containing the operational data.
+            today (datetime.datetime, optional): Date to use as "today" for prediction.
+                If None, uses current datetime.
 
         Returns:
             forecast (pd.DataFrame): DataFrame containing the forecasted values.
                 columns: ['forecast_date', 'model_name', 'code','valid_from', 'valid_to', 'Q' (Optional: Q_05, Q_10, Q_50 ...)]
         """
 
-        today = datetime.datetime.now()
+        if today is None:
+            today = datetime.datetime.now()
         today_day = today.day
         today_month = today.month
 
         is_last_day_of_month = today.day == pd.Timestamp(today).days_in_month
 
-        period_suffix = "_end" if is_last_day_of_month else str(today_day)
+        period_suffix = "end" if is_last_day_of_month else str(today_day)
         period_name = f"{today_month}-{period_suffix}"
 
         logger.debug(f"Predicting operational data for period: {period_name}")

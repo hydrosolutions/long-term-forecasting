@@ -588,16 +588,21 @@ class SciRegressor(BaseForecastModel):
 
         return [model, df_predictions, artifacts, final_features]
 
-    def predict_operational(self) -> pd.DataFrame:
+    def predict_operational(self, today: datetime.datetime = None) -> pd.DataFrame:
         """
         Predict in operational mode using global trained models.
+
+        Args:
+            today (datetime.datetime, optional): Date to use as "today" for prediction.
+                If None, uses current datetime.
 
         Returns:
             forecast (pd.DataFrame): DataFrame containing the forecasted values.
         """
         logger.info(f"Starting operational prediction for {self.name}")
 
-        today = datetime.datetime.now()
+        if today is None:
+            today = datetime.datetime.now()
 
         # Step 1: Load models and artifacts
         self.load_model()

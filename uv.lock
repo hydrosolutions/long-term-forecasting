@@ -683,8 +683,6 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "catboost" },
-    { name = "dash" },
-    { name = "dash-bootstrap-components" },
     { name = "fiona" },
     { name = "geopandas" },
     { name = "lightgbm" },
@@ -695,7 +693,6 @@ dependencies = [
     { name = "pe-oudin" },
     { name = "plotly" },
     { name = "pyarrow" },
-    { name = "pytest" },
     { name = "python-dotenv" },
     { name = "scikit-learn" },
     { name = "scipy" },
@@ -706,14 +703,16 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "dash" },
+    { name = "dash-bootstrap-components" },
+    { name = "plotly" },
+    { name = "pytest" },
     { name = "ruff" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "catboost", specifier = "==1.2.3" },
-    { name = "dash", specifier = ">=2.14.0" },
-    { name = "dash-bootstrap-components", specifier = ">=1.7.1" },
     { name = "fiona", specifier = "==1.9.5" },
     { name = "geopandas", specifier = "==0.14.3" },
     { name = "lightgbm", specifier = "==4.5.0" },
@@ -722,9 +721,8 @@ requires-dist = [
     { name = "optuna", specifier = "==3.5.0" },
     { name = "pandas", specifier = "==2.2.0" },
     { name = "pe-oudin", specifier = "==0.3" },
-    { name = "plotly", specifier = ">=5.18.0" },
+    { name = "plotly", specifier = ">=5.0.0" },
     { name = "pyarrow", specifier = "==15.0.0" },
-    { name = "pytest", specifier = "==8.4.1" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "scikit-learn", specifier = "==1.4.0" },
     { name = "scipy", specifier = "==1.15.2" },
@@ -734,7 +732,13 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "ruff", specifier = ">=0.12.2" }]
+dev = [
+    { name = "dash", specifier = ">=2.14.0" },
+    { name = "dash-bootstrap-components", specifier = ">=1.7.1" },
+    { name = "plotly", specifier = ">=5.18.0" },
+    { name = "pytest", specifier = "==8.4.1" },
+    { name = "ruff", specifier = ">=0.12.2" },
+]
 
 [[package]]
 name = "nest-asyncio"

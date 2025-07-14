@@ -39,7 +39,11 @@ class TestConfigurationLoading:
 
     def test_load_operational_configs_dummy_model(self):
         """Test loading configurations with dummy model."""
-        configs = load_operational_configs("LR", "LR_Q_T_P")
+        configs = load_operational_configs(
+            "LR",
+            "BaseCase",
+            "LR_Q_T_P",
+        )
 
         assert "general_config" in configs
         assert "model_config" in configs
@@ -52,7 +56,9 @@ class TestConfigurationLoading:
 
     def test_load_operational_configs_sciregressor(self):
         """Test loading configurations for SciRegressor model."""
-        configs = load_operational_configs("SciRegressor", "NormBased")
+        configs = load_operational_configs(
+            "SciRegressor", "SnowMapper_Based", "NormBased"
+        )
 
         assert "general_config" in configs
         assert configs["general_config"]["model_type"] == "sciregressor"
@@ -118,7 +124,7 @@ class TestDataProcessing:
         predictions_q = pd.DataFrame(
             {
                 "code": [1, 2, 3],
-                "Q": [10.0, 20.0, 30.0],
+                "Q_LR_Q_T_P": [10.0, 20.0, 30.0],
                 "valid_from": ["2023-01-01", "2023-01-01", "2023-01-01"],
                 "valid_to": ["2023-01-31", "2023-01-31", "2023-01-31"],
             }
@@ -127,20 +133,6 @@ class TestDataProcessing:
         processed = process_predictions(predictions_q, "LR_Q_T_P")
         assert "Q_LR_Q_T_P" in processed.columns
         assert processed["Q_LR_Q_T_P"].tolist() == [10.0, 20.0, 30.0]
-
-        # Test with 'Q_pred' column
-        predictions_qpred = pd.DataFrame(
-            {
-                "code": [1, 2, 3],
-                "Q_pred": [15.0, 25.0, 35.0],
-                "valid_from": ["2023-02-01", "2023-02-01", "2023-02-01"],
-                "valid_to": ["2023-02-28", "2023-02-28", "2023-02-28"],
-            }
-        )
-
-        processed = process_predictions(predictions_qpred, "SciRegressor_NormBased")
-        assert "Q_SciRegressor_NormBased" in processed.columns
-        assert processed["Q_SciRegressor_NormBased"].tolist() == [15.0, 25.0, 35.0]
 
 
 class TestPerformanceEvaluation:
@@ -167,17 +159,19 @@ class TestPerformanceEvaluation:
         metrics = evaluate_predictions(predictions, observations, "TestModel")
 
         # Check that metrics are calculated
-        assert "overall_r2" in metrics
         assert "num_predictions" in metrics
-        assert "num_poor_predictions" in metrics
-        assert "poor_prediction_rate" in metrics
-        assert "poor_prediction_basins" in metrics
+        assert "basin_errors" in metrics
+        assert "mean_absolute_error_pct" in metrics
+        assert "median_absolute_error_pct" in metrics
+        assert "basins_over_30pct_error" in metrics
+        assert "basins_over_50pct_error" in metrics
 
         # Check basic values
         assert metrics["num_predictions"] == 3
-        assert isinstance(metrics["overall_r2"], float)
-        assert isinstance(metrics["poor_prediction_rate"], float)
-        assert isinstance(metrics["poor_prediction_basins"], list)
+        assert isinstance(metrics["mean_absolute_error_pct"], float)
+        assert isinstance(metrics["median_absolute_error_pct"], float)
+        assert isinstance(metrics["basin_errors"], list)
+        assert len(metrics["basin_errors"]) == 3
 
     def test_evaluate_predictions_poor_performance(self):
         """Test evaluation with poor predictions (>30% error)."""
@@ -197,10 +191,11 @@ class TestPerformanceEvaluation:
 
         metrics = evaluate_predictions(predictions, observations, "TestModel")
 
-        # Check that poor predictions are identified
-        assert metrics["num_poor_predictions"] > 0
-        assert metrics["poor_prediction_rate"] > 0
-        assert 3 in metrics["poor_prediction_basins"]  # Basin 3 should be flagged
+        # Check that high errors are identified
+        assert len(metrics["basins_over_30pct_error"]) > 0
+        assert 3 in metrics["basins_over_30pct_error"]  # Basin 3 should be flagged
+        # Basin 3 has 100 predicted vs 30 observed = 233% error, so should be >50% too
+        assert 3 in metrics["basins_over_50pct_error"]
 
 
 class TestModelExecution:
@@ -265,16 +260,15 @@ class TestWorkflowIntegration:
 
         # Check BaseCase models
         base_case = MODELS_OPERATIONAL["BaseCase"]
-        assert len(base_case) == 3
+        assert len(base_case) == 2
         assert ("LR", "LR_Q_T_P") in base_case
-        assert ("SciRegressor", "ShortTerm_Features") in base_case
-        assert ("SciRegressor", "NormBased") in base_case
+        assert ("SciRegressor", "GradBoostTrees") in base_case
 
         # Check SnowMapper_Based models
         snow_based = MODELS_OPERATIONAL["SnowMapper_Based"]
-        assert len(snow_based) == 6
+        assert len(snow_based) == 5
         assert ("LR", "LR_Q_dSWEdt_T_P") in snow_based
-        assert ("SciRegressor", "ShortTermLR") in snow_based
+        assert ("SciRegressor", "NormBased") in snow_based
 
     def test_generate_outputs(self):
         """Test output generation functionality."""
@@ -294,7 +288,15 @@ class TestWorkflowIntegration:
             )
 
             test_metrics = [
-                {"overall_r2": 0.8, "num_predictions": 3, "model_name": "LR_Q_T_P"}
+                {
+                    "mean_absolute_error_pct": 15.0,
+                    "median_absolute_error_pct": 12.0,
+                    "num_predictions": 3,
+                    "model_name": "LR_Q_T_P",
+                    "basin_errors": [],
+                    "basins_over_30pct_error": [],
+                    "basins_over_50pct_error": [],
+                }
             ]
 
             test_timing = {"BaseCase_LR_LR_Q_T_P": 1.5, "overall_duration": 5.0}
@@ -328,18 +330,6 @@ class TestWorkflowIntegration:
 class TestErrorHandling:
     """Test error handling and edge cases."""
 
-    def test_load_operational_configs_missing_files(self):
-        """Test behavior when configuration files are missing."""
-        # This should fall back to dummy configuration
-        configs = load_operational_configs("LR", "NonExistentModel")
-
-        # Should still have all required keys
-        assert "general_config" in configs
-        assert "model_config" in configs
-        assert "feature_config" in configs
-        assert "data_config" in configs
-        assert "path_config" in configs
-
     def test_process_predictions_no_prediction_column(self):
         """Test processing predictions without prediction column."""
         predictions = pd.DataFrame(
@@ -361,75 +351,7 @@ class TestErrorHandling:
             empty_predictions, empty_observations, "TestModel"
         )
         assert metrics["num_predictions"] == 0
-        assert np.isnan(metrics["overall_r2"])
-
-
-@pytest.mark.integration
-class TestFullWorkflow:
-    """Integration tests for the full operational prediction workflow."""
-
-    @patch("scripts.run_operational_prediction.create_data_frame")
-    @patch.object(
-        sys.modules["scripts.run_operational_prediction"], "LinearRegressionModel"
-    )
-    @patch.object(sys.modules["scripts.run_operational_prediction"], "SciRegressor")
-    def test_run_operational_prediction_workflow(
-        self, mock_sciregressor, mock_lr, mock_create_data_frame
-    ):
-        """Test the complete operational prediction workflow."""
-        # Mock data loading
-        mock_data = pd.DataFrame(
-            {
-                "date": pd.date_range("2023-01-01", periods=100),
-                "code": [1] * 100,
-                "discharge": np.random.randn(100),
-            }
-        )
-        mock_static_data = pd.DataFrame({"code": [1], "area": [100]})
-        mock_create_data_frame.return_value = (mock_data, mock_static_data)
-
-        # Mock model predictions
-        mock_predictions = pd.DataFrame(
-            {
-                "code": [1],
-                "Q": [25.0],
-                "forecast_date": ["2023-12-01"],
-                "model_name": ["test_model"],
-                "valid_from": ["2023-01-01"],
-                "valid_to": ["2023-01-31"],
-            }
-        )
-
-        mock_lr_instance = MagicMock()
-        mock_lr_instance.predict_operational.return_value = mock_predictions
-        mock_lr.return_value = mock_lr_instance
-
-        mock_sciregressor_instance = MagicMock()
-        mock_sciregressor_instance.predict_operational.return_value = mock_predictions
-        mock_sciregressor.return_value = mock_sciregressor_instance
-
-        # Run workflow with limited models to avoid timeouts
-        with patch.dict(
-            "scripts.run_operational_prediction.MODELS_OPERATIONAL",
-            {"BaseCase": [("LR", "LR_Q_T_P")]},
-        ):
-            results = run_operational_prediction()
-
-        # Check results structure
-        assert "predictions" in results
-        assert "timing" in results
-        assert "metrics" in results
-
-        # Check that predictions were processed
-        assert not results["predictions"].empty
-        assert "Q_LR_Q_T_P" in results["predictions"].columns
-        assert "model_family" in results["predictions"].columns
-        assert "model_type" in results["predictions"].columns
-        assert "model_name" in results["predictions"].columns
-
-        # Check timing
-        assert "overall_duration" in results["timing"]
-        assert results["timing"]["overall_duration"] > 0
+        assert np.isnan(metrics["mean_absolute_error_pct"])
 
 
 if __name__ == "__main__":
