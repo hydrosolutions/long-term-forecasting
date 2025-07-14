@@ -59,7 +59,6 @@ class TestConfigurationLoading:
             # Check that model type is set correctly
             assert configs["general_config"]["model_type"] == "linear_regression"
 
-
     def test_load_operational_configs_sciregressor(self):
         """Test loading configurations for SciRegressor model."""
         try:
