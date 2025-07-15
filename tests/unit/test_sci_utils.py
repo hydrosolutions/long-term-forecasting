@@ -95,9 +95,11 @@ class TestGetModel:
         model = sci_utils.get_model("aplr", params)
 
         assert isinstance(model, APLRRegressor)
-        assert model.m == 1000
-        assert model.v == 0.5
-        assert model.random_state == 42
+        # APLR parameters are accessible through get_params()
+        model_params = model.get_params()
+        assert model_params["m"] == 1000
+        assert model_params["v"] == 0.5
+        assert model_params["random_state"] == 42
 
     @pytest.mark.skipif(not INTERPRET_AVAILABLE, reason="interpret library not available")
     def test_get_model_ebm(self):
