@@ -8,6 +8,7 @@ dependencies = [
     "catboost==1.2.3",
     "fiona==1.9.5",
     "geopandas==0.14.3",
+    "interpret>=0.6.0",
     "lightgbm==4.5.0",
     "matplotlib==3.8.2",
     "numpy==1.26.4",
