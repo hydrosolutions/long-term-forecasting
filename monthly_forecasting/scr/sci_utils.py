@@ -127,7 +127,17 @@ def fit_model(
     )
 
     # Fit model without early stopping - iterations are tuned directly
-    model.fit(X_train, y_train)
+    try:
+        model.fit(X_train, y_train)
+    except Exception as e:
+        try:
+            X_np = X_train.values if hasattr(X_train, "values") else X_train.values
+            y_np = y_train.values if hasattr(y_train, "values") else y_train
+            logger.info("Fitting with numpy arrays due to error in DataFrame fitting.")
+            model.fit(X_np, y_np)
+        except Exception as e2:
+            logger.error(f"Failed to fit model: {e2}")
+            raise e2
 
     y_pred = model.predict(X_val)
     logger.info(f"Model R²: {r2_score(y_val, y_pred):.4f}")
@@ -326,6 +336,32 @@ def optimize_hyperparams(
             )
         elif model_type == "svr":
             return _objective_svr(
+                trial,
+                X_train,
+                y_train,
+                X_val,
+                y_val,
+                artifacts,
+                experiment_config,
+                target,
+                basin_codes,
+                val_dates,
+            )
+        elif model_type == "aplr":
+            return _objective_aplr(
+                trial,
+                X_train,
+                y_train,
+                X_val,
+                y_val,
+                artifacts,
+                experiment_config,
+                target,
+                basin_codes,
+                val_dates,
+            )
+        elif model_type == "ebm":
+            return _objective_ebm(
                 trial,
                 X_train,
                 y_train,
@@ -770,21 +806,59 @@ def _objective_aplr(
         "m": trial.suggest_int("m", 500, 5000),
         "v": trial.suggest_float("v", 0.1, 0.8),
         "max_interaction_level": trial.suggest_int("max_interaction_level", 1, 3),
-        "bins": trial.suggest_int("bins", 100, 500),
         "min_observations_in_split": trial.suggest_int("min_observations_in_split", 2, 10),
-        "cv_folds": trial.suggest_int("cv_folds", 3, 10),
+        "cv_folds": trial.suggest_int("cv_folds", 3, 5),
         "random_state": 42,
     }
 
     model = APLRRegressor(**params)
     
-    # APLR supports both DataFrames and numpy arrays - use feature names for better interpretability
-    if hasattr(X_train, "columns"):
-        model.fit(X_train.values, y_train.values, X_names=X_train.columns.tolist())
-    else:
-        model.fit(X_train, y_train)
+    # Handle data preprocessing for APLR - ensure no NaN values
+    X_train_clean = X_train.copy()
+    y_train_clean = y_train.copy()
+    X_val_clean = X_val.copy()
     
-    y_pred_scaled = model.predict(X_val.values if hasattr(X_val, "values") else X_val)
+    # Check for and handle NaN values
+    if hasattr(X_train_clean, 'isna'):
+        # DataFrame case
+        nan_mask = X_train_clean.isna().any(axis=1) | y_train_clean.isna()
+        X_train_clean = X_train_clean.loc[~nan_mask]
+        y_train_clean = y_train_clean.loc[~nan_mask]
+        
+        # Handle validation data
+        val_nan_mask = X_val_clean.isna().any(axis=1)
+        X_val_clean = X_val_clean.loc[~val_nan_mask]
+        y_val_clean = y_val.loc[~val_nan_mask]
+    else:
+        # NumPy array case
+        nan_mask = np.isnan(X_train_clean).any(axis=1) | np.isnan(y_train_clean)
+        X_train_clean = X_train_clean[~nan_mask]
+        y_train_clean = y_train_clean[~nan_mask]
+        
+        val_nan_mask = np.isnan(X_val_clean).any(axis=1)
+        X_val_clean = X_val_clean[~val_nan_mask]
+        y_val_clean = y_val[~val_nan_mask]
+    
+    # Check if we have enough data after cleaning
+    if len(X_train_clean) < 10:
+        logger.warning("Insufficient data after NaN removal for APLR")
+        return -1.0  # Return poor score for insufficient data
+    
+    try:
+        # APLR supports both DataFrames and numpy arrays - use feature names for better interpretability
+        if hasattr(X_train_clean, "columns"):
+            model.fit(X_train_clean.values, y_train_clean.values, X_names=X_train_clean.columns.tolist())
+        else:
+            model.fit(X_train_clean, y_train_clean)
+        
+        y_pred_scaled = model.predict(X_val_clean.values if hasattr(X_val_clean, "values") else X_val_clean)
+        
+        # Use cleaned validation data for scoring
+        y_val_for_scoring = y_val_clean
+        
+    except Exception as e:
+        logger.warning(f"APLR model fitting failed: {e}")
+        return -1.0  # Return poor score for failed fitting
 
     # If normalization is enabled and artifacts are provided, inverse transform for R2 calculation
     if (
@@ -800,7 +874,7 @@ def _objective_aplr(
         df_temp = pd.DataFrame(
             {
                 "prediction": y_pred_scaled,
-                target: y_val.values if hasattr(y_val, "values") else y_val,
+                target: y_val_for_scoring.values if hasattr(y_val_for_scoring, "values") else y_val_for_scoring,
             }
         )
 
@@ -829,7 +903,7 @@ def _objective_aplr(
         return r2_score(df_temp[target], df_temp["prediction"])
     else:
         # No normalization, calculate R2 directly on scaled values
-        return r2_score(y_val, y_pred_scaled)
+        return r2_score(y_val_for_scoring, y_pred_scaled)
 
 
 def _objective_ebm(
@@ -847,21 +921,58 @@ def _objective_ebm(
     """Optuna objective function for EBM without early stopping."""
     params = {
         "max_bins": trial.suggest_int("max_bins", 128, 1024),
-        "interactions": trial.suggest_float("interactions", 0.5, 1.0),
+        "interactions": trial.suggest_int("interactions", 1, 5),
         "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.1, log=True),
-        "max_rounds": trial.suggest_int("max_rounds", 1000, 10000),
-        "min_samples_leaf": trial.suggest_int("min_samples_leaf", 2, 10),
         "early_stopping_rounds": trial.suggest_int("early_stopping_rounds", 50, 200),
-        "validation_size": trial.suggest_float("validation_size", 0.1, 0.3),
+        "validation_size": trial.suggest_float("validation_size", 0.05, 0.2),
         "random_state": 42,
     }
 
     model = ExplainableBoostingRegressor(**params)
     
-    # EBM can handle both DataFrames and numpy arrays
-    model.fit(X_train, y_train)
+    # Handle data preprocessing for EBM - ensure no NaN values
+    X_train_clean = X_train.copy()
+    y_train_clean = y_train.copy()
+    X_val_clean = X_val.copy()
     
-    y_pred_scaled = model.predict(X_val)
+    # Check for and handle NaN values
+    if hasattr(X_train_clean, 'isna'):
+        # DataFrame case
+        nan_mask = X_train_clean.isna().any(axis=1) | y_train_clean.isna()
+        X_train_clean = X_train_clean.loc[~nan_mask]
+        y_train_clean = y_train_clean.loc[~nan_mask]
+        
+        # Handle validation data
+        val_nan_mask = X_val_clean.isna().any(axis=1)
+        X_val_clean = X_val_clean.loc[~val_nan_mask]
+        y_val_clean = y_val.loc[~val_nan_mask]
+    else:
+        # NumPy array case
+        nan_mask = np.isnan(X_train_clean).any(axis=1) | np.isnan(y_train_clean)
+        X_train_clean = X_train_clean[~nan_mask]
+        y_train_clean = y_train_clean[~nan_mask]
+        
+        val_nan_mask = np.isnan(X_val_clean).any(axis=1)
+        X_val_clean = X_val_clean[~val_nan_mask]
+        y_val_clean = y_val[~val_nan_mask]
+    
+    # Check if we have enough data after cleaning
+    if len(X_train_clean) < 10:
+        logger.warning("Insufficient data after NaN removal for EBM")
+        return -1.0  # Return poor score for insufficient data
+    
+    try:
+        # EBM can handle both DataFrames and numpy arrays
+        model.fit(X_train_clean, y_train_clean)
+        
+        y_pred_scaled = model.predict(X_val_clean)
+        
+        # Use cleaned validation data for scoring
+        y_val_for_scoring = y_val_clean
+        
+    except Exception as e:
+        logger.warning(f"EBM model fitting failed: {e}")
+        return -1.0  # Return poor score for failed fitting
 
     # If normalization is enabled and artifacts are provided, inverse transform for R2 calculation
     if (
@@ -877,7 +988,7 @@ def _objective_ebm(
         df_temp = pd.DataFrame(
             {
                 "prediction": y_pred_scaled,
-                target: y_val.values if hasattr(y_val, "values") else y_val,
+                target: y_val_for_scoring.values if hasattr(y_val_for_scoring, "values") else y_val_for_scoring,
             }
         )
 
@@ -906,4 +1017,4 @@ def _objective_ebm(
         return r2_score(df_temp[target], df_temp["prediction"])
     else:
         # No normalization, calculate R2 directly on scaled values
-        return r2_score(y_val, y_pred_scaled)
+        return r2_score(y_val_for_scoring, y_pred_scaled)
