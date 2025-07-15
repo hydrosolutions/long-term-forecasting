@@ -5,9 +5,9 @@
 set -e  # Exit on any error
 
 # Configuration
-CONFIG_DIR="../monthly_forecasting_models/BaseCase/GradBoostTrees"  # Path to model configuration directory
-MODEL_NAME="GradBoostTrees"  # Model name
-INPUT_FAMILY="BaseCase"  # Input family for the model
+CONFIG_DIR="../monthly_forecasting_models/SnowMapper_Based/Snow_MLP_SVR"  # Path to model configuration directory
+MODEL_NAME="Snow_MLP_SVR"  # Model name
+INPUT_FAMILY="SnowMapper_Based"  # Input family for the model
 LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
 
 # Hyperparameter tuning specific settings

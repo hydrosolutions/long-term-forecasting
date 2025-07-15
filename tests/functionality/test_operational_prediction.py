@@ -80,12 +80,10 @@ class TestConfigurationLoading:
     )
     def test_load_operational_configs_sciregressor(self):
         """Test loading configurations for SciRegressor model."""
-        if not self._check_model_availability(
-            "SciRegressor", "BaseCase", "GradBoostTrees"
-        ):
+        if not self._check_model_availability("SciRegressor", "BaseCase", "GBT"):
             pytest.skip("SciRegressor model files not available locally")
 
-        configs = load_operational_configs("SciRegressor", "BaseCase", "GradBoostTrees")
+        configs = load_operational_configs("SciRegressor", "BaseCase", "GBT")
 
         # Verify all required config sections are present
         required_sections = [

@@ -271,6 +271,19 @@ def optimize_hyperparams(
                 basin_codes,
                 val_dates,
             )
+        elif model_type == "svr":
+            return _objective_svr(
+                trial,
+                X_train,
+                y_train,
+                X_val,
+                y_val,
+                artifacts,
+                experiment_config,
+                target,
+                basin_codes,
+                val_dates,
+            )
         else:
             raise ValueError(
                 f"Hyperparameter optimization not supported for model type: {model_type}"
@@ -558,7 +571,7 @@ def _objective_mlp(
     params = {
         "hidden_layer_sizes": (trial.suggest_int("hidden_layer_sizes", 50, 200),),
         "activation": trial.suggest_categorical("activation", ["relu", "tanh"]),
-        "solver": trial.suggest_categorical("solver", ["adam", "lbfgs"]),
+        "solver": trial.suggest_categorical("solver", ["adam"]),
         "alpha": trial.suggest_float("alpha", 1e-5, 1e-1, log=True),
         "learning_rate": trial.suggest_categorical(
             "learning_rate", ["constant", "adaptive"]
@@ -568,6 +581,76 @@ def _objective_mlp(
     }
 
     model = MLPRegressor(**params)
+    model.fit(X_train, y_train)
+    y_pred_scaled = model.predict(X_val)
+
+    # If normalization is enabled and artifacts are provided, inverse transform for R2 calculation
+    if (
+        experiment_config
+        and experiment_config.get("normalize", False)
+        and artifacts is not None
+        and target is not None
+    ):
+        # Import here to avoid circular imports
+        from .FeatureProcessingArtifacts import post_process_predictions
+
+        # Create temporary DataFrame for post-processing
+        df_temp = pd.DataFrame(
+            {
+                "prediction": y_pred_scaled,
+                target: y_val.values if hasattr(y_val, "values") else y_val,
+            }
+        )
+
+        if basin_codes is not None:
+            # Add code column if needed for per-basin normalization
+            df_temp["code"] = (
+                basin_codes.values if hasattr(basin_codes, "values") else basin_codes
+            )
+
+        if val_dates is not None:
+            # Add date column for long_term_mean normalization
+            df_temp["date"] = (
+                val_dates.values if hasattr(val_dates, "values") else val_dates
+            )
+
+        # Apply inverse transformation
+        df_temp = post_process_predictions(
+            df_predictions=df_temp,
+            artifacts=artifacts,
+            experiment_config=experiment_config,
+            prediction_column="prediction",
+            target=target,
+        )
+
+        # Calculate R2 on original scale
+        return r2_score(df_temp[target], df_temp["prediction"])
+    else:
+        # No normalization, calculate R2 directly on scaled values
+        return r2_score(y_val, y_pred_scaled)
+
+
+def _objective_svr(
+    trial: Any,
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_val: pd.DataFrame,
+    y_val: pd.Series,
+    artifacts: Optional[Any] = None,
+    experiment_config: Optional[Dict[str, Any]] = None,
+    target: Optional[str] = None,
+    basin_codes: Optional[pd.Series] = None,
+    val_dates: Optional[pd.Series] = None,
+):
+    """Optuna objective function for Support Vector Regression (SVR) without early stopping."""
+    params = {
+        "kernel": trial.suggest_categorical("kernel", ["linear", "rbf"]),
+        "C": trial.suggest_float("C", 1e-3, 10.0, log=True),
+        "epsilon": trial.suggest_float("epsilon", 1e-3, 1.0, log=True),
+        "gamma": trial.suggest_categorical("gamma", ["scale", "auto"]),
+    }
+
+    model = SVR(**params)
     model.fit(X_train, y_train)
     y_pred_scaled = model.predict(X_val)
 

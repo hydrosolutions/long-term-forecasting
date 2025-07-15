@@ -995,11 +995,67 @@ class SciRegressor(BaseForecastModel):
                 static_features=self.static_features,
             )
 
+            if df_train_processed.isna().any().any():
+                logger.debug(
+                    "Training data contains NaN values after preprocessing. This may affect model performance."
+                )
+
+                # Get only columns that have NaN values and their counts
+                nan_counts = df_train_processed.isna().sum()
+                columns_with_nans = nan_counts[nan_counts > 0]
+
+                if not columns_with_nans.empty:
+                    logger.debug(f"Columns with NaN values:\n{columns_with_nans}")
+
+                    # Optional: Also log which rows have NaNs for debugging
+                    rows_with_nans = df_train_processed[
+                        df_train_processed.isna().any(axis=1)
+                    ]
+                    logger.debug(
+                        f"Number of rows with NaN values: {len(rows_with_nans)}"
+                    )
+
+                    # Optional: Show a sample of problematic rows
+                    if len(rows_with_nans) > 0:
+                        logger.debug(
+                            f"Sample rows with NaN values:\n{rows_with_nans.head()}"
+                        )
+                else:
+                    logger.debug("No NaN values found in training data.")
+
             df_val_processed = process_test_data(
                 df_test=df_val,
                 artifacts=artifacts,
                 experiment_config=self.general_config,
             )
+
+            if df_val_processed.isna().any().any():
+                logger.debug(
+                    "Validation data contains NaN values after preprocessing. This may affect model performance."
+                )
+
+                # Get only columns that have NaN values and their counts
+                nan_counts = df_val_processed.isna().sum()
+                columns_with_nans = nan_counts[nan_counts > 0]
+
+                if not columns_with_nans.empty:
+                    logger.debug(f"Columns with NaN values:\n{columns_with_nans}")
+
+                    # Optional: Also log which rows have NaNs for debugging
+                    rows_with_nans = df_val_processed[
+                        df_val_processed.isna().any(axis=1)
+                    ]
+                    logger.debug(
+                        f"Number of rows with NaN values: {len(rows_with_nans)}"
+                    )
+
+                    # Optional: Show a sample of problematic rows
+                    if len(rows_with_nans) > 0:
+                        logger.debug(
+                            f"Sample rows with NaN values:\n{rows_with_nans.head()}"
+                        )
+                else:
+                    logger.debug("No NaN values found in validation data.")
 
             final_features = artifacts.final_features
 
