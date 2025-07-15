@@ -767,14 +767,12 @@ def _objective_aplr(
 ):
     """Optuna objective function for APLR without early stopping."""
     params = {
-        "max_interactions": trial.suggest_int("max_interactions", 5, 20),
-        "max_interaction_bins": trial.suggest_int("max_interaction_bins", 8, 32),
-        "interaction_max_features": trial.suggest_int("interaction_max_features", 5, 20),
-        "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.5, log=True),
-        "max_depth": trial.suggest_int("max_depth", 3, 10),
-        "min_samples_split": trial.suggest_int("min_samples_split", 10, 50),
-        "min_samples_leaf": trial.suggest_int("min_samples_leaf", 5, 30),
-        "n_estimators": trial.suggest_int("n_estimators", 50, 300),
+        "m": trial.suggest_int("m", 500, 5000),
+        "v": trial.suggest_float("v", 0.1, 0.8),
+        "max_interaction_level": trial.suggest_int("max_interaction_level", 1, 3),
+        "bins": trial.suggest_int("bins", 100, 500),
+        "min_observations_in_split": trial.suggest_int("min_observations_in_split", 2, 10),
+        "cv_folds": trial.suggest_int("cv_folds", 3, 10),
         "random_state": 42,
     }
 
@@ -848,14 +846,13 @@ def _objective_ebm(
 ):
     """Optuna objective function for EBM without early stopping."""
     params = {
-        "max_bins": trial.suggest_int("max_bins", 128, 512),
-        "max_interaction_bins": trial.suggest_int("max_interaction_bins", 16, 64),
+        "max_bins": trial.suggest_int("max_bins", 128, 1024),
         "interactions": trial.suggest_float("interactions", 0.5, 1.0),
-        "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.05, log=True),
-        "n_estimators": trial.suggest_int("n_estimators", 10, 50),
-        "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 10),
-        "max_leaves": trial.suggest_int("max_leaves", 2, 8),
-        "early_stopping_rounds": trial.suggest_int("early_stopping_rounds", 20, 100),
+        "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.1, log=True),
+        "max_rounds": trial.suggest_int("max_rounds", 1000, 10000),
+        "min_samples_leaf": trial.suggest_int("min_samples_leaf", 2, 10),
+        "early_stopping_rounds": trial.suggest_int("early_stopping_rounds", 50, 200),
+        "validation_size": trial.suggest_float("validation_size", 0.1, 0.3),
         "random_state": 42,
     }
 

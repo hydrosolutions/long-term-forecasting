@@ -91,23 +91,23 @@ class TestGetModel:
     @pytest.mark.skipif(not INTERPRET_AVAILABLE, reason="interpret library not available")
     def test_get_model_aplr(self):
         """Test APLR model creation."""
-        params = {"n_estimators": 100, "max_depth": 6}
+        params = {"m": 1000, "v": 0.5}
         model = sci_utils.get_model("aplr", params)
 
         assert isinstance(model, APLRRegressor)
-        assert model.n_estimators == 100
-        assert model.max_depth == 6
+        assert model.m == 1000
+        assert model.v == 0.5
         assert model.random_state == 42
 
     @pytest.mark.skipif(not INTERPRET_AVAILABLE, reason="interpret library not available")
     def test_get_model_ebm(self):
         """Test EBM model creation."""
-        params = {"n_estimators": 20, "learning_rate": 0.01}
+        params = {"max_rounds": 5000, "learning_rate": 0.04}
         model = sci_utils.get_model("ebm", params)
 
         assert isinstance(model, ExplainableBoostingRegressor)
-        assert model.n_estimators == 20
-        assert model.learning_rate == 0.01
+        assert model.max_rounds == 5000
+        assert model.learning_rate == 0.04
         assert model.random_state == 42
 
 
@@ -263,7 +263,7 @@ class TestGetFeatureImportance:
     def test_get_feature_importance_aplr(self):
         """Test feature importance extraction for APLR."""
         X, y = self.create_sample_data()
-        model = sci_utils.get_model("aplr", {"n_estimators": 10, "max_depth": 3})
+        model = sci_utils.get_model("aplr", {"m": 500, "v": 0.5})
         model.fit(X.values, y.values, X_names=X.columns.tolist())
 
         importance_df = sci_utils.get_feature_importance(model, X.columns.tolist())
@@ -278,7 +278,7 @@ class TestGetFeatureImportance:
     def test_get_feature_importance_ebm(self):
         """Test feature importance extraction for EBM."""
         X, y = self.create_sample_data()
-        model = sci_utils.get_model("ebm", {"n_estimators": 10, "max_leaves": 3})
+        model = sci_utils.get_model("ebm", {"max_rounds": 1000, "learning_rate": 0.04})
         model.fit(X, y)
 
         importance_df = sci_utils.get_feature_importance(model, X.columns.tolist())
@@ -403,7 +403,7 @@ class TestOptimizeHyperparams:
         # Mock optuna study
         mock_study = Mock()
         mock_trial = Mock()
-        mock_trial.params = {"max_interactions": 10, "learning_rate": 0.1}
+        mock_trial.params = {"m": 1000, "v": 0.5}
         mock_study.best_trial = mock_trial
         mock_create_study.return_value = mock_study
 
@@ -411,7 +411,7 @@ class TestOptimizeHyperparams:
             X_train, y_train, X_val, y_val, model_type="aplr", n_trials=5
         )
 
-        assert result == {"max_interactions": 10, "learning_rate": 0.1}
+        assert result == {"m": 1000, "v": 0.5}
         mock_create_study.assert_called_once_with(direction="maximize")
         mock_study.optimize.assert_called_once()
 
@@ -424,7 +424,7 @@ class TestOptimizeHyperparams:
         # Mock optuna study
         mock_study = Mock()
         mock_trial = Mock()
-        mock_trial.params = {"max_bins": 256, "learning_rate": 0.01}
+        mock_trial.params = {"max_bins": 512, "learning_rate": 0.04}
         mock_study.best_trial = mock_trial
         mock_create_study.return_value = mock_study
 
@@ -432,7 +432,7 @@ class TestOptimizeHyperparams:
             X_train, y_train, X_val, y_val, model_type="ebm", n_trials=5
         )
 
-        assert result == {"max_bins": 256, "learning_rate": 0.01}
+        assert result == {"max_bins": 512, "learning_rate": 0.04}
         mock_create_study.assert_called_once_with(direction="maximize")
         mock_study.optimize.assert_called_once()
 
@@ -610,15 +610,13 @@ class TestObjectiveFunctions:
         # Mock trial
         mock_trial = Mock()
         mock_trial.suggest_int.side_effect = [
-            15,  # max_interactions
-            16,  # max_interaction_bins
-            10,  # interaction_max_features
-            3,   # max_depth
-            20,  # min_samples_split
-            10,  # min_samples_leaf
-            100, # n_estimators
+            1000,  # m
+            2,     # max_interaction_level
+            200,   # bins
+            4,     # min_observations_in_split
+            5,     # cv_folds
         ]
-        mock_trial.suggest_float.return_value = 0.1  # learning_rate
+        mock_trial.suggest_float.return_value = 0.5  # v
 
         r2_score = sci_utils._objective_aplr(mock_trial, X_train, y_train, X_val, y_val)
 
@@ -633,16 +631,15 @@ class TestObjectiveFunctions:
         # Mock trial
         mock_trial = Mock()
         mock_trial.suggest_int.side_effect = [
-            256,  # max_bins
-            32,   # max_interaction_bins
-            20,   # n_estimators
-            2,    # min_samples_leaf
-            3,    # max_leaves
-            50,   # early_stopping_rounds
+            512,  # max_bins
+            2000, # max_rounds
+            4,    # min_samples_leaf
+            100,  # early_stopping_rounds
         ]
         mock_trial.suggest_float.side_effect = [
             0.8,  # interactions
-            0.01, # learning_rate
+            0.04, # learning_rate
+            0.15, # validation_size
         ]
 
         r2_score = sci_utils._objective_ebm(mock_trial, X_train, y_train, X_val, y_val)
