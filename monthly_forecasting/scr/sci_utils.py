@@ -32,6 +32,9 @@ from lightgbm import LGBMRegressor
 import lightgbm as lgb
 from catboost import CatBoostRegressor
 
+# Interpretable models
+from interpret.glassbox import APLRRegressor, ExplainableBoostingRegressor
+
 # Hyperparameter optimization
 import optuna
 
@@ -54,7 +57,7 @@ def get_model(
     Create a model instance based on type and parameters.
 
     Args:
-        model_type: Type of model ('xgb', 'lgbm', 'catboost', 'rf', etc.)
+        model_type: Type of model ('xgb', 'lgbm', 'catboost', 'rf', 'aplr', 'ebm', etc.)
         params: Model parameters
         cat_features: Categorical features for CatBoost
 
@@ -83,6 +86,14 @@ def get_model(
         "rf": lambda p: RandomForestRegressor(**p),
         "gradient_boosting": lambda p: GradientBoostingRegressor(**p),
         "mlp": lambda p: MLPRegressor(**p),
+        "aplr": lambda p: APLRRegressor(
+            random_state=42,
+            **p,
+        ),
+        "ebm": lambda p: ExplainableBoostingRegressor(
+            random_state=42,
+            **p,
+        ),
     }
 
     if model_type not in model_mapping:
@@ -155,6 +166,48 @@ def get_feature_importance(
         importance = model.get_feature_importance()
         if feature_names is None:
             feature_names = model.feature_names_
+    elif isinstance(model, APLRRegressor):
+        # APLR models use built-in explainability from interpret library
+        try:
+            from interpret import show
+            explanation = model.explain_global()
+            # Extract feature names and importance scores
+            feature_names = []
+            importance = []
+            for i, data in enumerate(explanation.data()):
+                if hasattr(data, 'names') and hasattr(data, 'scores'):
+                    feature_names.extend(data.names)
+                    importance.extend(data.scores)
+            
+            # If no explain_global data available, fall back to feature_importances_
+            if not feature_names and hasattr(model, 'feature_importances_'):
+                importance = model.feature_importances_
+                if feature_names is None:
+                    feature_names = [f"feature_{i}" for i in range(len(importance))]
+        except Exception as e:
+            logger.warning(f"Could not extract APLR feature importance: {e}")
+            return pd.DataFrame()
+    elif isinstance(model, ExplainableBoostingRegressor):
+        # EBM models use built-in explainability from interpret library  
+        try:
+            from interpret import show
+            explanation = model.explain_global()
+            # Extract feature names and importance scores
+            feature_names = []
+            importance = []
+            for i, data in enumerate(explanation.data()):
+                if hasattr(data, 'names') and hasattr(data, 'scores'):
+                    feature_names.extend(data.names)
+                    importance.extend(data.scores)
+            
+            # If no explain_global data available, fall back to feature_importances_
+            if not feature_names and hasattr(model, 'feature_importances_'):
+                importance = model.feature_importances_
+                if feature_names is None:
+                    feature_names = [f"feature_{i}" for i in range(len(importance))]
+        except Exception as e:
+            logger.warning(f"Could not extract EBM feature importance: {e}")
+            return pd.DataFrame()
     elif hasattr(model, "feature_importances_"):
         # Generic models with feature_importances_ attribute
         importance = model.feature_importances_
@@ -197,7 +250,7 @@ def optimize_hyperparams(
         y_train: Training target values
         X_val: Validation features
         y_val: Validation target values
-        model_type: Type of model to optimize ('xgb', 'lgbm', 'catboost', 'mlp')
+        model_type: Type of model to optimize ('xgb', 'lgbm', 'catboost', 'mlp', 'aplr', 'ebm')
         cat_features: List of categorical features for CatBoost
         n_trials: Number of optimization trials
         save_path: Optional path to save optimization results and plots
@@ -652,6 +705,165 @@ def _objective_svr(
 
     model = SVR(**params)
     model.fit(X_train, y_train)
+    y_pred_scaled = model.predict(X_val)
+
+    # If normalization is enabled and artifacts are provided, inverse transform for R2 calculation
+    if (
+        experiment_config
+        and experiment_config.get("normalize", False)
+        and artifacts is not None
+        and target is not None
+    ):
+        # Import here to avoid circular imports
+        from .FeatureProcessingArtifacts import post_process_predictions
+
+        # Create temporary DataFrame for post-processing
+        df_temp = pd.DataFrame(
+            {
+                "prediction": y_pred_scaled,
+                target: y_val.values if hasattr(y_val, "values") else y_val,
+            }
+        )
+
+        if basin_codes is not None:
+            # Add code column if needed for per-basin normalization
+            df_temp["code"] = (
+                basin_codes.values if hasattr(basin_codes, "values") else basin_codes
+            )
+
+        if val_dates is not None:
+            # Add date column for long_term_mean normalization
+            df_temp["date"] = (
+                val_dates.values if hasattr(val_dates, "values") else val_dates
+            )
+
+        # Apply inverse transformation
+        df_temp = post_process_predictions(
+            df_predictions=df_temp,
+            artifacts=artifacts,
+            experiment_config=experiment_config,
+            prediction_column="prediction",
+            target=target,
+        )
+
+        # Calculate R2 on original scale
+        return r2_score(df_temp[target], df_temp["prediction"])
+    else:
+        # No normalization, calculate R2 directly on scaled values
+        return r2_score(y_val, y_pred_scaled)
+
+
+def _objective_aplr(
+    trial,
+    X_train,
+    y_train,
+    X_val,
+    y_val,
+    artifacts=None,
+    experiment_config=None,
+    target=None,
+    basin_codes=None,
+    val_dates=None,
+):
+    """Optuna objective function for APLR without early stopping."""
+    params = {
+        "max_interactions": trial.suggest_int("max_interactions", 5, 20),
+        "max_interaction_bins": trial.suggest_int("max_interaction_bins", 8, 32),
+        "interaction_max_features": trial.suggest_int("interaction_max_features", 5, 20),
+        "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.5, log=True),
+        "max_depth": trial.suggest_int("max_depth", 3, 10),
+        "min_samples_split": trial.suggest_int("min_samples_split", 10, 50),
+        "min_samples_leaf": trial.suggest_int("min_samples_leaf", 5, 30),
+        "n_estimators": trial.suggest_int("n_estimators", 50, 300),
+        "random_state": 42,
+    }
+
+    model = APLRRegressor(**params)
+    
+    # APLR supports both DataFrames and numpy arrays - use feature names for better interpretability
+    if hasattr(X_train, "columns"):
+        model.fit(X_train.values, y_train.values, X_names=X_train.columns.tolist())
+    else:
+        model.fit(X_train, y_train)
+    
+    y_pred_scaled = model.predict(X_val.values if hasattr(X_val, "values") else X_val)
+
+    # If normalization is enabled and artifacts are provided, inverse transform for R2 calculation
+    if (
+        experiment_config
+        and experiment_config.get("normalize", False)
+        and artifacts is not None
+        and target is not None
+    ):
+        # Import here to avoid circular imports
+        from .FeatureProcessingArtifacts import post_process_predictions
+
+        # Create temporary DataFrame for post-processing
+        df_temp = pd.DataFrame(
+            {
+                "prediction": y_pred_scaled,
+                target: y_val.values if hasattr(y_val, "values") else y_val,
+            }
+        )
+
+        if basin_codes is not None:
+            # Add code column if needed for per-basin normalization
+            df_temp["code"] = (
+                basin_codes.values if hasattr(basin_codes, "values") else basin_codes
+            )
+
+        if val_dates is not None:
+            # Add date column for long_term_mean normalization
+            df_temp["date"] = (
+                val_dates.values if hasattr(val_dates, "values") else val_dates
+            )
+
+        # Apply inverse transformation
+        df_temp = post_process_predictions(
+            df_predictions=df_temp,
+            artifacts=artifacts,
+            experiment_config=experiment_config,
+            prediction_column="prediction",
+            target=target,
+        )
+
+        # Calculate R2 on original scale
+        return r2_score(df_temp[target], df_temp["prediction"])
+    else:
+        # No normalization, calculate R2 directly on scaled values
+        return r2_score(y_val, y_pred_scaled)
+
+
+def _objective_ebm(
+    trial,
+    X_train,
+    y_train,
+    X_val,
+    y_val,
+    artifacts=None,
+    experiment_config=None,
+    target=None,
+    basin_codes=None,
+    val_dates=None,
+):
+    """Optuna objective function for EBM without early stopping."""
+    params = {
+        "max_bins": trial.suggest_int("max_bins", 128, 512),
+        "max_interaction_bins": trial.suggest_int("max_interaction_bins", 16, 64),
+        "interactions": trial.suggest_float("interactions", 0.5, 1.0),
+        "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.05, log=True),
+        "n_estimators": trial.suggest_int("n_estimators", 10, 50),
+        "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 10),
+        "max_leaves": trial.suggest_int("max_leaves", 2, 8),
+        "early_stopping_rounds": trial.suggest_int("early_stopping_rounds", 20, 100),
+        "random_state": 42,
+    }
+
+    model = ExplainableBoostingRegressor(**params)
+    
+    # EBM can handle both DataFrames and numpy arrays
+    model.fit(X_train, y_train)
+    
     y_pred_scaled = model.predict(X_val)
 
     # If normalization is enabled and artifacts are provided, inverse transform for R2 calculation
