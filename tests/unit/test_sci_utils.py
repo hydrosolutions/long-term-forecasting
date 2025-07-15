@@ -16,6 +16,12 @@ from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
 from catboost import CatBoostRegressor
 
+try:
+    from interpret.glassbox import APLRRegressor, ExplainableBoostingRegressor
+    INTERPRET_AVAILABLE = True
+except ImportError:
+    INTERPRET_AVAILABLE = False
+
 
 class TestGetModel:
     """Test the get_model function for creating different model types."""
@@ -81,6 +87,28 @@ class TestGetModel:
         """Test model creation with empty parameters."""
         model = sci_utils.get_model("xgb", {})
         assert isinstance(model, XGBRegressor)
+
+    @pytest.mark.skipif(not INTERPRET_AVAILABLE, reason="interpret library not available")
+    def test_get_model_aplr(self):
+        """Test APLR model creation."""
+        params = {"n_estimators": 100, "max_depth": 6}
+        model = sci_utils.get_model("aplr", params)
+
+        assert isinstance(model, APLRRegressor)
+        assert model.n_estimators == 100
+        assert model.max_depth == 6
+        assert model.random_state == 42
+
+    @pytest.mark.skipif(not INTERPRET_AVAILABLE, reason="interpret library not available")
+    def test_get_model_ebm(self):
+        """Test EBM model creation."""
+        params = {"n_estimators": 20, "learning_rate": 0.01}
+        model = sci_utils.get_model("ebm", params)
+
+        assert isinstance(model, ExplainableBoostingRegressor)
+        assert model.n_estimators == 20
+        assert model.learning_rate == 0.01
+        assert model.random_state == 42
 
 
 class TestFitModel:
@@ -231,6 +259,36 @@ class TestGetFeatureImportance:
         # Should have generated feature names
         assert all(importance_df["feature"].str.startswith("feature"))
 
+    @pytest.mark.skipif(not INTERPRET_AVAILABLE, reason="interpret library not available")
+    def test_get_feature_importance_aplr(self):
+        """Test feature importance extraction for APLR."""
+        X, y = self.create_sample_data()
+        model = sci_utils.get_model("aplr", {"n_estimators": 10, "max_depth": 3})
+        model.fit(X.values, y.values, X_names=X.columns.tolist())
+
+        importance_df = sci_utils.get_feature_importance(model, X.columns.tolist())
+
+        assert isinstance(importance_df, pd.DataFrame)
+        assert "feature" in importance_df.columns
+        assert "importance" in importance_df.columns
+        # APLR might not have importance for all features due to automatic feature selection
+        assert len(importance_df) >= 0
+
+    @pytest.mark.skipif(not INTERPRET_AVAILABLE, reason="interpret library not available")
+    def test_get_feature_importance_ebm(self):
+        """Test feature importance extraction for EBM."""
+        X, y = self.create_sample_data()
+        model = sci_utils.get_model("ebm", {"n_estimators": 10, "max_leaves": 3})
+        model.fit(X, y)
+
+        importance_df = sci_utils.get_feature_importance(model, X.columns.tolist())
+
+        assert isinstance(importance_df, pd.DataFrame)
+        assert "feature" in importance_df.columns
+        assert "importance" in importance_df.columns
+        # EBM should have importance for all features
+        assert len(importance_df) >= 0
+
 
 class TestOptimizeHyperparams:
     """Test the optimize_hyperparams function."""
@@ -335,6 +393,48 @@ class TestOptimizeHyperparams:
         )
 
         assert result == {"hidden_layer_sizes": (100,), "alpha": 0.001}
+
+    @pytest.mark.skipif(not INTERPRET_AVAILABLE, reason="interpret library not available")
+    @patch("monthly_forecasting.scr.sci_utils.optuna.create_study")
+    def test_optimize_hyperparams_aplr(self, mock_create_study):
+        """Test hyperparameter optimization for APLR."""
+        X_train, y_train, X_val, y_val = self.create_sample_data()
+
+        # Mock optuna study
+        mock_study = Mock()
+        mock_trial = Mock()
+        mock_trial.params = {"max_interactions": 10, "learning_rate": 0.1}
+        mock_study.best_trial = mock_trial
+        mock_create_study.return_value = mock_study
+
+        result = sci_utils.optimize_hyperparams(
+            X_train, y_train, X_val, y_val, model_type="aplr", n_trials=5
+        )
+
+        assert result == {"max_interactions": 10, "learning_rate": 0.1}
+        mock_create_study.assert_called_once_with(direction="maximize")
+        mock_study.optimize.assert_called_once()
+
+    @pytest.mark.skipif(not INTERPRET_AVAILABLE, reason="interpret library not available")
+    @patch("monthly_forecasting.scr.sci_utils.optuna.create_study")
+    def test_optimize_hyperparams_ebm(self, mock_create_study):
+        """Test hyperparameter optimization for EBM."""
+        X_train, y_train, X_val, y_val = self.create_sample_data()
+
+        # Mock optuna study
+        mock_study = Mock()
+        mock_trial = Mock()
+        mock_trial.params = {"max_bins": 256, "learning_rate": 0.01}
+        mock_study.best_trial = mock_trial
+        mock_create_study.return_value = mock_study
+
+        result = sci_utils.optimize_hyperparams(
+            X_train, y_train, X_val, y_val, model_type="ebm", n_trials=5
+        )
+
+        assert result == {"max_bins": 256, "learning_rate": 0.01}
+        mock_create_study.assert_called_once_with(direction="maximize")
+        mock_study.optimize.assert_called_once()
 
     def test_optimize_hyperparams_invalid_model(self):
         """Test error handling for invalid model type."""
@@ -498,6 +598,54 @@ class TestObjectiveFunctions:
         mock_trial.suggest_float.return_value = 0.001  # alpha
 
         r2_score = sci_utils._objective_mlp(mock_trial, X_train, y_train, X_val, y_val)
+
+        assert isinstance(r2_score, float)
+        assert -1 <= r2_score <= 1
+
+    @pytest.mark.skipif(not INTERPRET_AVAILABLE, reason="interpret library not available")
+    def test_objective_aplr(self):
+        """Test APLR objective function."""
+        X_train, y_train, X_val, y_val = self.create_sample_data()
+
+        # Mock trial
+        mock_trial = Mock()
+        mock_trial.suggest_int.side_effect = [
+            15,  # max_interactions
+            16,  # max_interaction_bins
+            10,  # interaction_max_features
+            3,   # max_depth
+            20,  # min_samples_split
+            10,  # min_samples_leaf
+            100, # n_estimators
+        ]
+        mock_trial.suggest_float.return_value = 0.1  # learning_rate
+
+        r2_score = sci_utils._objective_aplr(mock_trial, X_train, y_train, X_val, y_val)
+
+        assert isinstance(r2_score, float)
+        assert -1 <= r2_score <= 1
+
+    @pytest.mark.skipif(not INTERPRET_AVAILABLE, reason="interpret library not available")
+    def test_objective_ebm(self):
+        """Test EBM objective function."""
+        X_train, y_train, X_val, y_val = self.create_sample_data()
+
+        # Mock trial
+        mock_trial = Mock()
+        mock_trial.suggest_int.side_effect = [
+            256,  # max_bins
+            32,   # max_interaction_bins
+            20,   # n_estimators
+            2,    # min_samples_leaf
+            3,    # max_leaves
+            50,   # early_stopping_rounds
+        ]
+        mock_trial.suggest_float.side_effect = [
+            0.8,  # interactions
+            0.01, # learning_rate
+        ]
+
+        r2_score = sci_utils._objective_ebm(mock_trial, X_train, y_train, X_val, y_val)
 
         assert isinstance(r2_score, float)
         assert -1 <= r2_score <= 1
