@@ -743,7 +743,9 @@ def process_predictions(predictions: pd.DataFrame, model_name: str) -> pd.DataFr
     return predictions
 
 
-def generate_outputs(results: Dict[str, Any], output_dir: str = "output"):
+def generate_outputs(
+    results: Dict[str, Any], output_dir: str = "../monthly_forecasting_results/output"
+):
     """
     Generate all required output files.
 
@@ -1722,7 +1724,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="synthetic_test",
+        default="../monthly_forecasting_results/synthetic_test",
         help="Output directory for synthetic evaluation",
     )
     parser.add_argument(

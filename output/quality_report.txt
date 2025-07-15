@@ -1,6 +1,0 @@
-Operational Prediction Quality Report
-========================================
-
-Total models processed: 0
-Total processing time: 9.50s
-Total predictions: 0
