@@ -162,6 +162,134 @@ def glacier_mapper_features(
     return df
 
 
+def derive_features_from_snowmapper(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Derive custom features for snow melting and accumulation from SnowMapper data.
+
+    Creates hydrologically meaningful features that capture snow dynamics:
+    - Melt efficiency: How effectively snow converts to runoff
+    - Melt rate: Rate of snow melting relative to available snow
+    - Total runoff efficiency: Basin's efficiency in converting inputs to discharge
+    - Temperature-weighted melt: Melt potential adjusted for temperature
+    - Snow energy balance: Energy balance indicator for snow processes
+
+    Args:
+        df: DataFrame containing SnowMapper data with ROF, SWE, T, P, and discharge columns
+
+    Returns:
+        DataFrame with original data plus derived snow features
+
+    Raises:
+        ValueError: If required columns are missing or contain invalid data
+
+    Example:
+        >>> df_with_features = derive_features_from_snowmapper(snow_data)
+        >>> print(df_with_features[['melt_efficiency', 'melt_rate']].head())
+    """
+    df = df.copy()
+
+    # Validate required columns exist
+    required_base_cols = ["T", "P", "discharge"]
+    missing_cols = [col for col in required_base_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+
+    # Find ROF and SWE columns
+    cols_with_rof = [col for col in df.columns if "ROF" in col]
+    cols_with_swe = [col for col in df.columns if "SWE" in col]
+
+    if not cols_with_rof:
+        logger.warning("No ROF columns found in the DataFrame.")
+        return df
+
+    if not cols_with_swe:
+        logger.warning("No SWE columns found in the DataFrame.")
+        return df
+
+    logger.info(
+        f"Found {len(cols_with_rof)} ROF columns and {len(cols_with_swe)} SWE columns"
+    )
+
+    # Calculate mean values with proper handling of missing data
+    df["mean_ROF"] = df[cols_with_rof].mean(axis=1, skipna=True)
+    df["mean_SWE"] = df[cols_with_swe].mean(axis=1, skipna=True)
+
+    # Validate that we have valid data
+    if df["mean_ROF"].isna().all():
+        logger.warning("All ROF values are NaN after calculation")
+        return df
+
+    if df["mean_SWE"].isna().all():
+        logger.warning("All SWE values are NaN after calculation")
+        return df
+
+    # Create hydrologically meaningful features with proper bounds
+    try:
+        # Melt efficiency: How much SWE is available relative to runoff
+        # Clamp to reasonable range to avoid extreme values
+        df["melt_efficiency"] = np.clip(
+            df["mean_SWE"] / (df["mean_ROF"] + 1e-5), 0.0, 50.0
+        )
+
+        # Melt rate: How fast snow is melting relative to available snow
+        # Use minimum to set lower bound, ensuring positive values
+        df["melt_rate"] = np.clip(df["mean_ROF"] / (df["mean_SWE"] + 1e-5), 0.01, 10)
+
+        # Total runoff efficiency: How well basin converts inputs to discharge
+        total_inputs = (
+            df["mean_ROF"] + df["P"] + 1e-6
+        )  # Small epsilon to avoid division by zero
+        df["total_runoff_efficiency"] = np.clip(
+            df["discharge"] / total_inputs, 0.0, 10.0
+        )
+
+        # Temperature-weighted melt: Melt potential adjusted for temperature
+        # Only positive temperatures contribute to melting
+        temp_factor = np.maximum(df["T"], 0.0)
+        df["temp_weighted_melt"] = df["melt_efficiency"] * temp_factor
+        df["temp_weighted_melt"] = np.clip(
+            df["temp_weighted_melt"], 0.0, 100.0
+        )  # Clamp to reasonable range
+
+        # Snow energy balance: Energy available for snow processes
+        # Avoid division by zero with proper epsilon
+        temp_denominator = np.maximum(df["T"], 1e-2)
+        df["snow_energy_balance"] = df["mean_SWE"] / (
+            df["mean_ROF"] * temp_denominator + 1e-6
+        )
+        df["snow_energy_balance"] = np.clip(
+            df["snow_energy_balance"], 0.0, 100.0
+        )  # Clamp to reasonable range
+
+        logger.info("Successfully derived snow features")
+
+        # Log feature statistics for debugging
+        feature_cols = [
+            "melt_efficiency",
+            "melt_rate",
+            "total_runoff_efficiency",
+            "temp_weighted_melt",
+            "snow_energy_balance",
+        ]
+
+        for col in feature_cols:
+            if col in df.columns:
+                stats = df[col].describe()
+                logger.debug(
+                    f"{col} statistics: min={stats['min']:.3f}, "
+                    f"max={stats['max']:.3f}, mean={stats['mean']:.3f}"
+                )
+
+        # drop the mean_SWE and mean_ROF columns as they are no longer needed
+        df.drop(columns=["mean_SWE", "mean_ROF"], inplace=True)
+
+        return df
+
+    except Exception as e:
+        logger.error(f"Error deriving snow features: {e}")
+        raise ValueError(f"Failed to derive snow features: {e}") from e
+
+
 def get_elevation_bands_per_percentile(
     elevation_band_code, num_bands=3, rel_area_col="relative_a"
 ):

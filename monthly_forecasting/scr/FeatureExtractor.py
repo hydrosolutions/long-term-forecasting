@@ -131,6 +131,42 @@ def time_of_occurrence_last_value(signal):
     return len(signal) - last_non_nan_index
 
 
+def increasing_in_projection(signal):
+    """
+    Computes if the  signal is expected to increase in the next days.
+     t- window // 2 is used as the reference, and t + window // 2 is used as the projection point.
+     The feature then has to be shifted by the window // 2 to align with the projection point.
+
+     Formula: projection / observed = x
+     if x > 1.05 -> 1
+     if x < 0.95 -> -1
+     else -> 0
+    """
+    if len(signal) < 2:
+        return np.nan
+
+    window = len(signal) // 2
+    window = int(window)  # Ensure window is an integer
+
+    if window == 0:
+        return np.nan
+
+    observed = signal[: window - 1]
+    projection = signal[window:]
+
+    if np.sum(observed) == 0:
+        return np.nan
+
+    ratio = np.mean(projection) / np.mean(observed)
+
+    if ratio > 1.05:
+        return 1
+    elif ratio < 0.95:
+        return -1
+    else:
+        return 0
+
+
 class StreamflowFeatureExtractor:
     """
     Feature extraction pipeline for streamflow prediction.
@@ -244,6 +280,11 @@ class StreamflowFeatureExtractor:
                     basin_feature = basin_data.rolling(
                         window=window, min_periods=min_periods
                     ).apply(mean_difference, raw=True)
+                elif config["operation"] == "increasing_in_projection":
+                    min_periods = 2
+                    basin_feature = basin_data.rolling(
+                        window=window, min_periods=min_periods
+                    ).apply(increasing_in_projection, raw=True)
                 else:
                     raise ValueError(f"Unsupported operation: {config['operation']}")
 

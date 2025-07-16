@@ -174,6 +174,9 @@ class SciRegressor(BaseForecastModel):
                 ]
                 self.data = self.data.drop(columns=snow_vars_drop)
 
+        # Extract extended features for snowmapper:
+        self.data = du.derive_features_from_snowmapper(self.data)
+
         logger.debug("Data preprocessing completed. Data shape: %s", self.data.shape)
 
         # -------------- 4. Feature Extraction ------------------------------

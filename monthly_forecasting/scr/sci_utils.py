@@ -111,9 +111,19 @@ def fit_model(
     Returns:
         Fitted model
     """
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=val_fraction, random_state=42
-    )
+    if val_fraction > 0.0:
+        X_train, X_val, y_train, y_val = train_test_split(
+            X, y, test_size=val_fraction, random_state=42
+        )
+    else:
+        logger.warning(
+            "Validation fraction is 0.0, using full dataset for training \n"
+            " validation performed on trainset."
+        )
+        X_train = X.copy()
+        y_train = y.copy()
+        X_val = X.copy()
+        y_val = y.copy()
 
     # Fit model without early stopping - iterations are tuned directly
     model.fit(X_train, y_train)
