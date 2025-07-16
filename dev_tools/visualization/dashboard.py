@@ -6,6 +6,14 @@ This dashboard provides interactive visualizations for comparing model performan
 across different metrics, basins, and time periods.
 """
 
+import logging
+import sys
+from pathlib import Path
+
+# Add the project root to Python path
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
 import dash
 from dash import dcc, html, Input, Output, State, callback_context, dash_table
 import plotly.express as px

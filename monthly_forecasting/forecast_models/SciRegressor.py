@@ -188,6 +188,9 @@ class SciRegressor(BaseForecastModel):
             self.data = pd.merge(
                 self.data, lr_predictors, on=["date", "code"], how="inner"
             )
+            if len(lr_pred_cols) > 1:
+                self.data["ensemble_pred"] = self.data[lr_pred_cols].mean(axis=1)
+                lr_pred_cols.append("ensemble_pred")
         else:
             lr_pred_cols = []
 
