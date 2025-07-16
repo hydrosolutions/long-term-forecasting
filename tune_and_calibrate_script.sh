@@ -5,8 +5,8 @@
 set -e  # Exit on any error
 
 # Configuration
-CONFIG_DIR="../monthly_forecasting_models/SnowMapper_Based/Snow_GBT_LR"  # Path to model configuration directory
-MODEL_NAME="Snow_GBT_LR"  # Model name
+CONFIG_DIR="../monthly_forecasting_models/SnowMapper_Based/Snow_Correction"  # Path to model configuration directory
+MODEL_NAME="Snow_Correction"  # Model name
 INPUT_FAMILY="SnowMapper_Based"  # Input family for the model
 LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
 
