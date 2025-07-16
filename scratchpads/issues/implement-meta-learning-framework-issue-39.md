@@ -254,19 +254,210 @@ The example demonstration showed significant improvements:
 
 ### Files Created
 - `monthly_forecasting/forecast_models/meta_learners/` - Meta-learning module
+  - `base_meta_learner.py` - Abstract base class with save/load functionality
+  - `historical_meta_learner.py` - Performance-based weighting implementation
 - `monthly_forecasting/scr/evaluation_utils.py` - Production evaluation metrics
 - `monthly_forecasting/scr/meta_utils.py` - Meta-learning utilities
 - `monthly_forecasting/scr/performance_metrics.py` - Performance tracking
 - `monthly_forecasting/scr/ensemble_utils.py` - Ensemble creation utilities
+- `monthly_forecasting/scr/model_persistence.py` - Model save/load/backup utilities
 - `tests/meta_learning/` - Comprehensive test suite
 - `example_meta_learning_usage.py` - Working demonstration
+
+## API Documentation
+
+### Core Classes
+
+#### BaseMetaLearner
+Abstract base class for all meta-learning models.
+
+**Key Methods:**
+- `add_base_model_predictions(model_id, predictions)` - Add predictions from base models
+- `compute_weights(**kwargs)` - Compute ensemble weights (abstract)
+- `create_ensemble_predictions(weights=None)` - Create weighted ensemble predictions
+- `save_model()` - Save model to file with pickle
+- `load_model()` - Load model from file
+- `get_model_save_path()` - Get save path for model
+- `evaluate_ensemble_performance()` - Evaluate ensemble performance
+
+#### HistoricalMetaLearner
+Performance-based meta-learning with historical weighting.
+
+**Key Methods:**
+- `calculate_historical_performance()` - Calculate performance metrics for LOOCV
+- `compute_performance_weights()` - Compute weights from performance metrics
+- `compute_basin_specific_weights(basin_code)` - Get basin-specific weights
+- `compute_temporal_weights(month)` - Get temporal weights for specific month
+- `train_meta_model()` - Train the meta-learning model
+- `calibrate_model_and_hindcast()` - Perform LOOCV calibration and hindcast
+- `predict_operational(today=None)` - Generate operational predictions
+- `tune_hyperparameters()` - Tune meta-learning hyperparameters
+- `save_model_with_predictions(include_predictions=False)` - Save with base predictions
+- `load_model_with_predictions()` - Load with base predictions
+- `get_model_info()` - Get comprehensive model information
+
+### Configuration
+
+#### Meta-Learning Configuration
+```python
+meta_learning_config = {
+    'ensemble_method': 'weighted_mean',  # 'mean', 'weighted_mean', 'median'
+    'weighting_strategy': 'performance_based',  # 'performance_based', 'uniform'
+    'performance_metric': 'rmse',  # 'rmse', 'r2', 'nse', 'mae', 'kge'
+    'basin_specific': True,  # Enable basin-specific weighting
+    'temporal_weighting': True,  # Enable temporal weighting
+    'min_samples_per_basin': 10,  # Minimum samples for basin-specific metrics
+    'weight_smoothing': 0.1,  # Weight smoothing factor (0-1)
+    'fallback_uniform': True  # Use uniform weights as fallback
+}
+```
+
+### Usage Examples
+
+#### Basic Usage
+```python
+from monthly_forecasting.forecast_models.meta_learners.historical_meta_learner import HistoricalMetaLearner
+
+# Initialize meta-learner
+meta_learner = HistoricalMetaLearner(
+    data=data,
+    static_data=static_data,
+    general_config=general_config,
+    model_config=model_config,
+    feature_config=feature_config,
+    path_config=path_config,
+    base_model_predictions=base_predictions
+)
+
+# Train meta-learner
+meta_learner.train_meta_model()
+
+# Create ensemble predictions
+ensemble_predictions = meta_learner.create_ensemble_predictions()
+
+# Save model
+meta_learner.save_model()
+```
+
+#### Advanced Usage with Model Persistence
+```python
+from monthly_forecasting.scr.model_persistence import ModelPersistenceManager
+
+# Initialize persistence manager
+manager = ModelPersistenceManager('/path/to/model/storage')
+
+# Save model with metadata
+saved_files = manager.save_model_with_metadata(
+    model=meta_learner,
+    model_id='production_meta_learner_v1',
+    metadata={'version': '1.0', 'environment': 'production'},
+    include_predictions=True
+)
+
+# List saved models
+models = manager.list_saved_models()
+
+# Load model
+loaded_model, metadata = manager.load_model_with_metadata(
+    model_class=HistoricalMetaLearner,
+    model_id='production_meta_learner_v1',
+    data=data,
+    static_data=static_data
+)
+```
+
+#### Model Backup and Restore
+```python
+from monthly_forecasting.scr.model_persistence import create_model_backup, restore_model_from_backup
+
+# Create backup
+backup_path = create_model_backup(
+    model=meta_learner,
+    backup_path='/path/to/backup/meta_learner_backup',
+    compression=True
+)
+
+# Restore from backup
+restored_model, metadata = restore_model_from_backup(
+    backup_path=backup_path,
+    model_class=HistoricalMetaLearner
+)
+```
+
+### Performance Metrics
+
+The framework uses comprehensive evaluation metrics:
+
+#### Available Metrics
+- **R² (Coefficient of Determination)**: `r2_score(observed, predicted)`
+- **RMSE (Root Mean Square Error)**: `rmse(observed, predicted)`
+- **NRMSE (Normalized RMSE)**: `nrmse(observed, predicted)`
+- **MAE (Mean Absolute Error)**: `mae(observed, predicted)`
+- **MAPE (Mean Absolute Percentage Error)**: `mape(observed, predicted)`
+- **NSE (Nash-Sutcliffe Efficiency)**: `nse(observed, predicted)`
+- **KGE (Kling-Gupta Efficiency)**: `kge(observed, predicted)`
+- **Bias**: `bias(observed, predicted)`
+- **PBIAS (Percent Bias)**: `pbias(observed, predicted)`
+
+#### Usage
+```python
+from monthly_forecasting.scr.evaluation_utils import calculate_all_metrics
+
+# Calculate all metrics
+metrics = calculate_all_metrics(observed, predicted)
+
+# Get specific metric
+rmse_value = rmse(observed, predicted)
+```
+
+### Ensemble Utilities
+
+#### EnsembleBuilder
+```python
+from monthly_forecasting.scr.ensemble_utils import EnsembleBuilder
+
+# Create ensemble builder
+builder = EnsembleBuilder(ensemble_method='weighted_mean')
+
+# Create simple ensemble
+ensemble_df = builder.create_simple_ensemble(predictions_dict, weights)
+
+# Create performance-weighted ensemble
+ensemble_df = builder.create_performance_weighted_ensemble(
+    predictions_dict, 
+    performance_metrics, 
+    metric_type='error'
+)
+```
+
+### Best Practices
+
+#### Model Development
+1. **Use LOOCV for validation**: Always use `calibrate_model_and_hindcast()` for proper validation
+2. **Include multiple metrics**: Use ensemble of metrics for robust evaluation
+3. **Enable basin-specific weighting**: Set `basin_specific=True` for location-aware weighting
+4. **Use temporal weighting**: Set `temporal_weighting=True` for seasonal adaptation
+5. **Apply weight smoothing**: Use `weight_smoothing=0.1` to avoid extreme weights
+
+#### Production Deployment
+1. **Save models with metadata**: Use `ModelPersistenceManager` for comprehensive saving
+2. **Include predictions in saves**: Set `include_predictions=True` for complete model state
+3. **Regular backups**: Use `create_model_backup()` for disaster recovery
+4. **Monitor performance**: Track performance over time with `PerformanceTracker`
+5. **Version control**: Use unique model IDs with version information
+
+#### Performance Optimization
+1. **Cache performance calculations**: Reuse historical performance calculations
+2. **Use appropriate sample sizes**: Set `min_samples_per_basin` based on data availability
+3. **Optimize weight computation**: Use vectorized operations where possible
+4. **Monitor memory usage**: Large prediction datasets may require memory management
 
 ### Next Steps for Future Development
 1. **Phase 2: Advanced Meta-Model Framework** (GBT, MLP, SVR meta-models)
 2. **Phase 3: Distributional Meta-Learning** (Neural networks for uncertainty)
 3. **Enhanced Testing**: Fix minor test issues and expand coverage
-4. **Documentation**: API documentation and user guides
-5. **Performance Optimization**: Large-scale deployment optimizations
+4. **Performance Optimization**: Large-scale deployment optimizations
+5. **Extended Documentation**: User guides and tutorials
 
 ## Review Points
 

@@ -18,8 +18,8 @@ from .base_meta_learner import BaseMetaLearner
 from .historical_meta_learner import HistoricalMetaLearner
 
 __all__ = [
-    'BaseMetaLearner',
-    'HistoricalMetaLearner',
+    "BaseMetaLearner",
+    "HistoricalMetaLearner",
 ]
 
-__version__ = '1.0.0'
+__version__ = "1.0.0"
