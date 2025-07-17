@@ -201,12 +201,8 @@ class HistoricalMetaLearner(BaseMetaLearner):
         weights = {}
 
         if invert_metric:
-            # For error metrics, use inverse weighting
-            # Add small epsilon to avoid division by zero
-            epsilon = 1e-10
-            inv_performance = {
-                k: 1.0 / (v + epsilon) for k, v in performance_values.items()
-            }
+            # For error metrics, use inverse weighting with robust division by zero protection
+            inv_performance = self._safe_inverse_weighting(performance_values)
             total_inv_perf = sum(inv_performance.values())
 
             for model_id in performance_data.keys():
@@ -228,15 +224,116 @@ class HistoricalMetaLearner(BaseMetaLearner):
                 # All performances are zero or negative, use uniform weights
                 weights = {model_id: 1.0 for model_id in performance_data.keys()}
 
-        # Apply smoothing to avoid extreme weights
+        # Apply confidence-weighted smoothing to avoid extreme weights
         if self.weight_smoothing > 0:
-            uniform_weight = 1.0 / len(weights)
-            for model_id in weights:
-                weights[model_id] = (1 - self.weight_smoothing) * weights[
-                    model_id
-                ] + self.weight_smoothing * uniform_weight
+            weights = self._apply_confidence_weighted_smoothing(weights, performance_data)
 
         return weights
+
+    def _calculate_sample_size(self, model_id: str) -> int:
+        """Calculate the sample size for a given model."""
+        if model_id not in self.base_model_predictions:
+            return 0
+        
+        predictions = self.base_model_predictions[model_id]
+        # Count non-null predictions
+        return len(predictions.dropna())
+    
+    def _calculate_performance_stability(self, model_id: str, performance_data: Dict[str, Dict[str, float]]) -> float:
+        """Calculate performance stability for a given model."""
+        if model_id not in performance_data:
+            return 0.0
+        
+        # If we have historical performance data, calculate stability across different periods
+        if self.historical_performance and model_id in self.historical_performance:
+            hist_perf = self.historical_performance[model_id]
+            
+            # Calculate coefficient of variation for temporal performance if available
+            if 'temporal' in hist_perf and len(hist_perf['temporal']) > 1:
+                temporal_values = [perf.get('rmse', 0) for perf in hist_perf['temporal'].values()]
+                if len(temporal_values) > 1:
+                    mean_val = np.mean(temporal_values)
+                    std_val = np.std(temporal_values)
+                    if mean_val > 0:
+                        cv = std_val / mean_val
+                        # Convert to stability score (lower CV = higher stability)
+                        return max(0.1, 1.0 - min(cv, 1.0))
+            
+            # Fallback to basin-specific stability if available
+            if 'basin' in hist_perf and len(hist_perf['basin']) > 1:
+                basin_values = [perf.get('rmse', 0) for perf in hist_perf['basin'].values()]
+                if len(basin_values) > 1:
+                    mean_val = np.mean(basin_values)
+                    std_val = np.std(basin_values)
+                    if mean_val > 0:
+                        cv = std_val / mean_val
+                        return max(0.1, 1.0 - min(cv, 1.0))
+        
+        # Default moderate stability
+        return 0.5
+    
+    def _apply_confidence_weighted_smoothing(self, weights: Dict[str, float], performance_data: Dict[str, Dict[str, float]]) -> Dict[str, float]:
+        """Apply confidence-aware smoothing based on sample sizes and performance stability."""
+        smoothed_weights = {}
+        uniform_weight = 1.0 / len(weights)
+        
+        for model_id, weight in weights.items():
+            # Calculate confidence based on sample size and performance stability
+            sample_size = self._calculate_sample_size(model_id)
+            performance_stability = self._calculate_performance_stability(model_id, performance_data)
+            
+            # Confidence-based smoothing factor
+            # Higher confidence = less smoothing, lower confidence = more smoothing
+            sample_confidence = min(1.0, sample_size / 100.0)  # Normalize to [0, 1], full confidence at 100+ samples
+            overall_confidence = sample_confidence * performance_stability
+            
+            # Adaptive smoothing factor (higher confidence = less smoothing)
+            smoothing_factor = self.weight_smoothing * (1.0 - overall_confidence)
+            
+            # Apply confidence-weighted smoothing
+            smoothed_weights[model_id] = (1 - smoothing_factor) * weight + smoothing_factor * uniform_weight
+        
+        return smoothed_weights
+    
+    def _safe_inverse_weighting(self, performance_values: Dict[str, float], min_epsilon: float = 1e-6, max_weight_ratio: float = 100.0) -> Dict[str, float]:
+        \"\"\"
+        Compute inverse weights with robust division by zero protection.
+        
+        Args:
+            performance_values: Dictionary of performance values
+            min_epsilon: Minimum epsilon value for numerical stability
+            max_weight_ratio: Maximum ratio between highest and lowest weights
+            
+        Returns:
+            Dictionary of inverse performance weights
+        \"\"\"
+        if not performance_values:
+            return {}
+        
+        # Use larger epsilon for practical stability
+        min_value = min(performance_values.values())
+        epsilon = max(min_epsilon, min_value * 0.1)
+        
+        # Calculate inverse weights
+        inv_performance = {k: 1.0 / (v + epsilon) for k, v in performance_values.items()}
+        
+        # Apply weight capping to prevent extreme weights
+        max_weight = max(inv_performance.values())
+        min_weight = min(inv_performance.values())
+        
+        if max_weight > 0 and min_weight > 0 and max_weight / min_weight > max_weight_ratio:
+            # Apply weight capping
+            weight_cap = min_weight * max_weight_ratio
+            inv_performance = {k: min(v, weight_cap) for k, v in inv_performance.items()}
+            
+            # Log warning for extreme weight capping
+            logger.warning(
+                f\"Applied weight capping: max_weight={max_weight:.6f}, \"
+                f\"min_weight={min_weight:.6f}, ratio={max_weight/min_weight:.2f}, \"
+                f\"capped_at={weight_cap:.6f}\"
+            )
+        
+        return inv_performance
 
     def compute_basin_specific_weights(
         self, basin_code: str, metric: str = None
