@@ -155,10 +155,23 @@ class BaseMetaLearner(BaseForecastModel):
             try:
                 # Extract model name from path
                 if path.endswith(".csv"):
-                    model_name = os.path.basename(path).replace(".csv", "")
+                    #model name is the folder in which the CSV is located
+                    model_name = os.path.basename(os.path.dirname(path))
+                    logger.info(f"Loading predictions for model: {model_name}")
                     csv_path = path
                 else:
+                    # is the last bit of the path
+                    if not path.endswith("/"):
+                        path += "/"
+                    if not os.path.exists(path):
+                        logger.warning(
+                            f"Path does not exist: {path}. Skipping {model_name}"
+                        )
+                        continue
+                    # model name is the last part of the path
+                    # (e.g., /path/to/models/model_name/)
                     model_name = os.path.basename(path.rstrip("/"))
+                    logger.info(f"Loading predictions for model: {model_name}")
                     csv_path = os.path.join(path, "predictions.csv")
 
                 # Load predictions
@@ -185,21 +198,6 @@ class BaseMetaLearner(BaseForecastModel):
                     )
                     continue
 
-                # If there are multiple Q_ columns, use the main one or first one
-                if len(pred_columns) == 1:
-                    pred_col = pred_columns[0]
-                else:
-                    # Look for column that matches model name
-                    model_pred_col = f"Q_{model_name}"
-                    if model_pred_col in pred_columns:
-                        pred_col = model_pred_col
-                    else:
-                        # Use first available prediction column
-                        pred_col = pred_columns[0]
-                        logger.info(
-                            f"Using column '{pred_col}' from {model_name} (found {len(pred_columns)} Q_ columns)"
-                        )
-
                 # Check if Q_obs column exists for observations
                 if "Q_obs" in df.columns:
                     obs_col = "Q_obs"
@@ -211,23 +209,35 @@ class BaseMetaLearner(BaseForecastModel):
                     )
                     obs_col = None
 
-                # Create standardized prediction DataFrame
-                pred_df = df[["date", "code"]].copy()
-                pred_df["Q_pred"] = df[pred_col]
+                # Handle multiple prediction columns - create separate models for each
+                for pred_col in pred_columns:
+                    # Extract suffix from column name (e.g., Q_xgb -> xgb)
+                    col_suffix = pred_col.replace("Q_", "")
+                    
+                    # Create model name: if suffix is same as model_name, use model_name
+                    # Otherwise use model_name_suffix format
+                    if col_suffix.lower() == model_name.lower():
+                        sub_model_name = model_name
+                    else:
+                        sub_model_name = f"{model_name}_{col_suffix}"
 
-                if obs_col:
-                    pred_df["Q_obs"] = df[obs_col]
-                else:
-                    pred_df["Q_obs"] = np.nan
+                    # Create standardized prediction DataFrame for this column
+                    pred_df = df[["date", "code"]].copy()
+                    pred_df["Q_pred"] = df[pred_col]
 
-                pred_df["model"] = model_name
+                    if obs_col:
+                        pred_df["Q_obs"] = df[obs_col]
+                    else:
+                        pred_df["Q_obs"] = np.nan
 
-                # Store predictions
-                loaded_predictions[model_name] = pred_df
+                    pred_df["model"] = sub_model_name
 
-                logger.info(
-                    f"Loaded {len(pred_df)} predictions for model {model_name} from {csv_path}"
-                )
+                    # Store predictions
+                    loaded_predictions[sub_model_name] = pred_df
+
+                    logger.info(
+                        f"Loaded {len(pred_df)} predictions for model {sub_model_name} (column: {pred_col}) from {csv_path}"
+                    )
 
             except Exception as e:
                 logger.error(f"Error loading predictions from {path}: {e}")

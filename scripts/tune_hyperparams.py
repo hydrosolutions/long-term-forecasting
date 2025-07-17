@@ -16,6 +16,7 @@ sys.path.insert(0, str(project_root))
 # Import forecast models
 from monthly_forecasting.forecast_models.LINEAR_REGRESSION import LinearRegressionModel
 from monthly_forecasting.forecast_models.SciRegressor import SciRegressor
+from monthly_forecasting.forecast_models.meta_learners.historical_meta_learner import HistoricalMetaLearner
 from monthly_forecasting.scr import data_loading as dl
 from dev_tools.eval_scr import eval_helper, metric_functions
 
@@ -49,6 +50,11 @@ def load_configuration(config_dir: str) -> Dict[str, Any]:
         "data_config": "data_config.json",
         "path_config": "data_paths.json",
     }
+    
+    # Add meta-learning config if it exists
+    meta_config_path = config_dir / "meta_learning_config.json"
+    if meta_config_path.exists():
+        config_files["meta_learning_config"] = "meta_learning_config.json"
 
     configs = {}
 
@@ -168,6 +174,17 @@ def create_model(
             feature_config=feature_config,
             path_config=path_config,
         )
+    elif model_type == "historical_meta_learner":
+        # Use meta_learning_config if available, otherwise use model_config
+        meta_config = configs.get("meta_learning_config", model_config)
+        model = HistoricalMetaLearner(
+            data=data,
+            static_data=static_data,
+            general_config=general_config,
+            model_config=meta_config,
+            feature_config=feature_config,
+            path_config=path_config,
+        )
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
@@ -187,6 +204,9 @@ Examples:
   
   # Tune SciRegressor with XGBoost ensemble
   python tune_hyperparams.py --config_dir monthly_forecasting_models/XGBoost_AdvancedFeatures --model_name XGBoost_AdvancedFeatures --trials 200
+  
+  # Tune Historical Meta-Learner
+  python tune_hyperparams.py --config_dir example_config/hist_meta --model_name HistoricalMetaLearner --trials 100
   
   # Quick tuning with fewer trials
   python tune_hyperparams.py --config_dir models/test_model --model_name test_model --trials 20 --tuning_years 2

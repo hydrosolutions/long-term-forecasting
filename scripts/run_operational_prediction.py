@@ -21,6 +21,7 @@ sys.path.insert(0, str(project_root))
 # Import forecast models
 from monthly_forecasting.forecast_models.LINEAR_REGRESSION import LinearRegressionModel
 from monthly_forecasting.forecast_models.SciRegressor import SciRegressor
+from monthly_forecasting.forecast_models.meta_learners.historical_meta_learner import HistoricalMetaLearner
 from monthly_forecasting.scr import data_loading as dl
 
 
@@ -54,14 +55,18 @@ PATH_TO_STATIC = os.getenv("PATH_TO_STATIC")
 MODELS_OPERATIONAL = {
     "BaseCase": [
         ("LR", "LR_Q_T_P"),
-        ("SciRegressor", "GradBoostTrees"),
+        ("SciRegressor", "GBT"),
     ],
     "SnowMapper_Based": [
         ("LR", "LR_Q_dSWEdt_T_P"),
         ("LR", "LR_Q_SWE_T"),
         ("LR", "LR_Q_T_P_SWE"),
         ("LR", "LR_Q_SWE"),
-        ("SciRegressor", "NormBased"),
+        ("SciRegressor", "Snow_GBT"),
+        ('SciRegressor', "Snow_GBT_Norm"),
+    ],
+    "MetaLearning": [
+        ("HistoricalMetaLearner", "hist_meta"),
     ],
 }
 
@@ -236,6 +241,11 @@ def load_operational_configs(
         "data_config": "data_config.json",
         "path_config": "data_paths.json",
     }
+    
+    # Add meta-learning config if it exists
+    meta_config_path = config_dir / "meta_learning_config.json"
+    if meta_config_path.exists():
+        config_files["meta_learning_config"] = "meta_learning_config.json"
 
     configs = {}
 
@@ -252,9 +262,12 @@ def load_operational_configs(
 
     # Set model type in general config
     if configs["general_config"]:
-        configs["general_config"]["model_type"] = (
-            "linear_regression" if model_type == "LR" else "sciregressor"
-        )
+        if model_type == "LR":
+            configs["general_config"]["model_type"] = "linear_regression"
+        elif model_type == "SciRegressor":
+            configs["general_config"]["model_type"] = "sciregressor"
+        elif model_type == "HistoricalMetaLearner":
+            configs["general_config"]["model_type"] = "historical_meta_learner"
 
     return configs
 
@@ -321,6 +334,17 @@ def create_model_instance(
             static_data=static_data,
             general_config=general_config,
             model_config=model_config,
+            feature_config=feature_config,
+            path_config=path_config,
+        )
+    elif model_type == "HistoricalMetaLearner":
+        # Use meta_learning_config if available, otherwise use model_config
+        meta_config = configs.get("meta_learning_config", model_config)
+        model = HistoricalMetaLearner(
+            data=data,
+            static_data=static_data,
+            general_config=general_config,
+            model_config=meta_config,
             feature_config=feature_config,
             path_config=path_config,
         )

@@ -164,7 +164,7 @@ class TestHistoricalMetaLearner:
 
             # Check temporal metrics
             temporal_metrics = perf_data["temporal"]
-            assert len(temporal_metrics) == 12  # 12 months
+            assert len(temporal_metrics) == 36  # 36 periods (3 periods per month)
 
     def test_compute_performance_weights(self):
         """Test computation of performance weights."""

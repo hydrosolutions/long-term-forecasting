@@ -744,59 +744,53 @@ class HistoricalMetaLearner(BaseMetaLearner):
         best_params = {}
 
         # Hyperparameter search space
-        smoothing_values = [0.0, 0.05, 0.1, 0.2, 0.3]
-        min_samples_values = [5, 10, 15, 20]
+        smoothing_values = [0.0, 0.1, 0.2, 0.3]
 
         for smoothing in smoothing_values:
-            for min_samples in min_samples_values:
-                # Temporarily set parameters
-                original_smoothing = self.weight_smoothing
-                original_min_samples = self.min_samples_per_basin
+            # Temporarily set parameters
+            original_smoothing = self.weight_smoothing
 
-                self.weight_smoothing = smoothing
-                self.min_samples_per_basin = min_samples
+            self.weight_smoothing = smoothing
+            self.min_samples_per_basin = self.min_samples_per_basin 
 
-                try:
-                    # Evaluate performance with these parameters
-                    hindcast_df = self.calibrate_model_and_hindcast()
+            try:
+                # Evaluate performance with these parameters
+                hindcast_df = self.calibrate_model_and_hindcast()
 
-                    # Calculate performance metric
-                    metrics = calculate_all_metrics(
-                        hindcast_df["Q_obs"], hindcast_df["Q_pred"]
-                    )
+                # Calculate performance metric
+                metrics = calculate_all_metrics(
+                    hindcast_df["Q_obs"], hindcast_df["Q_pred"]
+                )
 
-                    # Use NSE as primary metric for hyperparameter tuning
-                    performance = metrics["nse"]
+                # Use nrmse as primary metric for hyperparameter tuning
+                performance = metrics["nrmse"]
 
-                    if performance > best_performance:
-                        best_performance = performance
-                        best_params = {
-                            "weight_smoothing": smoothing,
-                            "min_samples_per_basin": min_samples,
-                        }
+                if performance < best_performance:
+                    best_performance = performance
+                    best_params = {
+                        "weight_smoothing": smoothing,
+                    }
 
-                except Exception as e:
-                    logger.warning(
-                        f"Error with smoothing={smoothing}, min_samples={min_samples}: {e}"
-                    )
+            except Exception as e:
+                logger.warning(
+                    f"Error with smoothing={smoothing}: {e}"
+                )
 
-                finally:
-                    # Restore original parameters
-                    self.weight_smoothing = original_smoothing
-                    self.min_samples_per_basin = original_min_samples
+            finally:
+                # Restore original parameters
+                self.weight_smoothing = original_smoothing
 
         if best_params:
             # Set best parameters
             self.weight_smoothing = best_params["weight_smoothing"]
-            self.min_samples_per_basin = best_params["min_samples_per_basin"]
 
             logger.info(
-                f"Best hyperparameters: {best_params}, NSE: {best_performance:.4f}"
+                f"Best hyperparameters: {best_params}, nrmse: {best_performance:.4f}"
             )
 
             return (
                 True,
-                f"Hyperparameter tuning completed. Best NSE: {best_performance:.4f}",
+                f"Hyperparameter tuning completed. Best nrmse: {best_performance:.4f}",
             )
         else:
             return False, "Hyperparameter tuning failed"
