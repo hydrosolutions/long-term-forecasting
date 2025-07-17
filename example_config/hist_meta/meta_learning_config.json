@@ -1,0 +1,55 @@
+{
+    "ensemble_method": "weighted_mean",
+    "weighting_strategy": "performance_based",
+    "performance_metric": "rmse",
+    "basin_specific": true,
+    "temporal_weighting": true,
+    "min_samples_per_basin": 10,
+    "min_samples_per_period": 3,
+    "weight_smoothing": 0.1,
+    "fallback_uniform": true,
+    "confidence_threshold": 0.5,
+    "max_weight_ratio": 100.0,
+    "available_metrics": [
+        "rmse",
+        "nrmse", 
+        "mae",
+        "mape",
+        "r2",
+        "nse",
+        "kge",
+        "bias",
+        "pbias"
+    ],
+    "error_metrics": [
+        "rmse",
+        "nrmse",
+        "mae", 
+        "mape",
+        "bias",
+        "pbias"
+    ],
+    "skill_metrics": [
+        "r2",
+        "nse", 
+        "kge"
+    ],
+    "cross_validation": {
+        "method": "leave_one_year_out",
+        "n_folds": null,
+        "test_size": null,
+        "random_state": 42
+    },
+    "operational_settings": {
+        "recent_predictions_window_days": 30,
+        "prediction_confidence_threshold": 0.7,
+        "ensemble_size_threshold": 2
+    },
+    "model_persistence": {
+        "save_predictions": true,
+        "save_performance_history": true,
+        "save_weights": true,
+        "compression": true,
+        "backup_frequency": "daily"
+    }
+}

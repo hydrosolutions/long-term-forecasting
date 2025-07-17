@@ -1,0 +1,113 @@
+{
+    "experiment_name": "HistoricalMetaLearner_Baseline",
+    "model_type": "historical_meta_learner",
+    "description": "Historical performance-based meta-learning with period-based temporal weighting",
+    "version": "1.0.0",
+    "base_models": [
+        "xgb",
+        "lgbm", 
+        "catboost"
+    ],
+    "prediction_horizon": 30,
+    "offset": null,
+    "snow_vars": [
+        "SWE",
+        "ROF"
+    ],
+    "feature_cols": [
+        "discharge",
+        "P",
+        "T",
+        "SWE",
+        "ROF"
+    ],
+    "static_features": [
+        "LAT",
+        "LON",
+        "gl_fr",
+        "h_mean",
+        "h_min",
+        "h_max",
+        "slope",
+        "area_km2"
+    ],
+    "cat_features": [
+        "code_str"
+    ],
+    "target_column": "Q",
+    "training_settings": {
+        "hparam_tuning_years": 3,
+        "num_test_years": 2,
+        "early_stopping_val_fraction": 0.1,
+        "n_trials": 50,
+        "cross_validation_method": "leave_one_year_out"
+    },
+    "feature_engineering": {
+        "use_lr_predictors": true,
+        "use_mutual_info": false,
+        "remove_correlated_features": false,
+        "number_of_features": 50,
+        "handle_na": "long_term_mean",
+        "impute_method": "mean",
+        "normalize": true,
+        "normalization_type": "per_basin",
+        "num_elevation_zones": 1
+    },
+    "meta_learning": {
+        "ensemble_method": "weighted_mean",
+        "weighting_strategy": "performance_based",
+        "performance_metric": "rmse",
+        "basin_specific": true,
+        "temporal_weighting": true,
+        "weight_smoothing": 0.1,
+        "confidence_weighted_smoothing": true,
+        "min_samples_per_basin": 10,
+        "min_samples_per_period": 3,
+        "max_weight_ratio": 100.0,
+        "fallback_uniform": true
+    },
+    "evaluation": {
+        "metrics": [
+            "rmse",
+            "nrmse",
+            "mae",
+            "mape", 
+            "r2",
+            "nse",
+            "kge",
+            "bias",
+            "pbias"
+        ],
+        "primary_metric": "rmse",
+        "basin_specific_evaluation": true,
+        "temporal_evaluation": true,
+        "seasonal_evaluation": true
+    },
+    "operational": {
+        "recent_predictions_window_days": 30,
+        "prediction_confidence_threshold": 0.7,
+        "ensemble_size_threshold": 2,
+        "auto_retrain_frequency": "monthly",
+        "performance_monitoring": true
+    },
+    "data_filtering": {
+        "rivers_to_exclude": [
+            1111,
+            2222,
+            3333
+        ],
+        "unnatural_rivers": [
+            1111,
+            2222,
+            3333,
+            44444
+        ],
+        "min_data_years": 3,
+        "max_missing_data_fraction": 0.3
+    },
+    "reproducibility": {
+        "random_state": 42,
+        "deterministic": true,
+        "save_random_states": true
+    }
+}

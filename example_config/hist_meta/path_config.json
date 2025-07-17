@@ -1,0 +1,34 @@
+{
+    "data_paths": {
+        "discharge": "../../../data/discharge.csv",
+        "forcing": "../../../data/forcing.csv",
+        "static_data": "../../../static.csv",
+        "swe": "../../../data/snow/kyrgyzstan_ts/SWE",
+        "hs": "../../../data/snow/kyrgyzstan_ts/HS",
+        "rof": "../../../data/snow/kyrgyzstan_ts/RoF"
+    },
+    "model_paths": {
+        "home": "../monthly_forecasting_models/HistoricalMetaLearner",
+        "trained_models": "../monthly_forecasting_models/HistoricalMetaLearner/trained_models",
+        "artifacts": "../monthly_forecasting_models/HistoricalMetaLearner/artifacts",
+        "checkpoints": "../monthly_forecasting_models/HistoricalMetaLearner/checkpoints"
+    },
+    "output_paths": {
+        "results": "../monthly_forecasting_results/HistoricalMetaLearner",
+        "ensemble_predictions": "../monthly_forecasting_results/HistoricalMetaLearner/ensemble_predictions.csv",
+        "performance_metrics": "../monthly_forecasting_results/HistoricalMetaLearner/performance_metrics.csv",
+        "ensemble_weights": "../monthly_forecasting_results/HistoricalMetaLearner/ensemble_weights.csv",
+        "logs": "../monthly_forecasting_results/HistoricalMetaLearner/logs",
+        "visualizations": "../monthly_forecasting_results/HistoricalMetaLearner/visualizations"
+    },
+    "base_model_paths": {
+        "xgb": "../monthly_forecasting_results/HistoricalMetaLearner/XGB/predictions.csv",
+        "lgbm": "../monthly_forecasting_results/HistoricalMetaLearner/LGBM/predictions.csv",
+        "catboost": "../monthly_forecasting_results/HistoricalMetaLearner/CatBoost/predictions.csv"
+    },
+    "backup_paths": {
+        "daily": "../monthly_forecasting_backups/HistoricalMetaLearner/daily",
+        "weekly": "../monthly_forecasting_backups/HistoricalMetaLearner/weekly",
+        "monthly": "../monthly_forecasting_backups/HistoricalMetaLearner/monthly"
+    }
+}
