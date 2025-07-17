@@ -185,11 +185,15 @@ class HistoricalMetaLearner(BaseMetaLearner):
             # Error metrics should be inverted (lower is better)
             invert_metric = metric in ["rmse", "nrmse", "mae", "mape", "bias", "pbias"]
 
-        # Extract performance values
+        # Extract performance values with special handling for bias metrics
         performance_values = {}
         for model_id, metrics in performance_data.items():
             if metric in metrics and not np.isnan(metrics[metric]):
-                performance_values[model_id] = metrics[metric]
+                metric_value = metrics[metric]
+                # For bias metrics, use absolute values since direction matters more than magnitude
+                if metric in ["bias", "pbias"]:
+                    metric_value = abs(metric_value)
+                performance_values[model_id] = metric_value
 
         if not performance_values:
             logger.warning(
@@ -293,10 +297,15 @@ class HistoricalMetaLearner(BaseMetaLearner):
             # Apply confidence-weighted smoothing
             smoothed_weights[model_id] = (1 - smoothing_factor) * weight + smoothing_factor * uniform_weight
         
+        # Ensure weights sum to 1.0 (normalize for numerical precision)
+        total_weight = sum(smoothed_weights.values())
+        if total_weight > 0:
+            smoothed_weights = {k: v / total_weight for k, v in smoothed_weights.items()}
+        
         return smoothed_weights
     
     def _safe_inverse_weighting(self, performance_values: Dict[str, float], min_epsilon: float = 1e-6, max_weight_ratio: float = 100.0) -> Dict[str, float]:
-        \"\"\"
+        """
         Compute inverse weights with robust division by zero protection.
         
         Args:
@@ -306,7 +315,7 @@ class HistoricalMetaLearner(BaseMetaLearner):
             
         Returns:
             Dictionary of inverse performance weights
-        \"\"\"
+        """
         if not performance_values:
             return {}
         
@@ -328,12 +337,28 @@ class HistoricalMetaLearner(BaseMetaLearner):
             
             # Log warning for extreme weight capping
             logger.warning(
-                f\"Applied weight capping: max_weight={max_weight:.6f}, \"
-                f\"min_weight={min_weight:.6f}, ratio={max_weight/min_weight:.2f}, \"
-                f\"capped_at={weight_cap:.6f}\"
+                f"Applied weight capping: max_weight={max_weight:.6f}, "
+                f"min_weight={min_weight:.6f}, ratio={max_weight/min_weight:.2f}, "
+                f"capped_at={weight_cap:.6f}"
             )
         
         return inv_performance
+    
+    def _date_to_period(self, date) -> str:
+        """Convert a date to period string (e.g., '1-10', '1-20', '1-end')."""
+        date_obj = pd.to_datetime(date)
+        day = date_obj.day
+        month = date_obj.month
+        
+        # Determine period suffix based on day of month
+        if day <= 10:
+            period_suffix = "10"
+        elif day <= 20:
+            period_suffix = "20"
+        else:
+            period_suffix = "end"
+        
+        return f"{month}-{period_suffix}"
 
     def compute_basin_specific_weights(
         self, basin_code: str, metric: str = None
@@ -528,11 +553,11 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
                     # Create ensemble predictions for each test sample
                     for date, code in common_test_index:
-                        # Get month for temporal weighting
-                        month = pd.to_datetime(date).month
+                        # Get period for temporal weighting
+                        period = self._date_to_period(date)
 
                         # Compute weights for this specific context
-                        weights = self.compute_weights(basin_code=code, month=month)
+                        weights = self.compute_weights(basin_code=code, period=period)
 
                         # Collect predictions from all models
                         model_predictions = {}
@@ -626,10 +651,10 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
             # Only use recent predictions for operational mode
             if pred_date >= today - pd.Timedelta(days=30):
-                month = pred_date.month
+                period = self._date_to_period(pred_date)
 
                 # Compute context-specific weights
-                weights = self.compute_weights(basin_code=code, month=month)
+                weights = self.compute_weights(basin_code=code, period=period)
 
                 # Create weighted ensemble prediction
                 weighted_pred = 0.0

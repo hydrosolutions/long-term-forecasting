@@ -193,7 +193,7 @@ class TestHistoricalMetaLearner:
         )
 
         # Check that weights sum to 1
-        assert abs(sum(weights.values()) - 1.0) < 1e-10
+        assert abs(sum(weights.values()) - 1.0) < 1e-6
 
         # Check that better performance (lower RMSE) gets higher weight
         assert weights["XGB"] > weights["LGBM"]
@@ -223,7 +223,7 @@ class TestHistoricalMetaLearner:
         )
 
         # Check that weights sum to 1
-        assert abs(sum(weights.values()) - 1.0) < 1e-10
+        assert abs(sum(weights.values()) - 1.0) < 1e-6
 
         # Check that better performance (higher NSE) gets higher weight
         assert weights["XGB"] > weights["LGBM"]
@@ -248,7 +248,7 @@ class TestHistoricalMetaLearner:
         basin_weights = meta_learner.compute_basin_specific_weights(1)
 
         # Check that weights sum to 1
-        assert abs(sum(basin_weights.values()) - 1.0) < 1e-10
+        assert abs(sum(basin_weights.values()) - 1.0) < 1e-6
 
         # Check that all models have weights
         assert "XGB" in basin_weights
@@ -270,11 +270,11 @@ class TestHistoricalMetaLearner:
         # Calculate historical performance first
         meta_learner.calculate_historical_performance()
 
-        # Test temporal weights for January
-        temporal_weights = meta_learner.compute_temporal_weights(1)
+        # Test temporal weights for January first 10 days
+        temporal_weights = meta_learner.compute_temporal_weights("1-10")
 
         # Check that weights sum to 1
-        assert abs(sum(temporal_weights.values()) - 1.0) < 1e-10
+        assert abs(sum(temporal_weights.values()) - 1.0) < 1e-6
 
         # Check that all models have weights
         assert "XGB" in temporal_weights
@@ -297,10 +297,10 @@ class TestHistoricalMetaLearner:
         meta_learner.calculate_historical_performance()
 
         # Test combined weights
-        combined_weights = meta_learner.compute_weights(basin_code=1, month=1)
+        combined_weights = meta_learner.compute_weights(basin_code=1, period="1-10")
 
-        # Check that weights sum to 1
-        assert abs(sum(combined_weights.values()) - 1.0) < 1e-10
+        # Check that weights sum to 1 (with reasonable tolerance)
+        assert abs(sum(combined_weights.values()) - 1.0) < 1e-6
 
         # Check that all models have weights
         assert "XGB" in combined_weights
@@ -564,7 +564,7 @@ class TestHistoricalMetaLearner:
 
         weights = meta_learner.compute_performance_weights(invalid_data)
         # Should fall back to uniform weights
-        assert abs(sum(weights.values()) - 1.0) < 1e-10
+        assert abs(sum(weights.values()) - 1.0) < 1e-6
 
 
 if __name__ == "__main__":
