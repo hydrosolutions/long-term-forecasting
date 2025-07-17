@@ -14,6 +14,7 @@ import logging
 
 from .base_meta_learner import BaseMetaLearner
 from monthly_forecasting.scr.evaluation_utils import calculate_all_metrics
+from monthly_forecasting.scr.data_utils import get_periods
 
 logger = logging.getLogger(__name__)
 
@@ -122,24 +123,26 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
                 historical_perf[model_id]["basin"] = basin_perf
 
-            # Temporal performance (monthly)
+            # Temporal performance (period-based - 36 periods per year)
             if self.temporal_weighting:
                 temporal_perf = {}
                 predictions_copy = predictions.copy()
-                predictions_copy["month"] = pd.to_datetime(
-                    predictions_copy["date"]
-                ).dt.month
+                # Add period information using get_periods function
+                predictions_copy = get_periods(predictions_copy)
 
-                for month in range(1, 13):
-                    month_data = predictions_copy[predictions_copy["month"] == month]
-                    if len(month_data) >= 5:  # Minimum samples for monthly statistics
-                        month_metrics = calculate_all_metrics(
-                            month_data["Q_obs"], month_data["Q_pred"]
+                # Get unique periods from the data
+                unique_periods = predictions_copy["period"].unique()
+                
+                for period in unique_periods:
+                    period_data = predictions_copy[predictions_copy["period"] == period]
+                    if len(period_data) >= 3:  # Minimum samples for period statistics (reduced from 5 due to smaller period size)
+                        period_metrics = calculate_all_metrics(
+                            period_data["Q_obs"], period_data["Q_pred"]
                         )
-                        temporal_perf[month] = month_metrics
+                        temporal_perf[period] = period_metrics
                     else:
                         # Fallback to overall performance
-                        temporal_perf[month] = overall_metrics
+                        temporal_perf[period] = overall_metrics
 
                 historical_perf[model_id]["temporal"] = temporal_perf
 
@@ -262,13 +265,13 @@ class HistoricalMetaLearner(BaseMetaLearner):
         return self.compute_performance_weights(basin_performance, metric)
 
     def compute_temporal_weights(
-        self, month: int, metric: str = None
+        self, period: str, metric: str = None
     ) -> Dict[str, float]:
         """
-        Compute weights for a specific month.
+        Compute weights for a specific period.
 
         Args:
-            month: Month (1-12) to compute weights for
+            period: Period (e.g., "1-10", "1-20", "1-end", "2-10", etc.) to compute weights for
             metric: Performance metric to use
 
         Returns:
@@ -279,8 +282,8 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
         temporal_performance = {}
         for model_id, perf_data in self.historical_performance.items():
-            if "temporal" in perf_data and month in perf_data["temporal"]:
-                temporal_performance[model_id] = perf_data["temporal"][month]
+            if "temporal" in perf_data and period in perf_data["temporal"]:
+                temporal_performance[model_id] = perf_data["temporal"][period]
             else:
                 # Fallback to overall performance
                 temporal_performance[model_id] = perf_data["overall"]
@@ -288,14 +291,14 @@ class HistoricalMetaLearner(BaseMetaLearner):
         return self.compute_performance_weights(temporal_performance, metric)
 
     def compute_weights(
-        self, basin_code: str = None, month: int = None, metric: str = None
+        self, basin_code: str = None, period: str = None, metric: str = None
     ) -> Dict[str, float]:
         """
         Compute weights for ensemble combination.
 
         Args:
             basin_code: Basin code for basin-specific weights
-            month: Month for temporal weights
+            period: Period (e.g., "1-10", "1-20", "1-end") for temporal weights
             metric: Performance metric to use
 
         Returns:
@@ -310,10 +313,10 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
         # Compute weights based on strategy
         if self.basin_specific and basin_code is not None:
-            if self.temporal_weighting and month is not None:
+            if self.temporal_weighting and period is not None:
                 # Combined basin-specific and temporal weighting
                 basin_weights = self.compute_basin_specific_weights(basin_code, metric)
-                temporal_weights = self.compute_temporal_weights(month, metric)
+                temporal_weights = self.compute_temporal_weights(period, metric)
 
                 # Combine weights (geometric mean)
                 combined_weights = {}
@@ -338,9 +341,9 @@ class HistoricalMetaLearner(BaseMetaLearner):
                 # Basin-specific weighting only
                 return self.compute_basin_specific_weights(basin_code, metric)
 
-        elif self.temporal_weighting and month is not None:
+        elif self.temporal_weighting and period is not None:
             # Temporal weighting only
-            return self.compute_temporal_weights(month, metric)
+            return self.compute_temporal_weights(period, metric)
 
         else:
             # Overall performance weighting
