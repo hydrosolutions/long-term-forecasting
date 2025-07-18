@@ -340,11 +340,6 @@ def get_fallback_weights(
     if fallback_strategy == "equal":
         weight_value = 1.0 / len(model_columns)
         return {model: weight_value for model in model_columns}
-    elif fallback_strategy == "random":
-        # Generate random weights and normalize
-        weights = np.random.random(len(model_columns))
-        weights = weights / np.sum(weights)
-        return {model: weight for model, weight in zip(model_columns, weights)}
     else:
         raise ValueError(f"Unsupported fallback strategy: {fallback_strategy}")
 
