@@ -143,106 +143,126 @@ class BaseMetaLearner(BaseForecastModel):
                         are the performance metrics (e.g., MSE, R2).
         """
         from monthly_forecasting.scr.metrics import get_metric_function
-        
+
         logger.info(f"Calculating historical performance using metric: {self.metric}")
-        
+
         # Get the metric function
         metric_func = get_metric_function(self.metric)
-        
+
         # Initialize results list
         results = []
-        
+
         # Get target column name (assuming it's 'Q_obs')
-        target_col = 'Q_obs'
+        target_col = "Q_obs"
         if target_col not in base_predictors.columns:
-            raise ValueError(f"Target column '{target_col}' not found in base_predictors")
-        
+            raise ValueError(
+                f"Target column '{target_col}' not found in base_predictors"
+            )
+
         # Calculate performance for each combination of code and period
-        for code in base_predictors['code'].unique():
-            for period in base_predictors['period'].unique():
+        for code in base_predictors["code"].unique():
+            for period in base_predictors["period"].unique():
                 # Filter data for this code and period
-                mask = (base_predictors['code'] == code) & (base_predictors['period'] == period)
+                mask = (base_predictors["code"] == code) & (
+                    base_predictors["period"] == period
+                )
                 subset_data = base_predictors[mask]
-                
+
                 if len(subset_data) < self.num_samples_val:
-                    logger.debug(f"Insufficient data for code {code}, period {period}: {len(subset_data)} < {self.num_samples_val}")
+                    logger.debug(
+                        f"Insufficient data for code {code}, period {period}: {len(subset_data)} < {self.num_samples_val}"
+                    )
                     # Use global performance for this period if insufficient local data
-                    global_mask = base_predictors['period'] == period
+                    global_mask = base_predictors["period"] == period
                     subset_data = base_predictors[global_mask]
-                    
+
                     if len(subset_data) < self.num_samples_val:
-                        logger.debug(f"Insufficient global data for period {period}: {len(subset_data)} < {self.num_samples_val}")
+                        logger.debug(
+                            f"Insufficient global data for period {period}: {len(subset_data)} < {self.num_samples_val}"
+                        )
                         continue
-                
+
                 # Calculate performance for each model
-                performance_row = {'code': code, 'period': period}
-                
+                performance_row = {"code": code, "period": period}
+
                 for model_name in model_names:
                     if model_name not in subset_data.columns:
                         logger.debug(f"Model {model_name} not found in data")
                         performance_row[model_name] = np.nan
                         continue
-                    
+
                     # Get observed and predicted values
                     observed = subset_data[target_col].values
                     predicted = subset_data[model_name].values
-                    
+
                     # Remove NaN pairs
                     valid_mask = ~(np.isnan(observed) | np.isnan(predicted))
-                    
+
                     if np.sum(valid_mask) < 2:
-                        logger.debug(f"Insufficient valid data for model {model_name}, code {code}, period {period}")
+                        logger.debug(
+                            f"Insufficient valid data for model {model_name}, code {code}, period {period}"
+                        )
                         performance_row[model_name] = np.nan
                         continue
-                    
+
                     observed_clean = observed[valid_mask]
                     predicted_clean = predicted[valid_mask]
-                    
+
                     # Calculate performance metric
                     try:
                         performance_value = metric_func(observed_clean, predicted_clean)
                         performance_row[model_name] = performance_value
                     except Exception as e:
-                        logger.debug(f"Error calculating {self.metric} for model {model_name}: {str(e)}")
+                        logger.debug(
+                            f"Error calculating {self.metric} for model {model_name}: {str(e)}"
+                        )
                         performance_row[model_name] = np.nan
-                
+
                 results.append(performance_row)
-        
+
         # Convert results to DataFrame
         performance_df = pd.DataFrame(results)
-        
+
         # Fill remaining NaN values with global performance
         for model_name in model_names:
             if model_name not in performance_df.columns:
                 continue
-                
+
             # Calculate global performance by period for models with NaN values
-            for period in performance_df['period'].unique():
-                period_mask = performance_df['period'] == period
+            for period in performance_df["period"].unique():
+                period_mask = performance_df["period"] == period
                 nan_mask = performance_df[model_name].isna()
-                
+
                 if np.any(period_mask & nan_mask):
                     # Calculate global performance for this period
-                    global_data = base_predictors[base_predictors['period'] == period]
-                    
-                    if len(global_data) >= self.num_samples_val and model_name in global_data.columns:
+                    global_data = base_predictors[base_predictors["period"] == period]
+
+                    if (
+                        len(global_data) >= self.num_samples_val
+                        and model_name in global_data.columns
+                    ):
                         observed = global_data[target_col].values
                         predicted = global_data[model_name].values
-                        
+
                         valid_mask = ~(np.isnan(observed) | np.isnan(predicted))
-                        
+
                         if np.sum(valid_mask) >= 2:
                             try:
                                 global_performance = metric_func(
-                                    observed[valid_mask], 
-                                    predicted[valid_mask]
+                                    observed[valid_mask], predicted[valid_mask]
                                 )
-                                
+
                                 # Fill NaN values with global performance
-                                performance_df.loc[period_mask & nan_mask, model_name] = global_performance
-                                
+                                performance_df.loc[
+                                    period_mask & nan_mask, model_name
+                                ] = global_performance
+
                             except Exception as e:
-                                logger.debug(f"Error calculating global {self.metric} for model {model_name}: {str(e)}")
-        
-        logger.info(f"Historical performance calculated for {len(performance_df)} code-period combinations")
+                                logger.debug(
+                                    f"Error calculating global {self.metric} for model {model_name}: {str(e)}"
+                                )
+
+        logger.info(
+            f"Historical performance calculated for {len(performance_df)} code-period combinations"
+        )
         return performance_df

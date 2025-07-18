@@ -411,5 +411,5 @@ def get_metric_function(metric_name: str):
         raise ValueError(
             f"Metric '{metric_name}' is not supported. Available metrics: {available_metrics}"
         )
-    
+
     return METRIC_FUNCTIONS[metric_name]
