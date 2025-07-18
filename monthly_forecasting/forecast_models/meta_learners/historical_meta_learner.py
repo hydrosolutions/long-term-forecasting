@@ -16,6 +16,7 @@ from monthly_forecasting.forecast_models.meta_learners.base_meta_learner import 
 )
 
 from monthly_forecasting.scr import FeatureExtractor as FE
+from monthly_forecasting.scr import data_utils as du
 
 
 class HistoricalMetaLearner(BaseMetaLearner):
@@ -93,9 +94,8 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
         # 4. Create the periods columns
         logger.info("Creating period columns")
-        from monthly_forecasting.scr.meta_utils import get_periods
 
-        preprocessed_data = get_periods(merged_data, period_type="monthly")
+        preprocessed_data = du.get_periods(merged_data)
 
         logger.info(f"Preprocessed data shape: {preprocessed_data.shape}")
         logger.info(f"Model names: {model_names}")
