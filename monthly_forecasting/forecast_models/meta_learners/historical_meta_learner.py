@@ -47,7 +47,7 @@ class HistoricalMetaLearner(BaseMetaLearner):
         )
 
         self.num_samples_val = self.model_config.get("num_samples_val", 10)
-        self.metric = self.model_config.get("metric", "mse")
+        self.metric = self.model_config.get("metric", "nmse")
 
         available_metrics = ["nmse", "r2", "nmae", "nrmse"]
 

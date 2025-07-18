@@ -30,6 +30,7 @@ sys.path.insert(0, str(project_root))
 # Import forecast models
 from monthly_forecasting.forecast_models.LINEAR_REGRESSION import LinearRegressionModel
 from monthly_forecasting.forecast_models.SciRegressor import SciRegressor
+from monthly_forecasting.forecast_models.meta_learners.historical_meta_learner import HistoricalMetaLearner
 from monthly_forecasting.scr import data_loading as dl
 from dev_tools.eval_scr import eval_helper, metric_functions
 
@@ -175,6 +176,15 @@ def create_model(
         )
     elif model_type == "sciregressor":
         model = SciRegressor(
+            data=data,
+            static_data=static_data,
+            general_config=general_config,
+            model_config=model_config,
+            feature_config=feature_config,
+            path_config=path_config,
+        )
+    elif model_type == "historical_meta_learner":
+        model = HistoricalMetaLearner(
             data=data,
             static_data=static_data,
             general_config=general_config,
