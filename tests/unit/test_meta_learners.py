@@ -84,12 +84,16 @@ class TestHistoricalMetaLearnerBasic:
         assert meta_learner.metric == "nmse"
         assert meta_learner.invert_metric is True
 
-    def test_initialization_invalid_metric(self, sample_data, sample_static_data, sample_configs):
+    def test_initialization_invalid_metric(
+        self, sample_data, sample_static_data, sample_configs
+    ):
         """Test initialization with invalid metric raises error."""
         general_config, model_config, feature_config, path_config = sample_configs
         model_config["metric"] = "invalid_metric"
-        
-        with pytest.raises(ValueError, match="Metric 'invalid_metric' is not supported"):
+
+        with pytest.raises(
+            ValueError, match="Metric 'invalid_metric' is not supported"
+        ):
             HistoricalMetaLearner(
                 data=sample_data,
                 static_data=sample_static_data,
@@ -99,13 +103,15 @@ class TestHistoricalMetaLearnerBasic:
                 path_config=path_config,
             )
 
-    def test_initialization_default_values(self, sample_data, sample_static_data, sample_configs):
+    def test_initialization_default_values(
+        self, sample_data, sample_static_data, sample_configs
+    ):
         """Test initialization with default values."""
         general_config, model_config, feature_config, path_config = sample_configs
         # Remove optional parameters to test defaults
         del model_config["num_samples_val"]
         del model_config["metric"]
-        
+
         learner = HistoricalMetaLearner(
             data=sample_data,
             static_data=sample_static_data,
@@ -114,14 +120,14 @@ class TestHistoricalMetaLearnerBasic:
             feature_config=feature_config,
             path_config=path_config,
         )
-        
+
         assert learner.num_samples_val == 10  # default value
         assert learner.metric == "nmse"  # default value
 
     def test_invert_metric_logic(self, sample_data, sample_static_data, sample_configs):
         """Test that invert_metric is set correctly for different metrics."""
         general_config, model_config, feature_config, path_config = sample_configs
-        
+
         # Test error metric (should be inverted)
         model_config["metric"] = "nmse"
         learner = HistoricalMetaLearner(
@@ -133,7 +139,7 @@ class TestHistoricalMetaLearnerBasic:
             path_config=path_config,
         )
         assert learner.invert_metric is True
-        
+
         # Test accuracy metric (should not be inverted)
         model_config["metric"] = "r2"
         learner = HistoricalMetaLearner(
@@ -149,23 +155,23 @@ class TestHistoricalMetaLearnerBasic:
     def test_available_methods(self, meta_learner):
         """Test that required methods are available."""
         # Test that the public interface methods exist
-        assert hasattr(meta_learner, 'calibrate_model_and_hindcast')
-        assert hasattr(meta_learner, 'predict_operational')
-        assert hasattr(meta_learner, 'tune_hyperparameters')
-        assert hasattr(meta_learner, 'save_model')
-        assert hasattr(meta_learner, 'load_model')
+        assert hasattr(meta_learner, "calibrate_model_and_hindcast")
+        assert hasattr(meta_learner, "predict_operational")
+        assert hasattr(meta_learner, "tune_hyperparameters")
+        assert hasattr(meta_learner, "save_model")
+        assert hasattr(meta_learner, "load_model")
 
     def test_configuration_properties(self, meta_learner):
         """Test configuration properties."""
         assert meta_learner.num_samples_val == 10
         assert meta_learner.metric == "nmse"
         assert meta_learner.invert_metric is True
-        assert hasattr(meta_learner, 'data')
-        assert hasattr(meta_learner, 'static_data')
-        assert hasattr(meta_learner, 'general_config')
-        assert hasattr(meta_learner, 'model_config')
-        assert hasattr(meta_learner, 'feature_config')
-        assert hasattr(meta_learner, 'path_config')
+        assert hasattr(meta_learner, "data")
+        assert hasattr(meta_learner, "static_data")
+        assert hasattr(meta_learner, "general_config")
+        assert hasattr(meta_learner, "model_config")
+        assert hasattr(meta_learner, "feature_config")
+        assert hasattr(meta_learner, "path_config")
 
     def test_model_save_load_basic(self, meta_learner):
         """Test basic model save and load functionality."""
@@ -173,25 +179,25 @@ class TestHistoricalMetaLearnerBasic:
             # Update path config to use temp directory
             meta_learner.path_config["model_home_path"] = temp_dir
             meta_learner.name = "test_model"
-            
+
             # Save model
             meta_learner.save_model()
-            
+
             # Verify files were created
             model_dir = os.path.join(temp_dir, "test_model")
             assert os.path.exists(model_dir)
             assert os.path.exists(os.path.join(model_dir, "metadata.json"))
             assert os.path.exists(os.path.join(model_dir, "config.pkl"))
-            
+
             # Load model
             meta_learner.load_model()
 
     def test_metric_options(self, sample_data, sample_static_data, sample_configs):
         """Test different metric options."""
         general_config, model_config, feature_config, path_config = sample_configs
-        
+
         metrics_to_test = ["nmse", "r2", "nrmse", "nmae"]
-        
+
         for metric in metrics_to_test:
             model_config["metric"] = metric
             learner = HistoricalMetaLearner(
@@ -203,7 +209,7 @@ class TestHistoricalMetaLearnerBasic:
                 path_config=path_config,
             )
             assert learner.metric == metric
-            
+
             # Check invert_metric logic
             if metric in ["nmse", "nmae", "nrmse"]:
                 assert learner.invert_metric is True

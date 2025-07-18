@@ -30,7 +30,9 @@ sys.path.insert(0, str(project_root))
 # Import forecast models
 from monthly_forecasting.forecast_models.LINEAR_REGRESSION import LinearRegressionModel
 from monthly_forecasting.forecast_models.SciRegressor import SciRegressor
-from monthly_forecasting.forecast_models.meta_learners.historical_meta_learner import HistoricalMetaLearner
+from monthly_forecasting.forecast_models.meta_learners.historical_meta_learner import (
+    HistoricalMetaLearner,
+)
 from monthly_forecasting.scr import data_loading as dl
 from dev_tools.eval_scr import eval_helper, metric_functions
 
