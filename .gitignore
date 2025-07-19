@@ -25,3 +25,5 @@
 .env
 /output
 /synthetic_test
+/monthly_forecasting/forecast_models/meta_learners/__pycache__
+/monthly_forecasting/forecast_models/meta_learners/__pycache__

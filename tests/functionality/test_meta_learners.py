@@ -219,7 +219,7 @@ class TestHistoricalMetaLearnerSimple:
 
             # Update configuration
             general_config, model_config, feature_config, path_config = sample_configs
-            model_config["metric"] = metric
+            general_config["metric"] = metric
 
             # Create meta-learner
             meta_learner = HistoricalMetaLearner(

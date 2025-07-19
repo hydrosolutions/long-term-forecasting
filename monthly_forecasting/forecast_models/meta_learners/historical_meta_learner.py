@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Any, List, Tuple
 import datetime
+from tqdm import tqdm as progress_bar
 
 # Shared logging
 import logging
@@ -46,8 +47,8 @@ class HistoricalMetaLearner(BaseMetaLearner):
             path_config=path_config,
         )
 
-        self.num_samples_val = self.model_config.get("num_samples_val", 10)
-        self.metric = self.model_config.get("metric", "nmse")
+        self.num_samples_val = self.general_config.get("num_samples_val", 10)
+        self.metric = self.general_config.get("metric", "nmse")
 
         available_metrics = ["nmse", "r2", "nmae", "nrmse"]
 
@@ -63,6 +64,8 @@ class HistoricalMetaLearner(BaseMetaLearner):
         else:
             self.invert_metric = False
 
+        self.temperature = self.general_config.get("temperature", 1.0)
+
     def __preprocess_data__(self):
         """
         Preprocess the data for the meta learner.
@@ -72,15 +75,20 @@ class HistoricalMetaLearner(BaseMetaLearner):
         """
         # 1. Create the target with feature extractor
         logger.info("Creating target variable with FeatureExtractor")
-        fe = FE(
-            data=self.data,
-            static_data=self.static_data,
-            general_config=self.general_config,
-            feature_config=self.feature_config,
+
+        extractor = FE.StreamflowFeatureExtractor(
+            feature_configs={},  # empty dict to not create any features
+            prediction_horizon=self.general_config["prediction_horizon"],
+            offset=self.general_config.get(
+                "offset", self.general_config["prediction_horizon"]
+            ),
         )
 
         # Get target variable
-        target_data = fe.get_target()
+        target = extractor.create_target(self.data)
+        dates = pd.to_datetime(self.data["date"])
+        codes = self.data["code"].astype(int)
+        target_data = pd.DataFrame({"date": dates, "code": codes, "Q_obs": target})
 
         # 2. Load the base predictors
         logger.info("Loading base predictors")
@@ -140,7 +148,9 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
             # Calculate weights using softmax
             weights = calculate_weights_softmax(
-                performance_values, temperature=1.0, invert=self.invert_metric
+                performance_values,
+                temperature=self.temperature,
+                invert=self.invert_metric,
             )
 
             # Create weights row
@@ -206,7 +216,7 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
         all_predictions = []
 
-        for year in loocv_years:
+        for year in progress_bar(loocv_years, desc="Processing years", leave=True):
             logger.info(f"Processing LOOCV for year {year}")
 
             # Split data into train and validation sets
@@ -236,6 +246,11 @@ class HistoricalMetaLearner(BaseMetaLearner):
             # Create ensemble predictions for validation data
             ensemble_predictions = self.__create_ensemble__(
                 val_data, model_names, weights
+            )
+
+            # rename 'ensemble' to Q_self.name
+            ensemble_predictions.rename(
+                columns={"ensemble": f"Q_{self.name}"}, inplace=True
             )
 
             # Add year column for tracking
@@ -280,7 +295,8 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
         # 2. Check if historical performance weights exist
         weights_path = os.path.join(
-            self.path_config.get("model_home_path", ""), f"{self.name}_weights.parquet"
+            self.path_config.get("model_home_path", self.name),
+            f"{self.name}_weights.parquet",
         )
 
         if os.path.exists(weights_path):
@@ -327,6 +343,11 @@ class HistoricalMetaLearner(BaseMetaLearner):
             today_data, model_names, weights
         )
 
+        # Rename 'ensemble' to Q_self.name
+        operational_predictions.rename(
+            columns={"ensemble": f"Q_{self.name}"}, inplace=True
+        )
+
         logger.info(
             f"Operational prediction completed: {len(operational_predictions)} predictions"
         )
@@ -346,6 +367,8 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
         # 1. Preprocess the data
         data, model_names = self.__preprocess_data__()
+
+        data.dropna(subset=["Q_obs"], inplace=True)
 
         # Get all available years for LOOCV
         available_years = sorted(data["date"].dt.year.unique())
@@ -383,7 +406,7 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
         # Also save historical performance for reference
         performance_path = os.path.join(
-            self.path_config.get("model_home_path", ""),
+            self.path_config.get("model_home_path", self.name),
             f"{self.name}_performance.parquet",
         )
         logger.info(f"Saving historical performance to {performance_path}")
@@ -394,7 +417,7 @@ class HistoricalMetaLearner(BaseMetaLearner):
             f"Calibration completed: {len(hindcast_predictions)} hindcast predictions"
         )
 
-        return hindcast_predictions
+        return hindcast_predictions[["date", "code", "Q_obs", f"Q_{self.name}"]].copy()
 
     def tune_hyperparameters(self) -> Tuple[bool, str]:
         """
@@ -409,25 +432,26 @@ class HistoricalMetaLearner(BaseMetaLearner):
             # Preprocess data
             data, model_names = self.__preprocess_data__()
 
+            data.dropna(subset=["Q_obs"], inplace=True)
+
             # Get available years for validation
             available_years = sorted(data["date"].dt.year.unique())
 
-            if len(available_years) < 3:
-                return (
-                    False,
-                    "Insufficient data for hyperparameter tuning (need at least 3 years)",
-                )
-
             # Parameters to tune
-            num_samples_vals = [5, 10, 15, 20]
+            num_samples_vals = [self.num_samples_val]
             metrics_to_test = ["nmse", "r2", "nrmse"]
 
             best_score = float("-inf")
             best_params = {}
 
+            hparam_tuning_years = self.general_config.get("hparam_tuning_years", 3)
             # Split years for validation
-            validation_years = available_years[-2:]  # Use last 2 years for validation
-            training_years = available_years[:-2]  # Use remaining years for training
+            validation_years = available_years[
+                -hparam_tuning_years:
+            ]  # Use last 3 years for validation
+            training_years = available_years[
+                :-hparam_tuning_years
+            ]  # Use remaining years for training
 
             for num_samples in num_samples_vals:
                 for metric in metrics_to_test:

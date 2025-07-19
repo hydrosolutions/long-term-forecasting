@@ -33,6 +33,7 @@ MODEL_FAMILIES = {
         "Snow_Correction",
         "Snow_GBT",
         "Snow_GBT_LR",
+        "Snow_HistMeta",
     ],
     "GlacierMapper_Based": [],
 }

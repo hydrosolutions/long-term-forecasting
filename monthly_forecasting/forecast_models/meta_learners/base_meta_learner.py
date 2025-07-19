@@ -156,7 +156,7 @@ class BaseMetaLearner(BaseForecastModel):
         target_col = "Q_obs"
         if target_col not in base_predictors.columns:
             raise ValueError(
-                f"Target column '{target_col}' not found in base_predictors"
+                f"Target column '{target_col}' not found in base_predictors: \n Only found columns {base_predictors.columns.to_list()}"
             )
 
         # Calculate performance for each combination of code and period
@@ -166,7 +166,11 @@ class BaseMetaLearner(BaseForecastModel):
                 mask = (base_predictors["code"] == code) & (
                     base_predictors["period"] == period
                 )
+
                 subset_data = base_predictors[mask]
+
+                # dropna based on the target
+                subset_data.dropna(subset=[target_col], inplace=True)
 
                 if len(subset_data) < self.num_samples_val:
                     logger.debug(
@@ -199,9 +203,6 @@ class BaseMetaLearner(BaseForecastModel):
                     valid_mask = ~(np.isnan(observed) | np.isnan(predicted))
 
                     if np.sum(valid_mask) < 2:
-                        logger.debug(
-                            f"Insufficient valid data for model {model_name}, code {code}, period {period}"
-                        )
                         performance_row[model_name] = np.nan
                         continue
 

@@ -89,7 +89,7 @@ class TestHistoricalMetaLearnerBasic:
     ):
         """Test initialization with invalid metric raises error."""
         general_config, model_config, feature_config, path_config = sample_configs
-        model_config["metric"] = "invalid_metric"
+        general_config["metric"] = "invalid_metric"
 
         with pytest.raises(
             ValueError, match="Metric 'invalid_metric' is not supported"
@@ -129,7 +129,7 @@ class TestHistoricalMetaLearnerBasic:
         general_config, model_config, feature_config, path_config = sample_configs
 
         # Test error metric (should be inverted)
-        model_config["metric"] = "nmse"
+        general_config["metric"] = "nmse"
         learner = HistoricalMetaLearner(
             data=sample_data,
             static_data=sample_static_data,
@@ -141,7 +141,7 @@ class TestHistoricalMetaLearnerBasic:
         assert learner.invert_metric is True
 
         # Test accuracy metric (should not be inverted)
-        model_config["metric"] = "r2"
+        general_config["metric"] = "r2"
         learner = HistoricalMetaLearner(
             data=sample_data,
             static_data=sample_static_data,
@@ -199,7 +199,7 @@ class TestHistoricalMetaLearnerBasic:
         metrics_to_test = ["nmse", "r2", "nrmse", "nmae"]
 
         for metric in metrics_to_test:
-            model_config["metric"] = metric
+            general_config["metric"] = metric
             learner = HistoricalMetaLearner(
                 data=sample_data,
                 static_data=sample_static_data,
