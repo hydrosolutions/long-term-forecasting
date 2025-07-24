@@ -8,6 +8,7 @@ The forecast_models module provides:
 - A base class abstraction for all forecast models
 - Linear regression-based models with feature selection
 - Ensemble machine learning models with global fitting capabilities
+- Meta-learning framework for intelligent ensemble creation
 - Consistent interfaces for operational forecasting and hindcasting
 
 ## Directory Structure
@@ -18,6 +19,10 @@ forecast_models/
 ├── base_class.py            # Abstract base class for all forecast models
 ├── LINEAR_REGRESSION.py     # Linear regression with dynamic feature selection
 ├── SciRegressor.py          # Ensemble ML models (XGBoost, LightGBM, CatBoost)
+├── meta_learners/           # Meta-learning framework
+│   ├── __init__.py          # Meta-learners module initialization
+│   ├── base_meta_learner.py # Abstract base class for meta-learning models
+│   └── historical_meta_learner.py # Historical performance-weighted meta-learning
 └── README.md                # This file
 ```
 
@@ -100,6 +105,39 @@ An ensemble regressor supporting multiple machine learning algorithms with globa
 - **Early Stopping**: Prevents overfitting during training
 - **Multiple Validation Strategies**: Supports various cross-validation approaches
 
+### 4. HistoricalMetaLearner (`meta_learners/historical_meta_learner.py`)
+
+A meta-learning framework that intelligently combines predictions from multiple base models by weighting them based on historical performance patterns.
+
+**Key Features:**
+- **Historical Performance Weighting**: Calculates performance metrics for each base model per basin-period combination
+- **Intelligent Fallback**: Uses global performance metrics when insufficient local data is available
+- **Softmax Weighting**: Applies softmax transformation to convert performance metrics into prediction weights
+- **Leave-One-Out Cross-Validation**: Implements LOOCV training for robust model evaluation
+- **Configurable Metrics**: Supports multiple performance metrics (NMSE, R², NRMSE, NMAE)
+
+**Core Workflow:**
+1. **Base Predictor Loading**: Loads predictions from multiple pre-trained models
+2. **Historical Performance Calculation**: Computes performance metrics for each model per basin-period
+3. **Weight Generation**: Transforms performance metrics into ensemble weights using softmax
+4. **Ensemble Creation**: Creates weighted ensemble predictions from base models
+5. **Model Persistence**: Saves performance weights and metadata for operational use
+
+**Training Pipeline:**
+- **LOOCV Training**: Trains meta-learner using leave-one-out cross-validation by year
+- **Performance Caching**: Saves historical performance weights for efficient operational prediction
+- **Hyperparameter Tuning**: Optimizes metric choice and minimum sample thresholds
+
+**Operational Prediction:**
+- **Cached Weights**: Uses pre-computed weights for fast operational forecasting
+- **Dynamic Calculation**: Computes weights on-demand when cached weights are unavailable
+- **Fallback Handling**: Gracefully handles missing base model predictions
+
+**Configuration Options:**
+- `num_samples_val`: Minimum samples required for basin-period performance calculation
+- `metric`: Performance metric to use ("nmse", "r2", "nrmse", "nmae")
+- `path_to_base_predictors`: Paths to base model prediction files
+
 ## Dependencies
 
 The forecast_models module depends on several components from the `scr/` folder:
@@ -109,6 +147,8 @@ The forecast_models module depends on several components from the `scr/` folder:
 - **FeatureProcessingArtifacts**: Handles preprocessing artifacts (scalers, imputers, feature lists)
 - **data_utils**: Utility functions for data manipulation (glacier features, snow band calculations)
 - **sci_utils**: Machine learning utilities (model creation, fitting, hyperparameter optimization)
+- **meta_utils**: Meta-learning utilities (weight calculation, ensemble creation, validation functions)
+- **metrics**: Performance metrics for model evaluation (NSE, R², RMSE, MAE, NMSE, NRMSE, NMAE)
 
 ### External Dependencies:
 - scikit-learn: Linear models, preprocessing, metrics
@@ -116,6 +156,7 @@ The forecast_models module depends on several components from the `scr/` folder:
 - xgboost/lightgbm/catboost: Ensemble models (for SciRegressor)
 - optuna: Hyperparameter optimization (for SciRegressor)
 - geopandas: Spatial data processing (for elevation bands)
+- scipy: Statistical functions (for meta-learning softmax transformation)
 
 ## Configuration
 

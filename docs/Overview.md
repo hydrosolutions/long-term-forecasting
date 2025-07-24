@@ -49,6 +49,7 @@ graph TB
         subgraph "Model Types"
             LR[LinearRegression]
             SR[SciRegressor<br/>XGB, LGBM, CatBoost]
+            ML[Meta-Learning<br/>Historical Performance<br/>Weighted Ensemble]
         end
     end
 
@@ -65,6 +66,8 @@ graph TB
     FPA --> BC & SCA & SM & GM
     BC & SCA & SM & GM --> LR & SR
     LR & SR --> EV
+    LR & SR --> ML
+    ML --> EV
     EV --> ENS
     ENS --> VIS
 ```
@@ -125,6 +128,12 @@ The system supports two main model types:
 - Ensemble methods: XGBoost, LightGBM, CatBoost
 - Advanced hyperparameter optimization with Optuna
 
+#### Meta-Learning Models
+- Historical performance-weighted ensemble framework
+- Intelligently combines predictions from multiple base models
+- Learns from historical performance patterns per basin and period
+- Provides robust fallback mechanisms for insufficient data
+
 ### 4. Evaluation & Ensemble Creation
 
 ```mermaid
@@ -161,6 +170,8 @@ Core utilities for data processing and feature engineering:
 - **FeatureExtractor.py**: Time series feature engineering
 - **FeatureProcessingArtifacts.py**: Preprocessing state management
 - **sci_utils.py**: Machine learning utilities
+- **meta_utils.py**: Utility functions for meta-learning workflows
+- **metrics.py**: Evaluation metrics for model performance assessment
 
 ### 2. Forecast Models (`forecast_models/`)
 Model implementations following a common interface:
@@ -168,6 +179,9 @@ Model implementations following a common interface:
 - **base_class.py**: Abstract base class defining the interface
 - **LINEAR_REGRESSION.py**: Statistical baseline models
 - **SciRegressor.py**: Tree-based ensemble models
+- **meta_learners/**: Meta-learning framework for intelligent ensemble creation
+  - **base_meta_learner.py**: Abstract base class for meta-learning models
+  - **historical_meta_learner.py**: Historical performance-weighted meta-learning
 
 ### 3. Evaluation (`evaluation/`)
 Comprehensive evaluation pipeline:
@@ -275,6 +289,13 @@ graph LR
 - Basin-specific performance analysis
 - Monthly performance heatmaps
 - Export functionality for further analysis
+
+### 5. Meta-Learning Framework
+- Implemented historical performance-weighted meta-learning
+- Intelligent ensemble creation based on basin-period specific performance
+- Softmax weighting strategy with configurable temperature
+- Fallback mechanisms for insufficient historical data
+- Complete LOOCV training pipeline for robust model training
 
 ## Integration Guide
 

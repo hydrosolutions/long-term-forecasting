@@ -54,14 +54,14 @@ PATH_TO_STATIC = os.getenv("PATH_TO_STATIC")
 MODELS_OPERATIONAL = {
     "BaseCase": [
         ("LR", "LR_Q_T_P"),
-        ("SciRegressor", "GradBoostTrees"),
+        ("SciRegressor", "GBT"),
     ],
     "SnowMapper_Based": [
         ("LR", "LR_Q_dSWEdt_T_P"),
         ("LR", "LR_Q_SWE_T"),
         ("LR", "LR_Q_T_P_SWE"),
         ("LR", "LR_Q_SWE"),
-        ("SciRegressor", "NormBased"),
+        ("SciRegressor", "Snow_GBT_Norm"),
     ],
 }
 
