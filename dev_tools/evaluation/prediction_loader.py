@@ -30,6 +30,7 @@ MODEL_FAMILIES = {
         "LR_Q_T_P_SWE",
         "LR_Q_dSWEdt_T_P",
         "Snow_GBT_Norm",
+        "Snow_GBT_NormNatural",
         "Snow_Correction",
         "Snow_GBT",
         "Snow_GBT_LR",

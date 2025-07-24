@@ -298,13 +298,13 @@ class TestWorkflowIntegration:
         base_case = MODELS_OPERATIONAL["BaseCase"]
         assert len(base_case) == 2
         assert ("LR", "LR_Q_T_P") in base_case
-        assert ("SciRegressor", "GradBoostTrees") in base_case
+        assert ("SciRegressor", "GBT") in base_case
 
         # Check SnowMapper_Based models
         snow_based = MODELS_OPERATIONAL["SnowMapper_Based"]
         assert len(snow_based) == 5
         assert ("LR", "LR_Q_dSWEdt_T_P") in snow_based
-        assert ("SciRegressor", "NormBased") in snow_based
+        assert ("SciRegressor", "Snow_GBT_Norm") in snow_based
 
     def test_generate_outputs(self):
         """Test output generation functionality."""
