@@ -278,6 +278,8 @@ class LinearRegressionModel(BaseForecastModel):
         # Convert today to pandas Timestamp for consistent comparison
         today_pd = pd.Timestamp(today.date())
 
+        today_for_df = today.strftime("%Y-%m-%d")
+
         for code in codes_to_predict:
             # Filter the data for the current code
             code_data = operational_data[operational_data["code"] == code].copy()
@@ -335,7 +337,7 @@ class LinearRegressionModel(BaseForecastModel):
             pred_col = f"Q_{self.name}"
             pred_df = pd.DataFrame(
                 {
-                    "forecast_date": [today],
+                    "forecast_date": [today_for_df],
                     "code": [code],
                     "valid_from": [valid_from],
                     "valid_to": [valid_to],

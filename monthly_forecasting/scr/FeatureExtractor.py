@@ -13,10 +13,11 @@ logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logg
 
 # Calculate slope using linear regression on each rolling window
 def rolling_slope(x):
-    if len(x) < 2:  # Need at least 2 points for slope
+    x_non_nan = x[~np.isnan(x)]
+    if len(x_non_nan) < 2:
         return np.nan
-    x_values = np.arange(len(x))
-    return np.polyfit(x_values, x, 1)[0]  # Return slope coefficient
+    x_values = np.arange(len(x_non_nan))
+    return np.polyfit(x_values, x_non_nan, 1)[0]  # Return slope coefficient
 
 
 def last_value(x):
@@ -99,11 +100,11 @@ def pk_pk_distance(signal):
     float
         peak to peak distance
     """
-    return np.abs(np.max(signal) - np.min(signal))
+    return np.abs(np.nanmax(signal) - np.nanmin(signal))
 
 
 def time_distance_from_peak(signal):
-    loc_peak = np.argmax(signal)
+    loc_peak = np.nanargmax(signal)
     return len(signal) - loc_peak
 
 

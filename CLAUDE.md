@@ -1,5 +1,18 @@
 # MONTHLY DISCHARGE FORECASTING
 
+## Information about the forecasting setup (condensed):
+
+The aim is to predict monthly discharge. We have a multi-basin setup and the following input variables.
+**Dynamic Features**
+Observed Discharge (only available until forecast date t) (daily resolution)
+Weather Data (P, T) (available until t+ 15d) (daily resolution)
+Snow Information from Physical Model (available t + 10 days) (daily resolution)
+Glacier Mapper features (Earth Observation) (available every 10th day until t) (10d resolution)
+
+**Static Data**
+Static Basin features (area, lat., lon, aridity, glacier fraction...)
+
+
 ## PROJECT STRUCTURE
 
 The project has been restructured for production deployment:

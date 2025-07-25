@@ -244,9 +244,8 @@ class FeatureProcessingArtifacts:
 
         except Exception as e:
             logger.error(f"Failed to save long_term_means as Parquet: {e}")
-            # Fallback to JSON if Parquet fails
-            logger.info("Falling back to JSON format")
-            self._save_long_term_means_json_fallback(artifacts_dir)
+            # Raise Error
+            raise RuntimeError(f"Failed to save long_term_means as Parquet: {e}")
 
     def _save_long_term_stats_safe(self, artifacts_dir: Path) -> None:
         """
@@ -280,37 +279,6 @@ class FeatureProcessingArtifacts:
                 logger.info("Saved flattened long_term_stats as CSV")
             except Exception as e2:
                 logger.error(f"Failed to save long_term_stats as CSV: {e2}")
-
-    def _save_long_term_means_json_fallback(self, artifacts_dir: Path) -> None:
-        """Fallback method to save as JSON if Parquet fails."""
-        # ...existing code... (keep the original JSON implementation as fallback)
-        flattened_means = {}
-
-        for basin_code, feature_means in self.long_term_means.items():
-            if isinstance(feature_means, dict):
-                # Simple dict case
-                for feature, mean_val in feature_means.items():
-                    key = f"{basin_code}_{feature}"
-                    flattened_means[key] = (
-                        float(mean_val) if pd.notna(mean_val) else None
-                    )
-            elif hasattr(feature_means, "to_dict"):
-                # pandas Series case
-                for feature, mean_val in feature_means.to_dict().items():
-                    key = f"{basin_code}_{feature}"
-                    flattened_means[key] = (
-                        float(mean_val) if pd.notna(mean_val) else None
-                    )
-            else:
-                logger.warning(
-                    f"Unexpected type for basin {basin_code}: {type(feature_means)}"
-                )
-
-        # Save as JSON
-        with open(artifacts_dir / "long_term_means.json", "w") as f:
-            json.dump(flattened_means, f, indent=2)
-
-        logger.info("Saved long_term_means as JSON fallback")
 
     @classmethod
     def _load_hybrid(cls, filepath: Path) -> "FeatureProcessingArtifacts":
@@ -389,6 +357,13 @@ class FeatureProcessingArtifacts:
                     scaler[key] = (value["mean"], value["std"])
                 else:
                     # Per-basin case: convert nested dict
+                    if key.isdigit():
+                        key = int(key)
+                    else:
+                        logger.warning(
+                            f"Key {key} is not transformable to int -> this may lead to wrong scaling"
+                        )
+
                     scaler[key] = {}
                     for feature, params in value.items():
                         if (

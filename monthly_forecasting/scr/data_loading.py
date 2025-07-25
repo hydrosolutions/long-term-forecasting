@@ -85,8 +85,19 @@ def load_snow_data(path_to_file, var_name):
     Load the snow data from a csv file from the data-gateway
     """
     df = pd.read_csv(path_to_file)
+    try:
+        df["date"] = pd.to_datetime(df["date"], format="%Y-%m-%d")
+        df["code"] = df["code"].astype(int)
 
-    df = transform_data_gateway_data(df, var_name)
+        if "RoF" in df.columns:
+            # If the column is named "RoF", rename it to "ROF"
+            df.rename(columns={"RoF": "ROF"}, inplace=True)
+
+    except Exception as e:
+        try:
+            df = transform_data_gateway_data(df, var_name)
+        except Exception as e:
+            logger.error(f"Error transforming data for {var_name}: {e}")
 
     return df
 
