@@ -108,6 +108,10 @@ class SciRegressor(BaseForecastModel):
             "relative_scaling_vars", []
         )
 
+        self.allowbale_missing_value_operational = self.general_config.get(
+            "allowbale_missing_value_operational", 0
+        )
+
     def __preprocess_data__(self):
         """
         Preprocess the data by adding position and other derived features.
@@ -419,6 +423,12 @@ class SciRegressor(BaseForecastModel):
         for year in progress_bar(years, desc="Processing years", leave=True):
             df_train = self.data[self.data["year"] != year].dropna(subset=[self.target])
             df_test = self.data[self.data["year"] == year].dropna(subset=[self.target])
+
+            if df_test.empty:
+                logger.warning(
+                    f"No data available for year {year}. Skipping this year in LOOCV."
+                )
+                continue
             # Original columns so we don't mess up anything
             df_predictions_year = df_test[["date", "code", self.target]].copy()
 
@@ -445,6 +455,12 @@ class SciRegressor(BaseForecastModel):
             X_train = train_processed[final_features]
             y_train = train_processed[self.target]
             X_test = test_processed[final_features]
+
+            if X_test.empty:
+                logger.warning(
+                    f"No valid test data available for year {year} after processing. Skipping this year in LOOCV."
+                )
+                continue
 
             # Create model
             if params:
@@ -609,6 +625,9 @@ class SciRegressor(BaseForecastModel):
 
         if today is None:
             today = datetime.datetime.now()
+            today = pd.to_datetime(today.strftime("%Y-%m-%d"))
+        else:
+            today = pd.to_datetime(today.strftime("%Y-%m-%d"))
 
         # Step 1: Load models and artifacts
         self.load_model()
@@ -632,7 +651,8 @@ class SciRegressor(BaseForecastModel):
 
         # Set target to 0 for operational mode (no observations available)
         # this ensures that nothing gets filtered out in the next steps
-        self.data[self.target] = 0
+        self.data.drop(columns=[self.target], inplace=True, errors="ignore")
+        # self.data[self.target] = 0
 
         # Step 4: Calculate valid period
         if not self.general_config.get("offset"):
@@ -687,32 +707,60 @@ class SciRegressor(BaseForecastModel):
 
             # Get the most recent complete data for each basin for prediction
             prediction_data = []
+            successful_basins = []
+            failed_basins = []
 
             for code in basin_codes:
                 basin_data = self.data[self.data["code"] == code].copy()
 
                 if basin_data.empty:
                     logger.warning(f"No data available for basin {code}. Skipping.")
-                    continue
-
-                # Get the most recent row with complete feature data
-                basin_data_complete = basin_data.dropna(subset=final_features)
-
-                if basin_data_complete.empty:
-                    logger.warning(
-                        f"No complete feature data for basin {code}. Skipping."
-                    )
+                    failed_basins.append(code)
                     continue
 
                 # Take the most recent complete observation
-                today_row = basin_data_complete[
-                    basin_data_complete["date"] == today.strftime("%Y-%m-%d")
-                ]
+                today_row = basin_data[basin_data["date"] == today]
+                if today_row[final_features].isnull().any(axis=1).any():
+                    logger.warning(
+                        f"Missing features for basin {code} on {today.strftime('%Y-%m-%d')}."
+                    )
+
+                    logger.warning(f"Head of today_row:\n{today_row.head()}")
+
+                    # Get columns that have NaN values
+                    cols_with_nan = (
+                        today_row[final_features]
+                        .columns[today_row[final_features].isnull().any(axis=0)]
+                        .tolist()
+                    )
+                    logger.warning(f"Features which are Nan : {cols_with_nan}")
+
+                # TODO: Clever way to handle after how many missing features we need to skip the basin
+                # Maybe load feature importance and if feature in top 10 skip the basin
+                number_of_nan_columns = today_row[final_features].isnull().sum().sum()
+                if number_of_nan_columns > self.allowbale_missing_value_operational:
+                    logger.warning(
+                        f"Too many missing features ({number_of_nan_columns}) for basin {code} on {today.strftime('%Y-%m-%d')}. Skipping."
+                    )
+                    failed_basins.append(code)
+                    continue
+
+                if today_row.empty:
+                    logger.warning(
+                        f"No data available for basin {code} on {today.strftime('%Y-%m-%d')}. Skipping."
+                    )
+                    failed_basins.append(code)
+                    continue
+
                 prediction_data.append(today_row)
+                successful_basins.append(code)
 
             if not prediction_data:
                 logger.error("No prediction data available for any basin.")
                 continue
+
+            logger.info(f"Successful dataloading for basins: {len(successful_basins)}")
+            logger.info(f"Failed dataloading for basins: {len(failed_basins)}")
 
             # Combine all basin prediction data
             prediction_df = pd.concat(prediction_data, ignore_index=True)
@@ -734,6 +782,13 @@ class SciRegressor(BaseForecastModel):
             # Extract relevant columns for forecast
             forecast_model = prediction_processed[["date", "code", pred_col]].copy()
 
+            # check if there are any nan vlaues
+            if forecast_model[pred_col].isnull().any():
+                logger.info(f"Found NaN values in predictions for {model_type}.")
+                # log the codes with NaN predictions
+                nan_codes = forecast_model[forecast_model[pred_col].isnull()]["code"]
+                logger.info(f"NaN predictions for codes: {nan_codes.unique().tolist()}")
+
             # Post process predictions
             forecast_model = post_process_predictions(
                 df_predictions=forecast_model,
@@ -742,6 +797,16 @@ class SciRegressor(BaseForecastModel):
                 prediction_column=pred_col,
                 target=self.target,
             )
+
+            if forecast_model[pred_col].isnull().any():
+                logger.info(
+                    f"Found NaN values in post-processed predictions for {model_type}."
+                )
+                # log the codes with NaN predictions
+                nan_codes = forecast_model[forecast_model[pred_col].isnull()]["code"]
+                logger.info(
+                    f"NaN post-processed predictions for codes: {nan_codes.unique().tolist()}"
+                )
 
             forecast_predictions[model_type] = forecast_model
 
@@ -757,7 +822,7 @@ class SciRegressor(BaseForecastModel):
 
         # Create ensemble prediction (average of all models)
         ensemble_name = f"Q_{self.name}"
-        forecast[ensemble_name] = forecast[all_pred_cols].mean(axis=1)
+        forecast[ensemble_name] = forecast[all_pred_cols].mean(axis=1, skipna=True)
         all_pred_cols.append(ensemble_name)
 
         # Step 6: Post-process data (convert from mm/day back to m³/s)
@@ -779,15 +844,42 @@ class SciRegressor(BaseForecastModel):
             "valid_to",
             "prediction_horizon_days",
         ]
+
         pred_cols = [col for col in forecast.columns if col.startswith("Q_")]
         meta_cols = ["model_name", "created_at"]
 
         forecast = forecast[base_cols + pred_cols + meta_cols]
 
+        # check if all basin_codes are in the forecast
+        missing_basin_codes = set(basin_codes) - set(forecast["code"].unique())
+        if missing_basin_codes:
+            logger.warning(
+                f"Missing basin codes in forecast: {missing_basin_codes}. "
+                "This may indicate that some basins had no data for the prediction date."
+            )
+
+            # Handle those codes by adding them with NaN predictions
+            for code in missing_basin_codes:
+                empty_row = {
+                    "code": code,
+                    "forecast_date": today.strftime("%Y-%m-%d"),
+                    "valid_from": valid_from_str,
+                    "valid_to": valid_to_str,
+                    "prediction_horizon_days": self.general_config[
+                        "prediction_horizon"
+                    ],
+                }
+                for col in all_pred_cols:
+                    empty_row[col] = np.nan
+
+                empty_row_df = pd.DataFrame([empty_row], index=[0])
+
+                # Add the empty row to the forecast DataFrame
+                forecast = pd.concat([forecast, empty_row_df], ignore_index=True)
+
         logger.info(
             f"Operational forecast completed for {len(forecast)} basins with {len(all_pred_cols)} predictions"
         )
-        logger.info(f"Forecast statistics:\n{forecast[pred_cols].describe()}")
 
         return forecast
 
@@ -817,8 +909,13 @@ class SciRegressor(BaseForecastModel):
         self.__filter_forecast_days__()
 
         all_years = sorted(self.data["year"].unique())
-        loocv_years = all_years[:-num_test_years]
-        test_years = all_years[-num_test_years:]
+
+        if num_test_years > 0:
+            loocv_years = all_years[:-num_test_years]
+            test_years = all_years[-num_test_years:]
+        else:
+            loocv_years = all_years
+            test_years = None
 
         hindcast_df = None
         all_pred_cols = []
@@ -878,6 +975,10 @@ class SciRegressor(BaseForecastModel):
             pred_col = f"Q_{model_type}"
             if fit_on_all_predictions is None:
                 fit_on_all_predictions = df_predictions
+            elif fit_on_all_predictions.empty:
+                logger.debug(
+                    f"No predictions available for model {model_type}. Skipping."
+                )
             else:
                 # merge on date and code
                 df_predictions = df_predictions[["date", "code", pred_col]]
@@ -893,18 +994,19 @@ class SciRegressor(BaseForecastModel):
             fitted_models[model_type]["feature_importance"] = feature_importance
 
         # Add ensemble prediction
-        fit_on_all_predictions[ensemble_name] = fit_on_all_predictions[
-            all_pred_cols
-        ].mean(axis=1)
-        fit_on_all_predictions = self.__post_process_data__(
-            df=fit_on_all_predictions,
-            pred_cols=all_pred_cols + [ensemble_name],
-            obs_col="Q_obs",
-        )
+        if not fit_on_all_predictions.empty:
+            fit_on_all_predictions[ensemble_name] = fit_on_all_predictions[
+                all_pred_cols
+            ].mean(axis=1)
+            fit_on_all_predictions = self.__post_process_data__(
+                df=fit_on_all_predictions,
+                pred_cols=all_pred_cols + [ensemble_name],
+                obs_col="Q_obs",
+            )
 
-        hindcast_df = pd.concat(
-            [hindcast_df, fit_on_all_predictions], ignore_index=True
-        )
+            hindcast_df = pd.concat(
+                [hindcast_df, fit_on_all_predictions], ignore_index=True
+            )
 
         # Save fitted models
         self.fitted_models = fitted_models

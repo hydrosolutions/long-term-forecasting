@@ -99,6 +99,95 @@ def fit_model(
     y: pd.Series,
     model_type: str = "xgb",
     val_fraction: float = 0.1,
+    early_stopping_rounds: int = 50,
+) -> Any:
+    """
+    Fit a model and log training performance.
+
+    Args:
+        model: Model instance
+        X: Features
+        y: Target values
+        model_type: Model type ("xgb", "lgbm", "catboost", "svr", "linear", etc.)
+        val_fraction: Fraction of data to use for validation
+        early_stopping_rounds: Number of rounds without improvement before stopping
+
+    Returns:
+        Fitted model
+    """
+    if val_fraction > 0.0:
+        X_train, X_val, y_train, y_val = train_test_split(
+            X, y, test_size=val_fraction, random_state=42
+        )
+
+        # Handle models with early stopping support
+        if model_type in ["xgb", "lgbm", "catboost"]:
+            if model_type == "xgb":
+                # XGBoost
+                model.fit(
+                    X_train,
+                    y_train,
+                    eval_set=[(X_val, y_val)],
+                    early_stopping_rounds=early_stopping_rounds,
+                    verbose=False,
+                )
+
+            elif model_type == "lgbm":
+                # LightGBM
+                model.fit(
+                    X_train,
+                    y_train,
+                    eval_set=[(X_val, y_val)],
+                    eval_metric="rmse",  # or 'mae', 'mape', etc.
+                    callbacks=[
+                        lgb.early_stopping(early_stopping_rounds),
+                        lgb.log_evaluation(0),  # 0 to disable verbose
+                    ],
+                )
+
+            elif model_type == "catboost":
+                # CatBoost
+                model.fit(
+                    X_train,
+                    y_train,
+                    eval_set=(X_val, y_val),
+                    early_stopping_rounds=early_stopping_rounds,
+                    verbose=False,
+                )
+
+        else:
+            # For models without early stopping (SVR, Linear Regression, etc.)
+            logger.debug(
+                f"Model type '{model_type}' does not support early stopping. Training on full training set."
+            )
+            model.fit(X_train, y_train)
+
+    else:
+        logger.debug(
+            "Validation fraction is 0.0, using full dataset for training \n"
+            " validation performed on trainset."
+        )
+        X_train = X.copy()
+        y_train = y.copy()
+        X_val = X.copy()
+        y_val = y.copy()
+
+        # No early stopping when using full dataset
+        model.fit(X_train, y_train)
+
+    # Make predictions for validation
+    y_pred = model.predict(X_val)
+    logger.info(f"Model R²: {r2_score(y_val, y_pred):.4f}")
+
+    return model
+
+
+def fit_model_old(
+    model,
+    X: pd.DataFrame,
+    y: pd.Series,
+    model_type: str = "xgb",
+    val_fraction: float = 0.1,
 ) -> Any:
     """
     Fit a model and log training performance.
@@ -116,7 +205,7 @@ def fit_model(
             X, y, test_size=val_fraction, random_state=42
         )
     else:
-        logger.warning(
+        logger.debug(
             "Validation fraction is 0.0, using full dataset for training \n"
             " validation performed on trainset."
         )
@@ -344,7 +433,7 @@ def _objective_xgb(
 ):
     """Optuna objective function for XGBoost without early stopping."""
     params = {
-        "n_estimators": trial.suggest_int("n_estimators", 50, 1000),
+        "n_estimators": trial.suggest_int("n_estimators", 50, 1500),
         "learning_rate": trial.suggest_float("learning_rate", 0.001, 0.3, log=True),
         "max_depth": trial.suggest_int("max_depth", 3, 10),
         "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
@@ -425,7 +514,7 @@ def _objective_lgbm(
         "objective": "regression",
         "metric": "rmse",
         "boosting_type": "gbdt",
-        "n_estimators": trial.suggest_int("n_estimators", 50, 1000),
+        "n_estimators": trial.suggest_int("n_estimators", 50, 1500),
         "learning_rate": trial.suggest_float("learning_rate", 0.001, 0.3, log=True),
         "num_leaves": trial.suggest_int("num_leaves", 20, 150),
         "max_depth": trial.suggest_int("max_depth", 3, 15),
@@ -504,7 +593,7 @@ def _objective_catboost(
 ):
     """Optuna objective function for CatBoost without early stopping."""
     params = {
-        "iterations": trial.suggest_int("iterations", 50, 1000),
+        "iterations": trial.suggest_int("iterations", 50, 1500),
         "depth": trial.suggest_int("depth", 3, 10),
         "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.3, log=True),
         "l2_leaf_reg": trial.suggest_float("l2_leaf_reg", 1e-1, 10.0, log=True),

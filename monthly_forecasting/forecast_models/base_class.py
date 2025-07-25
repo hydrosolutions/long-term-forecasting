@@ -25,8 +25,8 @@ class BaseForecastModel(ABC):
         Args:
             config (Dict[str, Any]): Configuration dictionary for the model.
         """
-        self.data = data
-        self.static_data = static_data
+        self.data = data.copy()
+        self.static_data = static_data.copy()
         self.general_config = general_config
         self.model_config = model_config
         self.feature_config = feature_config

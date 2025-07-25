@@ -104,7 +104,7 @@ class TestFitModel:
         X, y = self.create_sample_data()
         model = sci_utils.get_model("xgb", {"n_estimators": 10})
 
-        fitted_model = sci_utils.fit_model(model, X, y)
+        fitted_model = sci_utils.fit_model(model, X, y, model_type="xgb")
 
         assert fitted_model is not None
         assert hasattr(fitted_model, "predict")
@@ -118,7 +118,9 @@ class TestFitModel:
         X, y = self.create_sample_data()
         model = sci_utils.get_model("rf", {"n_estimators": 10})
 
-        fitted_model = sci_utils.fit_model(model, X, y, val_fraction=0.2)
+        fitted_model = sci_utils.fit_model(
+            model, X, y, model_type="rf", val_fraction=0.2
+        )
 
         assert fitted_model is not None
         predictions = fitted_model.predict(X)
@@ -130,7 +132,7 @@ class TestFitModel:
         X, y = self.create_sample_data()
         model = sci_utils.get_model("xgb", {"n_estimators": 10})
 
-        sci_utils.fit_model(model, X, y)
+        sci_utils.fit_model(model, X, y, model_type="xgb")
 
         # Check that logger.info was called with R² information
         mock_logger.info.assert_called()

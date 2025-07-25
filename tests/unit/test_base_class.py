@@ -112,8 +112,6 @@ class TestBaseForecastModel:
 
         # Check initialization
         assert model.name == "test_model"
-        assert model.data is data
-        assert model.static_data is static_data
         assert model.general_config == general_config
         assert model.model_config == model_config
         assert model.feature_config == feature_config
