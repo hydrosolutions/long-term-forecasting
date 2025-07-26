@@ -300,6 +300,14 @@ class DeepLearningDataModule(pl.LightningDataModule):
         future_features: List[str],
         static_features: List[str],
         now_features: Optional[List[str]] = None,
+        # Date range based splitting (preferred)
+        start_train: Optional[str] = None,
+        end_train: Optional[str] = None,
+        start_val: Optional[str] = None,
+        end_val: Optional[str] = None,
+        start_test: Optional[str] = None,
+        end_test: Optional[str] = None,
+        # Legacy year-based splitting (for backward compatibility)
         train_years: Optional[List[int]] = None,
         val_years: Optional[List[int]] = None,
         test_years: Optional[List[int]] = None,
@@ -321,9 +329,15 @@ class DeepLearningDataModule(pl.LightningDataModule):
             future_features: Features for future time steps
             static_features: Static basin features
             now_features: Features for current time step
-            train_years: Years to use for training
-            val_years: Years to use for validation  
-            test_years: Years to use for testing
+            start_train: Start date for training (e.g., '2020-01-01')
+            end_train: End date for training (e.g., '2021-12-31')
+            start_val: Start date for validation (e.g., '2022-01-01')
+            end_val: End date for validation (e.g., '2022-06-30')
+            start_test: Start date for testing (e.g., '2022-07-01')
+            end_test: End date for testing (e.g., '2022-12-31')
+            train_years: Years to use for training (legacy, for backward compatibility)
+            val_years: Years to use for validation (legacy)
+            test_years: Years to use for testing (legacy)
             lookback: Number of past time steps
             future_known_steps: Number of future time steps
             batch_size: Batch size for DataLoaders
@@ -336,9 +350,20 @@ class DeepLearningDataModule(pl.LightningDataModule):
         
         self.df = df
         self.static_df = static_df
+        
+        # Date range parameters (preferred)
+        self.start_train = start_train
+        self.end_train = end_train
+        self.start_val = start_val
+        self.end_val = end_val
+        self.start_test = start_test
+        self.end_test = end_test
+        
+        # Legacy year parameters
         self.train_years = train_years
         self.val_years = val_years
         self.test_years = test_years
+        
         self.batch_size = batch_size
         self.num_workers = num_workers
         
@@ -359,36 +384,70 @@ class DeepLearningDataModule(pl.LightningDataModule):
         """Set up datasets for different stages."""
         df = self.df.copy()
         
-        # Add year column for splitting
-        if 'year' not in df.columns:
-            df['year'] = pd.to_datetime(df['date']).dt.year
+        # Ensure date column is datetime
+        if not pd.api.types.is_datetime64_any_dtype(df['date']):
+            df['date'] = pd.to_datetime(df['date'])
         
-        # Split data by years
-        if self.train_years:
-            train_df = df[df['year'].isin(self.train_years)]
-        else:
-            # Default: use 80% of years for training
-            years = sorted(df['year'].unique())
-            n_train = int(0.8 * len(years))
-            train_df = df[df['year'].isin(years[:n_train])]
+        # Prefer date range splitting over year-based splitting
+        if self.start_train and self.end_train:
+            # Use date ranges for splitting
+            train_df = df[
+                (df['date'] >= pd.to_datetime(self.start_train)) & 
+                (df['date'] <= pd.to_datetime(self.end_train))
+            ]
             
-        if self.val_years:
-            val_df = df[df['year'].isin(self.val_years)]
+            if self.start_val and self.end_val:
+                val_df = df[
+                    (df['date'] >= pd.to_datetime(self.start_val)) & 
+                    (df['date'] <= pd.to_datetime(self.end_val))
+                ]
+            else:
+                # Create validation split from training data (last 20%)
+                train_dates = sorted(train_df['date'].unique())
+                val_split_idx = int(0.8 * len(train_dates))
+                val_start_date = train_dates[val_split_idx]
+                val_df = train_df[train_df['date'] >= val_start_date]
+                train_df = train_df[train_df['date'] < val_start_date]
+                
+            if self.start_test and self.end_test:
+                test_df = df[
+                    (df['date'] >= pd.to_datetime(self.start_test)) & 
+                    (df['date'] <= pd.to_datetime(self.end_test))
+                ]
+            else:
+                # Use data after training period for testing
+                test_df = df[df['date'] > pd.to_datetime(self.end_train)]
+                
         else:
-            # Default: use 10% of years for validation
-            years = sorted(df['year'].unique())
-            n_train = int(0.8 * len(years))
-            n_val = int(0.1 * len(years))
-            val_df = df[df['year'].isin(years[n_train:n_train+n_val])]
+            # Fall back to year-based splitting (legacy behavior)
+            if 'year' not in df.columns:
+                df['year'] = df['date'].dt.year
             
-        if self.test_years:
-            test_df = df[df['year'].isin(self.test_years)]
-        else:
-            # Default: use remaining 10% of years for testing
-            years = sorted(df['year'].unique())
-            n_train = int(0.8 * len(years))
-            n_val = int(0.1 * len(years))
-            test_df = df[df['year'].isin(years[n_train+n_val:])]
+            if self.train_years:
+                train_df = df[df['year'].isin(self.train_years)]
+            else:
+                # Default: use 80% of years for training
+                years = sorted(df['year'].unique())
+                n_train = int(0.8 * len(years))
+                train_df = df[df['year'].isin(years[:n_train])]
+                
+            if self.val_years:
+                val_df = df[df['year'].isin(self.val_years)]
+            else:
+                # Default: use 10% of years for validation
+                years = sorted(df['year'].unique())
+                n_train = int(0.8 * len(years))
+                n_val = int(0.1 * len(years))
+                val_df = df[df['year'].isin(years[n_train:n_train+n_val])]
+                
+            if self.test_years:
+                test_df = df[df['year'].isin(self.test_years)]
+            else:
+                # Default: use remaining 10% of years for testing
+                years = sorted(df['year'].unique())
+                n_train = int(0.8 * len(years))
+                n_val = int(0.1 * len(years))
+                test_df = df[df['year'].isin(years[n_train+n_val:])]
         
         # Create datasets
         self.train_dataset = DeepLearningDataset(

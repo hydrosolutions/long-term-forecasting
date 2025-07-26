@@ -85,11 +85,10 @@ class CNNLSTMForecaster(nn.Module):
             cnn_output_length = self._calculate_cnn_output_length(
                 lookback, kernel_sizes, pool_sizes
             )
-            cnn_output_dim = cnn_filters[-1] * cnn_output_length
             
-            # LSTM after CNN
+            # LSTM after CNN - use the final filter size as input
             self.past_lstm = nn.LSTM(
-                input_size=cnn_output_dim,
+                input_size=cnn_filters[-1],
                 hidden_size=lstm_hidden_dim,
                 num_layers=lstm_num_layers,
                 dropout=dropout if lstm_num_layers > 1 else 0,
@@ -115,10 +114,9 @@ class CNNLSTMForecaster(nn.Module):
             future_cnn_output_length = self._calculate_cnn_output_length(
                 lookback + future_known_steps, [3, 3], [2, 2]
             )
-            future_cnn_output_dim = 32 * future_cnn_output_length
             
             self.future_lstm = nn.LSTM(
-                input_size=future_cnn_output_dim,
+                input_size=32,  # Use the CNN filter size
                 hidden_size=lstm_hidden_dim // 2,
                 num_layers=1,
                 batch_first=True
@@ -260,11 +258,7 @@ class CNNLSTMForecaster(nn.Module):
             cnn_output = self.cnn_layers(cnn_input)  # (batch, cnn_filters[-1], reduced_length)
             
             # Reshape for LSTM: (batch, reduced_length, cnn_filters[-1])
-            cnn_output = cnn_output.transpose(1, 2)
-            
-            # Flatten for LSTM input
-            batch_size, seq_len, num_filters = cnn_output.size()
-            cnn_output = cnn_output.view(batch_size, 1, seq_len * num_filters)
+            cnn_output = cnn_output.transpose(1, 2)  # (batch, reduced_length, cnn_filters[-1])
             
             # LSTM forward pass
             lstm_out, (hidden, cell) = self.past_lstm(cnn_output)
@@ -282,9 +276,7 @@ class CNNLSTMForecaster(nn.Module):
             future_cnn_output = self.future_cnn(x_future)
             
             # Reshape for LSTM
-            future_cnn_output = future_cnn_output.transpose(1, 2)
-            batch_size, seq_len, num_filters = future_cnn_output.size()
-            future_cnn_output = future_cnn_output.view(batch_size, 1, seq_len * num_filters)
+            future_cnn_output = future_cnn_output.transpose(1, 2)  # (batch, reduced_length, filters)
             
             # LSTM forward pass
             future_lstm_out, (future_hidden, _) = self.future_lstm(future_cnn_output)

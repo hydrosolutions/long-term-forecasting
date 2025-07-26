@@ -147,10 +147,10 @@ class AsymmetricLaplaceLoss(nn.Module):
         
         if quantile < self.tau:
             # Lower tail
-            q_pred = mu + scale * self.tau * torch.log(2 * quantile / self.tau)
+            q_pred = mu + scale * self.tau * torch.log(torch.tensor(2 * quantile / self.tau))
         else:
             # Upper tail  
-            q_pred = mu - scale * (1 - self.tau) * torch.log(2 * (1 - quantile) / (1 - self.tau))
+            q_pred = mu - scale * (1 - self.tau) * torch.log(torch.tensor(2 * (1 - quantile) / (1 - self.tau)))
         
         return q_pred
 
@@ -251,11 +251,18 @@ class AdaptiveAsymmetricLaplaceLoss(AsymmetricLaplaceLoss):
             tau_bounds: Bounds for tau parameter (min, max)
             reduction: Loss reduction
         """
-        # Initialize with initial_tau but we'll replace it
-        super().__init__(tau=initial_tau, reduction=reduction)
+        # Don't call super().__init__ as we handle tau differently
+        nn.Module.__init__(self)
+        
+        if not 0 < initial_tau < 1:
+            raise ValueError(f"initial_tau must be between 0 and 1, got {initial_tau}")
+        
+        if reduction not in ['mean', 'sum', 'none']:
+            raise ValueError(f"reduction must be 'mean', 'sum', or 'none', got {reduction}")
         
         self.learnable_tau = learnable_tau
         self.tau_bounds = tau_bounds
+        self.reduction = reduction
         
         if learnable_tau:
             # Convert tau to logits for unconstrained optimization
@@ -264,6 +271,11 @@ class AdaptiveAsymmetricLaplaceLoss(AsymmetricLaplaceLoss):
         else:
             self.register_buffer('tau_logit', 
                                torch.log(torch.tensor(initial_tau) / (1 - initial_tau)))
+        
+        # Initialize tau-dependent constants
+        current_tau = self.tau
+        self.tau_factor = current_tau * (1 - current_tau)
+        self.log_normalization = torch.log(torch.tensor(self.tau_factor))
         
         logger.info(f"AdaptiveAsymmetricLaplaceLoss initialized with learnable_tau={learnable_tau}")
 
