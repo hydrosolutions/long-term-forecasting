@@ -294,7 +294,7 @@ class TestModelArchitectures:
             'x_now': torch.randn(batch_size, 1, 2),
             'x_static': torch.randn(batch_size, 3),
             'y': torch.randn(batch_size),
-            'metadata': [{'date': datetime.now(), 'code': f'basin_{i}'} for i in range(batch_size)]
+            'metadata': [{'code': f'basin_{i}', 'day': 15, 'month': 7, 'year': 2023} for i in range(batch_size)]
         }
         return batch
     
@@ -544,7 +544,7 @@ class TestLightningModels:
             'x_now': torch.randn(batch_size, 1, 1),
             'x_static': torch.randn(batch_size, 2),
             'y': torch.randn(batch_size),
-            'metadata': [{'date': datetime.now(), 'code': f'basin_{i}'} for i in range(batch_size)]
+            'metadata': [{'code': f'basin_{i}', 'day': 15, 'month': 7, 'year': 2023} for i in range(batch_size)]
         }
         return batch
     
@@ -716,7 +716,7 @@ def create_sample_batch():
         'x_now': torch.randn(batch_size, 1, 2),
         'x_static': torch.randn(batch_size, 3),
         'y': torch.randn(batch_size),
-        'metadata': [{'date': datetime.now(), 'code': f'basin_{i}'} for i in range(batch_size)]
+        'metadata': [{'code': f'basin_{i}', 'day': 15, 'month': 7, 'year': 2023} for i in range(batch_size)]
     }
     return batch
 
@@ -774,7 +774,7 @@ if __name__ == "__main__":
                 'x_now': torch.randn(2, 1, 1),
                 'x_static': torch.randn(2, 2),
                 'y': torch.randn(2),
-                'metadata': [{'date': datetime.now(), 'code': f'basin_{i}'} for i in range(2)]
+                'metadata': [{'code': f'basin_{i}', 'day': 15, 'month': 7, 'year': 2023} for i in range(2)]
             }
             
             test_lightning.test_uncertainty_lightning_model(lightning_batch)

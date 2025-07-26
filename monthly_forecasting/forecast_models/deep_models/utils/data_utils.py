@@ -258,7 +258,6 @@ class DeepLearningDataset(Dataset):
             date = pd.to_datetime(date)
             
         metadata = {
-            'date': date,
             'code': code,
             'day': date.day,
             'month': date.month,
