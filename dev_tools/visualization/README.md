@@ -86,7 +86,7 @@ uv sync
 From the project root directory (`monthly_forecasting/`), run:
 
 ```bash
-uv run python visualization/dashboard.py
+uv run python dev_tools/visualization/dashboard.py
 ```
 
 The dashboard will start and be available at: http://127.0.0.1:8050/

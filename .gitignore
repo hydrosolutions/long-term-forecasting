@@ -28,3 +28,6 @@
 /monthly_forecasting/forecast_models/meta_learners/__pycache__
 /monthly_forecasting/forecast_models/meta_learners/__pycache__
 /debug_snow_analysis
+/monthly_forecasting/forecast_models/deep_models/utils/__pycache__
+/monthly_forecasting/forecast_models/deep_models/__pycache__
+/monthly_forecasting/forecast_models/deep_models/architectures/__pycache__

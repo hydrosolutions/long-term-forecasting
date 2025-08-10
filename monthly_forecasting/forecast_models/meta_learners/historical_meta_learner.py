@@ -4,8 +4,16 @@ from typing import Dict, Any, List, Tuple
 import datetime
 from tqdm import tqdm as progress_bar
 
+# Hyperparameter optimization
+import optuna
+
+import os
+import pickle
+import json
+
 # Shared logging
 import logging
+from monthly_forecasting import __version__
 from monthly_forecasting.log_config import setup_logging
 
 setup_logging()
@@ -18,6 +26,19 @@ from monthly_forecasting.forecast_models.meta_learners.base_meta_learner import 
 
 from monthly_forecasting.scr import FeatureExtractor as FE
 from monthly_forecasting.scr import data_utils as du
+from monthly_forecasting.scr.metrics import (
+    calculate_NRMSE,
+    calculate_NMSE,
+    calculate_NMAE,
+    calculate_R2,
+)
+
+from monthly_forecasting.scr.meta_utils import (
+    calculate_weights_softmax,
+    weights_hybrid,
+    top_n_uniform_weights,
+)
+from monthly_forecasting.scr.meta_utils import create_weighted_ensemble
 
 
 class HistoricalMetaLearner(BaseMetaLearner):
@@ -61,10 +82,29 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
         if self.metric in invert_metrics:
             self.invert_metric = True
+            self.is_error_metric = True
         else:
             self.invert_metric = False
+            self.is_error_metric = False
 
-        self.temperature = self.general_config.get("temperature", 1.0)
+        self.weighting_method = self.model_config.get("weighting_method", "hybrid")
+
+        if self.weighting_method not in ["softmax", "hybrid", "top_n_uniform"]:
+            raise ValueError(
+                f"Weighting method '{self.weighting_method}' is not supported. Available methods: ['softmax', 'hybrid']"
+            )
+
+        self.temperature = self.general_config.get(
+            "temperature", 1.0
+        )  # Temperature for softmax scaling
+        self.top_n_models = self.model_config.get(
+            "top_n_models", 5
+        )  # Number of top models to consider for weighting hybrid
+        self.delta_performance = self.model_config.get(
+            "delta_performance", 0.1
+        )  # Threshold for "small difference" (10%)
+
+        self.target = self.general_config.get("target_column", "Q_obs")
 
     def __preprocess_data__(self):
         """
@@ -85,30 +125,29 @@ class HistoricalMetaLearner(BaseMetaLearner):
         )
 
         # Get target variable
-        target = extractor.create_target(self.data)
-        dates = pd.to_datetime(self.data["date"])
-        codes = self.data["code"].astype(int)
-        target_data = pd.DataFrame({"date": dates, "code": codes, "Q_obs": target})
+        self.data = extractor.create_all_features(self.data)
+        #rename 'target' to self.target
+        self.data.rename(columns={"target": self.target}, inplace=True)
 
         # 2. Load the base predictors
         logger.info("Loading base predictors")
         base_predictors, model_names = self.__load_base_predictors__()
+        self.base_models = model_names
+        self.model_names = model_names
 
         # 3. Merge the base predictors with the data
         logger.info("Merging base predictors with target data")
-        merged_data = target_data.merge(
+        self.data = self.data.merge(
             base_predictors, on=["date", "code"], how="left"
         )
 
         # 4. Create the periods columns
         logger.info("Creating period columns")
 
-        preprocessed_data = du.get_periods(merged_data)
+        self.data = du.get_periods(self.data)
 
-        logger.info(f"Preprocessed data shape: {preprocessed_data.shape}")
-        logger.info(f"Model names: {model_names}")
-
-        return preprocessed_data, model_names
+        logger.info(f"Preprocessed data shape: {self.data.shape}")
+        logger.info(f"Model names: {self.model_names}")
 
     def __get_weights__(self, performance: pd.DataFrame) -> pd.DataFrame:
         """
@@ -123,9 +162,41 @@ class HistoricalMetaLearner(BaseMetaLearner):
             Columns: ['period', 'code', 'model_xy', 'model_zx']
             Where 'model_xy' and 'model_zx' are the names of the models and the values are the weights.
         """
-        from monthly_forecasting.scr.meta_utils import calculate_weights_softmax
+
+        def weighting_function(perf_values: np.ndarray) -> np.ndarray:
+            """
+            Function to calculate weights based on the specified method.
+            """
+            if self.weighting_method == "softmax":
+                return calculate_weights_softmax(
+                    perf_values,
+                    temperature=self.temperature,
+                    invert=self.invert_metric,
+                )
+            elif self.weighting_method == "hybrid":
+                return weights_hybrid(
+                    perf_values,
+                    top_n=self.top_n_models,
+                    delta=self.delta_performance,
+                    temperature=self.temperature,
+                    is_error_metric=self.is_error_metric,
+                )
+            elif self.weighting_method == "top_n_uniform":
+                return top_n_uniform_weights(
+                    perf_values,
+                    top_n=self.top_n_models,
+                    invert=self.invert_metric,
+                )
+            else:
+                raise ValueError(
+                    f"Unsupported weighting method: {self.weighting_method}"
+                )
 
         logger.info("Calculating weights based on historical performance")
+
+        # Ensure top n is smaller or equal to the number of base models
+        number_base_models = len(self.base_models)
+        self.top_n_models = min(self.top_n_models, number_base_models)
 
         # Get model columns (excluding 'code' and 'period')
         model_columns = [
@@ -147,14 +218,21 @@ class HistoricalMetaLearner(BaseMetaLearner):
             performance_values = np.array([row[model] for model in model_columns])
 
             # Calculate weights using softmax
-            weights = calculate_weights_softmax(
-                performance_values,
-                temperature=self.temperature,
-                invert=self.invert_metric,
-            )
+            weights = weighting_function(performance_values)
+
+            # check if weights sum up to 1
+            sum_weights = np.nansum(weights)
+            if np.abs(sum_weights - 1) > 1e-5:
+                raise ValueError(
+                    f"Weights for code {code}, period {period} do not sum to 1: {weights}, sum: {sum_weights}"
+                )
 
             # Create weights row
             weights_row = {"code": code, "period": period}
+            if len(weights) != len(model_columns):
+                raise ValueError(
+                    f"Number of weights {len(weights)} does not match number of model columns {len(model_columns)}"
+                )
             for i, model in enumerate(model_columns):
                 weights_row[model] = weights[i]
 
@@ -183,7 +261,6 @@ class HistoricalMetaLearner(BaseMetaLearner):
         Returns:
             pd.DataFrame: DataFrame containing the ensemble predictions.
         """
-        from monthly_forecasting.scr.meta_utils import create_weighted_ensemble
 
         logger.info("Creating weighted ensemble predictions")
 
@@ -211,8 +288,6 @@ class HistoricalMetaLearner(BaseMetaLearner):
         """
         logger.info(f"Starting LOOCV for years: {loocv_years}")
 
-        # Preprocess data first
-        data, model_names = self.__preprocess_data__()
 
         all_predictions = []
 
@@ -220,8 +295,8 @@ class HistoricalMetaLearner(BaseMetaLearner):
             logger.info(f"Processing LOOCV for year {year}")
 
             # Split data into train and validation sets
-            train_data = data[data["date"].dt.year != year].copy()
-            val_data = data[data["date"].dt.year == year].copy()
+            train_data = self.data[self.data["date"].dt.year != year].copy()
+            val_data = self.data[self.data["date"].dt.year == year].copy()
 
             if len(train_data) == 0:
                 logger.warning(f"No training data for year {year}")
@@ -233,7 +308,7 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
             # Calculate historical performance on training data
             historical_performance = self.__calculate_historical_performance__(
-                train_data, model_names
+                train_data, self.model_names
             )
 
             if len(historical_performance) == 0:
@@ -245,7 +320,7 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
             # Create ensemble predictions for validation data
             ensemble_predictions = self.__create_ensemble__(
-                val_data, model_names, weights
+                val_data, self.base_models, weights
             )
 
             # rename 'ensemble' to Q_self.name
@@ -361,17 +436,17 @@ class HistoricalMetaLearner(BaseMetaLearner):
         Returns:
             pd.DataFrame: DataFrame containing the hindcast predictions.
         """
-        import os
-
         logger.info("Starting model calibration and hindcasting")
 
         # 1. Preprocess the data
-        data, model_names = self.__preprocess_data__()
+        self.__preprocess_data__()
 
-        data.dropna(subset=["Q_obs"], inplace=True)
+        self.__filter_forecast_days__()
+
+        self.data.dropna(subset=[self.target], inplace=True)
 
         # Get all available years for LOOCV
-        available_years = sorted(data["date"].dt.year.unique())
+        available_years = sorted(self.data["date"].dt.year.unique())
         logger.info(f"Available years for LOOCV: {available_years}")
 
         # 2. Run LOOCV for the meta learner
@@ -384,40 +459,103 @@ class HistoricalMetaLearner(BaseMetaLearner):
         # 3. Calculate historical performance on full dataset
         logger.info("Calculating historical performance on full dataset")
         historical_performance = self.__calculate_historical_performance__(
-            data, model_names
+            self.data, self.base_models
         )
 
         if len(historical_performance) == 0:
             logger.error("No historical performance data calculated")
             return hindcast_predictions
 
+        self.historical_performance = historical_performance
+
         # 4. Get weights based on historical performance
         weights = self.__get_weights__(historical_performance)
+        self.weights = weights
 
-        # 5. Save the weights as parquet file
-        weights_path = os.path.join(
-            self.path_config.get("model_home_path", ""), f"{self.name}_weights.parquet"
-        )
-        logger.info(f"Saving weights to {weights_path}")
-
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(weights_path), exist_ok=True)
-        weights.to_parquet(weights_path, index=False)
-
-        # Also save historical performance for reference
-        performance_path = os.path.join(
-            self.path_config.get("model_home_path", self.name),
-            f"{self.name}_performance.parquet",
-        )
-        logger.info(f"Saving historical performance to {performance_path}")
-        historical_performance.to_parquet(performance_path, index=False)
+        # 5. Save the model
+        self.save_model()
 
         # 6. Return the hindcast predictions
         logger.info(
             f"Calibration completed: {len(hindcast_predictions)} hindcast predictions"
         )
 
-        return hindcast_predictions[["date", "code", "Q_obs", f"Q_{self.name}"]].copy()
+        return hindcast_predictions[["date", "code", self.target, f"Q_{self.name}"]].copy()
+
+    def objective(
+        self,
+        trial: optuna.Trial,
+        val_df: pd.DataFrame,
+        historical_performance: pd.DataFrame,
+    ) -> float:
+        """
+        Objective function for hyperparameter optimization.
+
+        Args:
+            trial (optuna.Trial): The trial object containing hyperparameters.
+
+        Returns:
+            float: The objective value to minimize (e.g., validation loss).
+        """
+        # Set hyperparameters from the trial
+        self.temperature = trial.suggest_float("temperature", 0.05, 2.0, log=True)
+        self.top_n_models = trial.suggest_int("top_n_models", 1, 10)
+        self.delta_performance = trial.suggest_float("delta_performance", 0.01, 0.5)
+        self.weighting_method = trial.suggest_categorical(
+            "weighting_method", ["softmax", "hybrid", "top_n_uniform"]
+        )
+
+        weights = self.__get_weights__(historical_performance)
+
+        ensemble_predictions = self.__create_ensemble__(
+            val_df, self.base_models, weights
+        )
+
+        # rename 'ensemble' to Q_self.name
+        ensemble_predictions.rename(
+            columns={"ensemble": f"Q_{self.name}"}, inplace=True
+        )
+
+        # merge back with validation data to get Q_obs
+        val_df = val_df.merge(
+            ensemble_predictions[["date", "code", f"Q_{self.name}"]],
+            on=["date", "code"],
+            how="left",
+        )
+
+        # calcualte the normalized mean squared error (NMSE) as the objective
+        nrmse = calculate_NRMSE(
+            observed=val_df[self.target],
+            simulated=val_df[f"Q_{self.name}"],
+        )
+
+        r2 = calculate_R2(
+            observed=val_df[self.target],
+            simulated=val_df[f"Q_{self.name}"],
+        )
+
+        nmae = calculate_NMAE(
+            observed=val_df[self.target],
+            simulated=val_df[f"Q_{self.name}"],
+        )
+
+        nmse = calculate_NMSE(
+            observed=val_df[self.target],
+            simulated=val_df[f"Q_{self.name}"],
+        )
+
+        logger.info(f"Trial {trial.number}: NRMSE = {nrmse:.4f}, R2 = {r2:.4f}, NMAE = {nmae:.4f}, NMSE = {nmse:.4f}")
+
+        if self.metric == "nmse":
+            return nmse
+        elif self.metric == "nmae":
+            return nmae
+        elif self.metric == "r2":
+            return -r2  # Minimize negative R2
+        elif self.metric == "nrmse":
+            return nrmse
+        else:
+            raise ValueError(f"Unsupported metric: {self.metric}")
 
     def tune_hyperparameters(self) -> Tuple[bool, str]:
         """
@@ -428,137 +566,104 @@ class HistoricalMetaLearner(BaseMetaLearner):
         """
         logger.info("Starting hyperparameter tuning")
 
-        try:
-            # Preprocess data
-            data, model_names = self.__preprocess_data__()
+        # Apply the same preprocessing as other methods
+        self.__preprocess_data__()
 
-            data.dropna(subset=["Q_obs"], inplace=True)
+        if "year" not in self.data.columns:
+            self.data["year"] = self.data["date"].dt.year
 
-            # Get available years for validation
-            available_years = sorted(data["date"].dt.year.unique())
+        # Add day column if not present
+        if "day" not in self.data.columns:
+            self.data["day"] = self.data["date"].dt.day
 
-            # Parameters to tune
-            num_samples_vals = [self.num_samples_val]
-            metrics_to_test = ["nmse", "r2", "nrmse"]
+        # Get configuration parameters
+        self.hparam_tuning_years = self.general_config.get(
+            "num_hparam_tuning_years", 3
+        )
+        num_hparam_tuning_years = self.hparam_tuning_years
 
-            best_score = float("-inf")
-            best_params = {}
+        self.__filter_forecast_days__()
 
-            hparam_tuning_years = self.general_config.get("hparam_tuning_years", 3)
-            # Split years for validation
-            validation_years = available_years[
-                -hparam_tuning_years:
-            ]  # Use last 3 years for validation
-            training_years = available_years[
-                :-hparam_tuning_years
-            ]  # Use remaining years for training
+        all_years = sorted(self.data["year"].unique())
+        train_years = all_years[:-num_hparam_tuning_years]
+        val_years = all_years[-num_hparam_tuning_years:]
 
-            for num_samples in num_samples_vals:
-                for metric in metrics_to_test:
-                    logger.info(
-                        f"Testing num_samples_val={num_samples}, metric={metric}"
-                    )
+        df_train = self.data[self.data["year"].isin(train_years)].copy()
+        df_val = self.data[self.data["year"].isin(val_years)].copy()
 
-                    # Update model configuration
-                    original_num_samples = self.num_samples_val
-                    original_metric = self.metric
+        logger.info(f"Training years: {train_years}, Validation years: {val_years}")
 
-                    self.num_samples_val = num_samples
-                    self.metric = metric
+        # Dropna based on target
+        df_train = df_train.dropna(subset=[self.target]).copy()
+        df_val = df_val.dropna(subset=[self.target]).copy()
 
-                    # Update invert_metric based on new metric
-                    invert_metrics = ["nmse", "nmae", "nrmse"]
-                    self.invert_metric = metric in invert_metrics
+        if df_train.empty or df_val.empty:
+            logger.error(
+                "Not enough data for hyperparameter tuning. Ensure that the dataset contains sufficient years of data."
+            )
+            return (
+                False,
+                "Not enough data for hyperparameter tuning. Ensure that the dataset contains sufficient years of data.",
+            )
 
-                    try:
-                        # Train on training years
-                        train_data = data[data["date"].dt.year.isin(training_years)]
-                        val_data = data[data["date"].dt.year.isin(validation_years)]
+        # Calculate historical performance on training data
+        historical_performance = self.__calculate_historical_performance__(
+            df_train, self.base_models
+        )
 
-                        # Calculate performance on training data
-                        historical_performance = (
-                            self.__calculate_historical_performance__(
-                                train_data, model_names
-                            )
-                        )
+        if historical_performance.empty:
+            logger.error(
+                "No historical performance data available for hyperparameter tuning"
+            )
+            return (
+                False,
+                "No historical performance data available for hyperparameter tuning",
+            )
 
-                        if len(historical_performance) == 0:
-                            logger.warning(
-                                f"No performance data for params: num_samples={num_samples}, metric={metric}"
-                            )
-                            continue
+        # Create an Optuna study
+        study = optuna.create_study(
+            direction="minimize",
+        )
 
-                        # Get weights
-                        weights = self.__get_weights__(historical_performance)
+        n_trials = self.general_config.get("n_trials", 50)
+        logger.info(f"Starting hyperparameter optimization with {n_trials} trials")
 
-                        # Create ensemble predictions on validation data
-                        val_predictions = self.__create_ensemble__(
-                            val_data, model_names, weights
-                        )
+        study.optimize(
+            lambda trial: self.objective(trial, df_val, historical_performance),
+            n_trials=n_trials,
+            show_progress_bar=True,
+        )
 
-                        # Calculate validation score (using NSE as evaluation metric)
-                        from monthly_forecasting.scr.metrics import calculate_NSE
+        logger.info("Hyperparameter tuning completed")
 
-                        if (
-                            "Q_obs" in val_predictions.columns
-                            and "ensemble" in val_predictions.columns
-                        ):
-                            observed = val_predictions["Q_obs"].values
-                            predicted = val_predictions["ensemble"].values
+        # Get the best hyperparameters
+        best_params = study.best_params
+        logger.info(f"Best hyperparameters: {best_params}")
 
-                            # Remove NaN values
-                            valid_mask = ~(np.isnan(observed) | np.isnan(predicted))
+        # Update model configuration with best hyperparameters
+        self.temperature = best_params.get("temperature", self.temperature)
+        self.top_n_models = best_params.get("top_n_models", self.top_n_models)
+        self.delta_performance = best_params.get(
+            "delta_performance", self.delta_performance
+        )
+        self.weighting_method = best_params.get(
+            "weighting_method", self.weighting_method
+        )
 
-                            if np.sum(valid_mask) >= 10:
-                                score = calculate_NSE(
-                                    observed[valid_mask], predicted[valid_mask]
-                                )
+        logger.info(
+            f"Updated model configuration: temperature={self.temperature}, "
+            f"top_n_models={self.top_n_models}, delta_performance={self.delta_performance}, "
+            f"weighting_method={self.weighting_method}"
+        )
 
-                                if not np.isnan(score) and score > best_score:
-                                    best_score = score
-                                    best_params = {
-                                        "num_samples_val": num_samples,
-                                        "metric": metric,
-                                    }
-                                    logger.info(
-                                        f"New best score: {score:.4f} with params: {best_params}"
-                                    )
+        self.save_model()
 
-                    except Exception as e:
-                        logger.warning(
-                            f"Error testing params num_samples={num_samples}, metric={metric}: {str(e)}"
-                        )
-
-                    # Restore original parameters
-                    self.num_samples_val = original_num_samples
-                    self.metric = original_metric
-                    self.invert_metric = original_metric in invert_metrics
-
-            if best_params:
-                # Update model with best parameters
-                self.num_samples_val = best_params["num_samples_val"]
-                self.metric = best_params["metric"]
-                self.invert_metric = best_params["metric"] in invert_metrics
-
-                logger.info(
-                    f"Hyperparameter tuning completed. Best params: {best_params}, Score: {best_score:.4f}"
-                )
-                return True, f"Tuning successful. Best NSE score: {best_score:.4f}"
-            else:
-                logger.warning("No valid hyperparameter combinations found")
-                return False, "No valid hyperparameter combinations found"
-
-        except Exception as e:
-            logger.error(f"Error during hyperparameter tuning: {str(e)}")
-            return False, f"Tuning failed: {str(e)}"
+        return True, "Hyperparameter tuning completed successfully"
 
     def save_model(self) -> None:
         """
         Save the model to the specified path.
         """
-        import os
-        import pickle
-        import json
 
         logger.info(f"Saving {self.name} model")
 
@@ -572,9 +677,27 @@ class HistoricalMetaLearner(BaseMetaLearner):
             "metric": self.metric,
             "num_samples_val": self.num_samples_val,
             "invert_metric": self.invert_metric,
-            "model_type": "HistoricalMetaLearner",
-            "version": "1.0",
+            "weighting_method": self.weighting_method,
+            "temperature": self.temperature,
+            "top_n_models": self.top_n_models,
+            "delta_performance": self.delta_performance,
+            "model_type": "historical_meta_learner",
+            "version": __version__,
         }
+
+        # save the historical performance as parquet file if it exists
+        if hasattr(self, "historical_performance"):
+            performance_path = os.path.join(
+                save_path, f"{self.name}_performance.parquet"
+            )
+            self.historical_performance.to_parquet(performance_path, index=False)
+            metadata["historical_performance_path"] = performance_path
+
+        # save the weights as parquet file if they exist
+        if hasattr(self, "weights"):
+            weights_path = os.path.join(save_path, f"{self.name}_weights.parquet")
+            self.weights.to_parquet(weights_path, index=False)
+            metadata["weights_path"] = weights_path
 
         metadata_path = os.path.join(save_path, "metadata.json")
         with open(metadata_path, "w") as f:

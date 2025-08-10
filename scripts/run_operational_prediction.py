@@ -57,12 +57,11 @@ MODELS_OPERATIONAL = {
         ("SciRegressor", "GBT_simple"),
     ],
     "SnowMapper_Based": [
-        ("LR", "LR_Q_dSWEdt_T_P"),
-        ("LR", "LR_Q_SWE_T"),
-        ("LR", "LR_Q_T_P_SWE"),
-        ("LR", "LR_Q_SWE"),
+        ("LR", "LR_Snowmapper"),
+        ("LR", "LR_Snowmapper_DT"),
         ("SciRegressor", "Snow_GBT"),
         ("SciRegressor", "Snow_GBT_LR"),
+        ("SciRegressor", "Snow_GBT_Norm"),
     ],
 }
 
