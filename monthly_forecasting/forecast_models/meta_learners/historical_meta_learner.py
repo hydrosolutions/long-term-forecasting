@@ -500,7 +500,7 @@ class HistoricalMetaLearner(BaseMetaLearner):
         # Set hyperparameters from the trial
         self.temperature = trial.suggest_float("temperature", 0.05, 2.0, log=True)
         self.top_n_models = trial.suggest_int("top_n_models", 1, 10)
-        self.delta_performance = trial.suggest_float("delta_performance", 0.01, 0.5)
+        self.delta_performance = trial.suggest_float("delta_performance", 0.0, 1.0)
         self.weighting_method = trial.suggest_categorical(
             "weighting_method", ["softmax", "hybrid", "top_n_uniform"]
         )

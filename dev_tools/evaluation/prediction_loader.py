@@ -21,17 +21,23 @@ logger = logging.getLogger(__name__)
 MODEL_FAMILIES = {
     "BaseCase": [
         "LR_Q_T_P",
-        "GBT",
     ],
     "SCA_Based": ["LR_Q_SCA", "LR_Q_T_SCA"],
     "SnowMapper_Based": [
-        "LR_Q_T_P_SWE",
-        "LR_Q_dSWEdt_T_P",
+        "LR_Snowmapper",
+        "LR_Snowmapper_DT",
         "Snow_GBT",
         "Snow_GBT_LR",
+        "Snow_GBT_Norm",
         "Snow_HistMeta",
     ],
-    "GlacierMapper_Based": [],
+    "GlacierMapper_Based": [
+        "Gla_GBT",
+        "Gla_GBT_NormFeat"
+    ],
+    "Combined": [
+        "Com_GBT",
+    ],
 }
 
 # Configuration

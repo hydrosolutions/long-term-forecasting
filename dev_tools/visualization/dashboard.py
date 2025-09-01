@@ -330,6 +330,8 @@ def update_tab1_graph(selected_models, selected_metric, basin_filter):
     # Create boxplots grouped by month with models side by side
     months = sorted(df["month"].unique())
 
+    print(df.columns)
+
     for model in selected_models:
         model_df = df[df["model"] == model]
         if not model_df.empty:
