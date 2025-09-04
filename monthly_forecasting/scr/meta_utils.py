@@ -199,8 +199,9 @@ def weights_hybrid(
     w = softmax(x / max(temperature, 1e-8))
 
     w = np.clip(w, 0, 1)  # Ensure non-negative weights
-    
+
     return w
+
 
 def create_weighted_ensemble(
     predictions: pd.DataFrame,
@@ -208,7 +209,7 @@ def create_weighted_ensemble(
     model_columns: List[str],
     group_columns: List[str] = None,
     debug: bool = False,
-    naive_approach: bool = False
+    naive_approach: bool = False,
 ) -> pd.DataFrame:
     """
     Create weighted ensemble predictions with proper NaN handling.
@@ -239,7 +240,9 @@ def create_weighted_ensemble(
     # Validate that all model columns exist in predictions
     missing_cols = set(model_columns) - set(predictions.columns)
     if missing_cols:
-        raise ValueError(f"Model columns {missing_cols} not found in predictions DataFrame")
+        raise ValueError(
+            f"Model columns {missing_cols} not found in predictions DataFrame"
+        )
 
     if naive_approach:
         # Naive approach: simple average of model predictions
@@ -256,79 +259,88 @@ def create_weighted_ensemble(
         weight_mask = True
         for col in group_columns:
             weight_mask = weight_mask & (weights[col] == group[col].iloc[0])
-        
+
         group_weights = weights.loc[weight_mask]
 
         if group_weights.empty:
-            logger.warning(f"No weights found for group {dict(zip(group_columns, group_idx))}")
+            logger.warning(
+                f"No weights found for group {dict(zip(group_columns, group_idx))}"
+            )
             continue
 
         # Get predictions for this group (can be multiple rows)
         group_predictions = group[model_columns].values  # Shape: (n_rows, n_models)
-        
+
         # Get weights as 1D array
-        base_weights = group_weights[model_columns].values.flatten()  # Shape: (n_models,)
-        
+        base_weights = group_weights[
+            model_columns
+        ].values.flatten()  # Shape: (n_models,)
+
         if debug:
             print(f"\nGroup {dict(zip(group_columns, group_idx))}:")
             print(f"Base weights: {base_weights}")
             print(f"Base weights sum: {base_weights.sum()}")
-        
+
         # Check if all predictions are NaN
         if np.all(np.isnan(group_predictions)):
-            logger.warning(f"All predictions are NaN for group {dict(zip(group_columns, group_idx))}")
+            logger.warning(
+                f"All predictions are NaN for group {dict(zip(group_columns, group_idx))}"
+            )
             continue
-        
+
         # Process each row in the group
         ensemble_values = []
         for row_predictions in group_predictions:
             # Create mask for non-NaN predictions
             valid_mask = ~np.isnan(row_predictions)
-            
+
             if not valid_mask.any():
                 # All predictions in this row are NaN
                 ensemble_values.append(np.nan)
                 continue
-            
+
             # Apply weights only to valid predictions
             row_weights = base_weights.copy()
             row_weights[~valid_mask] = 0  # Set weights to 0 for NaN predictions
-            
+
             # Normalize weights to sum to 1
             weight_sum = row_weights.sum()
             if weight_sum > 0:
                 row_weights = row_weights / weight_sum
-                
+
                 # Calculate weighted average
                 # Use only valid predictions and their normalized weights
                 valid_predictions = row_predictions[valid_mask]
                 valid_weights = row_weights[valid_mask]
-                
+
                 if debug:
                     print(f"  Row predictions: {row_predictions}")
                     print(f"  Valid mask: {valid_mask}")
                     print(f"  Valid predictions: {valid_predictions}")
                     print(f"  Valid weights: {valid_weights}")
                     print(f"  Valid weights sum: {valid_weights.sum()}")
-                
+
                 # Double-check weights sum to 1
-                assert np.abs(valid_weights.sum() - 1.0) < 1e-10, f"Weights don't sum to 1: {valid_weights.sum()}"
-                
+                assert np.abs(valid_weights.sum() - 1.0) < 1e-10, (
+                    f"Weights don't sum to 1: {valid_weights.sum()}"
+                )
+
                 weighted_sum = np.sum(valid_predictions * valid_weights)
-                
+
                 if debug:
                     print(f"  Weighted sum: {weighted_sum}")
                     print(f"  Simple mean of valid: {np.mean(valid_predictions)}")
-                
+
                 ensemble_values.append(weighted_sum)
             else:
                 # All weights are 0 (shouldn't happen if we have valid predictions)
                 ensemble_values.append(np.nanmean(row_predictions[valid_mask]))
-        
+
         # Assign ensemble values back to result DataFrame
         result.loc[group.index, "ensemble"] = ensemble_values
-    
+
     return result
+
 
 def validate_performance_data(
     performance_df: pd.DataFrame, required_columns: List[str], min_samples: int = 5

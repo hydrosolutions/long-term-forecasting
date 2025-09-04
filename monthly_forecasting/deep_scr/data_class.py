@@ -294,3 +294,35 @@ class META_MONTH_DATA(Dataset):
             "year": year,
             "code": code,
         }
+
+
+class TabularDataset(Dataset):
+    """
+    Tabular Dataset.
+    Returns a tensor in shape (batch_size, num_features)
+    """
+
+    def __init__(self, df: pd.DataFrame, features: List[str], target: str):
+        self.df = df
+        self.features = features
+        self.y = df[target].values
+
+        self.codes = self.df["code"].values
+        self.dates = pd.to_datetime(self.df["date"])
+        self.days = self.dates.dt.day.values
+        self.months = self.dates.dt.month.values
+        self.years = self.dates.dt.year.values
+        self.X = self.df[self.features].values
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        return {
+            "X": torch.tensor(self.X[idx], dtype=torch.float),
+            "y": torch.tensor(self.y[idx], dtype=torch.float),
+            "code": torch.tensor(self.codes[idx], dtype=torch.long),
+            "day": torch.tensor(self.days[idx], dtype=torch.float),
+            "month": torch.tensor(self.months[idx], dtype=torch.float),
+            "year": torch.tensor(self.years[idx], dtype=torch.float),
+        }

@@ -5,9 +5,9 @@
 set -e  # Exit on any error
 
 # Configuration
-CONFIG_DIR="../monthly_forecasting_models/SnowMapper_Based/Snow_GBT_old"  # Path to model configuration directory
-MODEL_NAME="Snow_GBT_old"  # Model name
-INPUT_FAMILY="SnowMapper_Based"  # Input family for the model
+CONFIG_DIR="../monthly_forecasting_models/Uncertainty/UncertaintyMixtureMLP"  # Path to model configuration directory
+MODEL_NAME="UncertaintyMixtureMLP"  # Model name
+INPUT_FAMILY="Uncertainty"  # Input family for the model
 LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
 
 # Hyperparameter tuning specific settings

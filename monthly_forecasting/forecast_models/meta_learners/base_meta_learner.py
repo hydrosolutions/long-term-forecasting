@@ -73,8 +73,9 @@ class BaseMetaLearner(BaseForecastModel):
 
         self.target = self.general_config.get("target_column", "Q_obs")
 
-    def __load_base_predictors__(self, 
-                                 use_mean_pred : bool = False) -> Tuple[pd.DataFrame, List[str]]:
+    def __load_base_predictors__(
+        self, use_mean_pred: bool = False
+    ) -> Tuple[pd.DataFrame, List[str]]:
         """
         Load base predictors from the specified path.
 
@@ -99,12 +100,12 @@ class BaseMetaLearner(BaseForecastModel):
             pred_cols = [
                 col for col in pred_df.columns if "Q_" in col and col != "Q_obs"
             ]
-            
+
             if len(pred_cols) == 1:
                 include_ensemble = True
             else:
                 include_ensemble = use_mean_pred
-                
+
             for col in pred_cols:
                 sub_model = col.split("_")[1]
                 member_name = sub_model
@@ -133,7 +134,7 @@ class BaseMetaLearner(BaseForecastModel):
         )
 
         return df_to_merge_on, base_models_cols
-    
+
     def __filter_forecast_days__(
         self,
     ) -> None:

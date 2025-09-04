@@ -404,7 +404,6 @@ class StreamflowFeatureExtractor:
                     features = self._create_rolling_features(df, col, c)
                     feature_dfs.append(features)
 
-
         # Create target
         y = self.create_target(df)
 

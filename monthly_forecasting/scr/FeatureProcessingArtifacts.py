@@ -130,7 +130,7 @@ class FeatureProcessingArtifacts:
             self._save_scaler_safe(artifacts_dir, "scaler")
 
         if self.static_scaler is not None:
-            self._save_scaler_safe(artifacts_dir, "static_scaler")
+            self._save_scaler_safe(artifacts_dir, "static_scaler", static=True)
 
         # Save long_term_means as Parquet (backward compatibility)
         if self.long_term_means is not None:
@@ -141,7 +141,7 @@ class FeatureProcessingArtifacts:
             self._save_long_term_stats_safe(artifacts_dir)
 
     def _save_scaler_safe(
-        self, artifacts_dir: Path, scaler_name: str = "scaler"
+        self, artifacts_dir: Path, scaler_name: str = "scaler", static: bool = False
     ) -> None:
         """
         Save scaler dictionary in a safe, human-readable format.
@@ -150,13 +150,21 @@ class FeatureProcessingArtifacts:
         1. Global: {'feature_name': (mean, std), ...}
         2. Per-basin: {'basin_code': {'feature_name': (mean, std), ...}, ...}
         """
-        if self.scaler is None:
-            return
+        if static:
+            if self.static_scaler is None:
+                return
+            else:
+                scaler = self.static_scaler
+        else:
+            if self.scaler is None:
+                return
+            else:
+                scaler = self.scaler
 
         # Convert scaler to JSON-serializable format
         scaler_data = {}
 
-        for key, value in self.scaler.items():
+        for key, value in scaler.items():
             if isinstance(value, dict):
                 # Per-basin case: key is basin_code, value is dict of feature scalers
                 scaler_data[str(key)] = {}
@@ -557,6 +565,13 @@ def process_training_data(
                 logger.warning(f"Static feature {feature} not found in training data")
 
     artifacts.static_scaler = static_scaler
+    # Apply static feature scaling
+    for feature, (mean, std) in static_scaler.items():
+        df_processed[feature] = (
+            (df_processed[feature] - mean) / std
+            if std
+            else df_processed[feature] - mean
+        )
 
     # 1. Handle missing values and create imputation artifacts
     df_processed, artifacts = _handle_missing_values_training(
@@ -1138,6 +1153,7 @@ def _apply_normalization(
             )
 
         if scale_target and artifacts.target_col in df.columns:
+            # if artifacts.target_col in df.columns:
             numeric_features_to_scale.append(artifacts.target_col)
 
         if normalization_process == "per_basin":

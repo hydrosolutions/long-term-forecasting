@@ -27,17 +27,12 @@ MODEL_FAMILIES = {
         "LR_Snowmapper",
         "LR_Snowmapper_DT",
         "Snow_GBT",
+        # "Snow_GBT_old",
         "Snow_GBT_LR",
         "Snow_GBT_Norm",
-        "Snow_HistMeta",
+        # "Snow_HistMeta",
     ],
-    "GlacierMapper_Based": [
-        "Gla_GBT",
-        "Gla_GBT_NormFeat"
-    ],
-    "Combined": [
-        "Com_GBT",
-    ],
+    "GlacierMapper_Based": ["Gla_GBT", "Gla_GBT_NormFeat"],
 }
 
 # Configuration

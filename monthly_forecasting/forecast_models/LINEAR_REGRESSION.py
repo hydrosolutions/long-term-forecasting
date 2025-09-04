@@ -140,7 +140,6 @@ class LinearRegressionModel(BaseForecastModel):
             ):
                 feature_types[var_type] = feature
 
-
         # Get the best features across all types (sorted by correlation)
         best_features = sorted(
             feature_types.values(), key=lambda x: abs_corr[x], reverse=True
@@ -148,7 +147,6 @@ class LinearRegressionModel(BaseForecastModel):
 
         threshold = self.general_config.get("corr_threshold", 0.3)
         num_low_corr_features = self.general_config.get("num_low_corr_features", 2)
-
 
         best_features_above_threshold = [
             feat for feat in best_features if abs_corr[feat] >= threshold
@@ -158,16 +156,15 @@ class LinearRegressionModel(BaseForecastModel):
             logger.warning(
                 f"No features found above threshold {threshold} for {this_period}."
             )
-            
+
             # Select top features up to num_features
             features_week = best_features[:num_low_corr_features]
         else:
             # Select top features above threshold, up to num_features
             features_week = best_features_above_threshold
-            if len(features_week) < num_low_corr_features:              
+            if len(features_week) < num_low_corr_features:
                 # Select top features up to num_features
                 features_week = best_features[:num_low_corr_features]
-                
 
         # Convert to Index to maintain compatibility with the rest of the code
         features_week = pd.Index(features_week)

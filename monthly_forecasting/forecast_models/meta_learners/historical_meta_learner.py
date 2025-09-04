@@ -126,7 +126,7 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
         # Get target variable
         self.data = extractor.create_all_features(self.data)
-        #rename 'target' to self.target
+        # rename 'target' to self.target
         self.data.rename(columns={"target": self.target}, inplace=True)
 
         # 2. Load the base predictors
@@ -137,9 +137,7 @@ class HistoricalMetaLearner(BaseMetaLearner):
 
         # 3. Merge the base predictors with the data
         logger.info("Merging base predictors with target data")
-        self.data = self.data.merge(
-            base_predictors, on=["date", "code"], how="left"
-        )
+        self.data = self.data.merge(base_predictors, on=["date", "code"], how="left")
 
         # 4. Create the periods columns
         logger.info("Creating period columns")
@@ -287,7 +285,6 @@ class HistoricalMetaLearner(BaseMetaLearner):
             pd.DataFrame: DataFrame containing ensemble predictions for all validation years.
         """
         logger.info(f"Starting LOOCV for years: {loocv_years}")
-
 
         all_predictions = []
 
@@ -480,7 +477,9 @@ class HistoricalMetaLearner(BaseMetaLearner):
             f"Calibration completed: {len(hindcast_predictions)} hindcast predictions"
         )
 
-        return hindcast_predictions[["date", "code", self.target, f"Q_{self.name}"]].copy()
+        return hindcast_predictions[
+            ["date", "code", self.target, f"Q_{self.name}"]
+        ].copy()
 
     def objective(
         self,
@@ -544,7 +543,9 @@ class HistoricalMetaLearner(BaseMetaLearner):
             simulated=val_df[f"Q_{self.name}"],
         )
 
-        logger.info(f"Trial {trial.number}: NRMSE = {nrmse:.4f}, R2 = {r2:.4f}, NMAE = {nmae:.4f}, NMSE = {nmse:.4f}")
+        logger.info(
+            f"Trial {trial.number}: NRMSE = {nrmse:.4f}, R2 = {r2:.4f}, NMAE = {nmae:.4f}, NMSE = {nmse:.4f}"
+        )
 
         if self.metric == "nmse":
             return nmse
@@ -577,9 +578,7 @@ class HistoricalMetaLearner(BaseMetaLearner):
             self.data["day"] = self.data["date"].dt.day
 
         # Get configuration parameters
-        self.hparam_tuning_years = self.general_config.get(
-            "num_hparam_tuning_years", 3
-        )
+        self.hparam_tuning_years = self.general_config.get("num_hparam_tuning_years", 3)
         num_hparam_tuning_years = self.hparam_tuning_years
 
         self.__filter_forecast_days__()
