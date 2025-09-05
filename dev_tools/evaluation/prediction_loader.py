@@ -33,6 +33,7 @@ MODEL_FAMILIES = {
         # "Snow_HistMeta",
     ],
     "GlacierMapper_Based": ["Gla_GBT", "Gla_GBT_NormFeat"],
+    "Uncertainty": ["UncertaintyMixtureMLP"],
 }
 
 # Configuration

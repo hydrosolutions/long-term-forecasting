@@ -3,6 +3,11 @@ import torch.nn as nn
 from typing import Optional
 import logging
 
+# Shared logging
+import logging
+from monthly_forecasting.log_config import setup_logging
+
+setup_logging()
 logger = logging.getLogger(__name__)
 
 

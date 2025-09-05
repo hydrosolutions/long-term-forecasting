@@ -131,7 +131,7 @@ run_calibration_hindcasting() {
         --config_dir "$CONFIG_DIR" \
         --model_name "$MODEL_NAME" \
         --input_family "$INPUT_FAMILY" \
-        --log_level "$LOG_LEVEL"
+        --log_level "$LOG_LEVEL" 2>&1
     
     # Check if calibration was successful
     if [ $? -eq 0 ]; then

@@ -10,7 +10,11 @@ import pandas as pd
 
 from ..losses import AsymmetricLaplaceLoss
 
+# Shared logging
+import logging
+from monthly_forecasting.log_config import setup_logging
 
+setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -56,7 +60,7 @@ class MLPUncertaintyModel(pl.LightningModule):
         weight_decay: float = 0.0,
         gradient_clip_val: float = 1.0,
         lr_scheduler: Optional[Dict] = None,
-        use_ensemble_mean: bool = False,
+        use_pred_mean: bool = False,
         quantiles: Optional[List] = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95],
     ):
         """
@@ -89,7 +93,7 @@ class MLPUncertaintyModel(pl.LightningModule):
         )
 
         # Output layer: predicts μ, σ, p (or σ, p if use_ensemble_mean)
-        output_size = 2 if use_ensemble_mean else 3
+        output_size = 2 if use_pred_mean else 3
         self.output_layer = nn.Linear(hidden_size, output_size)
 
         self.loss_fn = AsymmetricLaplaceLoss()
@@ -122,15 +126,23 @@ class MLPUncertaintyModel(pl.LightningModule):
         # Output parameters
         params = self.output_layer(out)
 
-        if self.hparams.use_ensemble_mean:
+        if self.hparams.use_pred_mean:
             # Use first feature as μ
             mu = x[:, 0]
-            beta = self.softplus(params[:, 0])
-            tau = torch.sigmoid(params[:, 1])
+            beta = self.softplus(params[:, 0]) + 1e-2
+            tau = torch.sigmoid(params[:, 1]) 
+
+            #clip tau to be in range
+            tau = torch.clamp(tau, min=1e-2, max=0.99)
+
+            #detach mu to avoid gradients flowing into input feature
+            #mu = mu.detach()
         else:
             mu = params[:, 0]
-            beta = self.softplus(params[:, 1])
-            tau = torch.sigmoid(params[:, 2])
+            beta = self.softplus(params[:, 1]) + 1e-2
+            tau = torch.sigmoid(params[:, 2]) 
+            #clip tau to be in range
+            tau = torch.clamp(tau, min=1e-3, max=0.999)
 
         return mu, beta, tau
 
@@ -174,63 +186,60 @@ class MLPUncertaintyModel(pl.LightningModule):
         self.log("val_loss", loss, prog_bar=True)
         return loss
 
-    def predict(self, batch: Dict[str, torch.Tensor]) -> pd.DataFrame:
+    def predict_step(
+        self, batch: dict[str, torch.Tensor], batch_idx: int, dataloader_idx: int = 0
+    ) -> pd.DataFrame:
         """
-        Make predictions for a batch of input data, computing parameters of the
-        asymmetric Laplace distribution.
+        Perform a prediction step on a single batch of data.
+
+        This method is called by the PyTorch Lightning Trainer during the
+        prediction loop. It processes a batch, computes the distribution
+        parameters, and returns them along with identifiers in a DataFrame.
 
         Args:
-            batch: Dictionary containing input tensors with keys:
-                - 'X': Input features (batch, num_features)
-                - 'day', 'month', 'year': Date components (optional)
-                - 'code': Basin or location code (optional)
+            batch: A dictionary containing the input tensors for the batch.
+                   Expected keys include 'X' for features, and optionally
+                   'date', 'code', 'year', 'month', 'day' for metadata.
+            batch_idx: The index of the current batch.
+            dataloader_idx: The index of the dataloader (if multiple are used).
 
         Returns:
-            DataFrame with columns: date, code, loc (μ), sigma (σ), p (asymmetry)
+            A pandas DataFrame containing the predictions (loc, scale, asymmetry)
+            and identifiers for the batch.
         """
+        if "X" not in batch:
+            raise KeyError("Batch dictionary must contain an 'X' key for features.")
+
         x = batch["X"]
-        mu, beta, tau = self(x)
+        self.eval()  # Ensure the model is in evaluation mode
+        with torch.no_grad():
+            mu, beta, tau = self(x)
 
-        # Convert tensors to numpy for quantile computation
-        mu_np = mu.detach().cpu().numpy()
-        beta_np = beta.detach().cpu().numpy()
-        tau_np = tau.detach().cpu().numpy()
-
-        # Extract date components
-        day = batch.get("day", None)
-        month = batch.get("month", None)
-        year = batch.get("year", None)
-
-        if day is not None and month is not None and year is not None:
-            day_np = day.detach().cpu().numpy().astype(int)
-            month_np = month.detach().cpu().numpy().astype(int)
-            year_np = year.detach().cpu().numpy().astype(int)
-            dates = pd.to_datetime({"year": year_np, "month": month_np, "day": day_np})
-        else:
-            dates = [pd.NaT] * len(mu_np)
-
-        # Extract code
-        code = batch.get("code", None)
-        if code is not None:
-            code_np = code.detach().cpu().numpy()
-        else:
-            code_np = [None] * len(mu_np)
-
-        # Create DataFrame
-        data = {
-            "date": dates,
-            "code": code_np,
-            "loc": mu_np,
-            "scale": beta_np,
-            "asymmetry": tau_np,
+        # Prepare data for DataFrame creation
+        data: dict[str, np.ndarray | list[pd.Timestamp] | list[None]] = {
+            "loc": mu.cpu().numpy(),
+            "scale": beta.cpu().numpy(),
+            "asymmetry": tau.cpu().numpy(),
         }
 
-        prediction_df = pd.DataFrame(data)
+        # Safely extract optional metadata
+        batch_size = x.shape[0]
+        if all(k in batch for k in ["year", "month", "day"]):
+            data["date"] = pd.to_datetime({
+                'year': batch["year"].cpu().numpy(),
+                'month': batch["month"].cpu().numpy(),
+                'day': batch["day"].cpu().numpy()
+            }, errors="coerce")
+        else:
+            data["date"] = [pd.NaT] * batch_size
 
-        return prediction_df
+        if "code" in batch:
+            data["code"] = batch["code"].cpu().numpy()
+        else:
+            data["code"] = [None] * batch_size
 
-    def predict_step(self, *args, **kwargs):
-        return self.predict(*args, **kwargs)
+        return pd.DataFrame(data)
+
 
     def configure_optimizers(self) -> Dict:
         """
@@ -269,3 +278,92 @@ class MLPUncertaintyModel(pl.LightningModule):
             }
 
         return optimizer
+
+
+def test_mlp_uncertainty_model():
+    """
+    Simple test function to verify the MLP Uncertainty Model works correctly.
+    Creates a model with dummy data and performs forward pass and loss computation.
+    """
+    print("Testing MLP Uncertainty Model...")
+    
+    # Set random seed for reproducibility
+    torch.manual_seed(42)
+    np.random.seed(42)
+    
+    # Model parameters
+    num_features = 10
+    batch_size = 32
+    hidden_size = 64
+    num_residual_blocks = 3
+    
+    # Create model
+    model = MLPUncertaintyModel(
+        num_features=num_features,
+        hidden_size=hidden_size,
+        num_residual_blocks=num_residual_blocks,
+        dropout=0.1,
+        learning_rate=1e-3,
+        use_ensemble_mean=False
+    )
+    
+    print(f"Created model with {sum(p.numel() for p in model.parameters())} parameters")
+    
+    # Create dummy data
+    x = torch.randn(batch_size, num_features)
+    y = torch.randn(batch_size)  # Target values
+    
+    # Test forward pass
+    print("\nTesting forward pass...")
+    model.eval()
+    with torch.no_grad():
+        mu, beta, tau = model(x)
+        
+    print(f"Output shapes - μ: {mu.shape}, β: {beta.shape}, τ: {tau.shape}")
+    print(f"μ range: [{mu.min().item():.3f}, {mu.max().item():.3f}]")
+    print(f"β range: [{beta.min().item():.3f}, {beta.max().item():.3f}] (should be positive)")
+    print(f"τ range: [{tau.min().item():.3f}, {tau.max().item():.3f}] (should be in [0,1])")
+    
+    # Test training step
+    print("\nTesting training step...")
+    model.train()
+    batch = {"X": x, "y": y}
+    loss = model.training_step(batch, 0)
+    print(f"Training loss: {loss.item():.4f}")
+    
+    # Test prediction
+    print("\nTesting prediction...")
+    model.eval()
+    batch_with_metadata = {
+        "X": x,
+        "day": torch.ones(batch_size) * 15,
+        "month": torch.ones(batch_size) * 6,
+        "year": torch.ones(batch_size) * 2023,
+        "code": torch.arange(batch_size)
+    }
+    
+    prediction_df = model.predict(batch_with_metadata)
+    print(f"Prediction DataFrame shape: {prediction_df.shape}")
+    print("First few predictions:")
+    print(prediction_df.head())
+    
+    # Test with ensemble mean mode
+    print("\nTesting with use_ensemble_mean=True...")
+    model_ensemble = MLPUncertaintyModel(
+        num_features=num_features,
+        hidden_size=hidden_size,
+        num_residual_blocks=num_residual_blocks,
+        use_ensemble_mean=True
+    )
+    
+    model_ensemble.eval()
+    with torch.no_grad():
+        mu_ens, beta_ens, tau_ens = model_ensemble(x)
+    
+    print(f"Ensemble mode - μ uses first feature: {torch.allclose(mu_ens, x[:, 0])}")
+    
+    print("\n✅ All tests passed! MLP Uncertainty Model is working correctly.")
+
+
+if __name__ == "__main__":
+    test_mlp_uncertainty_model()

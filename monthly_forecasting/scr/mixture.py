@@ -20,10 +20,184 @@ logger = logging.getLogger(__name__)
 logging.getLogger("matplotlib").setLevel(logging.WARNING)
 logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
 
-warnings.filterwarnings("ignore")
-
-
 class MixtureModel:
+    # Class-level distribution generators (created once)
+    _ALD_DIST = None
+    _NORM_DIST = None
+    
+    def __init__(self, distribution_type: str = "ALD"):
+        self.distribution_type = distribution_type
+        self._dist_cache = {}  # Cache for distribution objects
+        
+        # Initialize distribution generators once at class level
+        if MixtureModel._ALD_DIST is None:
+            MixtureModel._ALD_DIST = stats.make_distribution(stats.laplace_asymmetric)
+        if MixtureModel._NORM_DIST is None:
+            MixtureModel._NORM_DIST = stats.make_distribution(stats.norm)
+
+    def __get_distribution_fn__(self, params):
+        # Create a hashable cache key from parameters
+        if self.distribution_type == "ALD":
+            cache_key = (
+                "ALD",
+                params["loc"],
+                params["scale"],
+                params["asymmetry"]
+            )
+        elif self.distribution_type == "Gaussian":
+            cache_key = (
+                "Gaussian",
+                params["mu"],
+                params["sigma"]
+            )
+        else:
+            raise ValueError(f"Unknown distribution type: {self.distribution_type}")
+        
+        # Check cache first
+        if cache_key in self._dist_cache:
+            return self._dist_cache[cache_key]
+        
+        # Create distribution if not cached
+        if self.distribution_type == "ALD":
+            base = self._ALD_DIST(kappa=params["asymmetry"])
+            dist = params["scale"] * base + params["loc"]
+        elif self.distribution_type == "Gaussian":
+            base = self._NORM_DIST()
+            dist = params["sigma"] * base + params["mu"]
+        
+        # Cache the distribution
+        self._dist_cache[cache_key] = dist
+        return dist
+
+    def __create_mixture__(self, parameter_dict: Dict[str, Dict[str, np.float_]]):
+        components = []
+        weights = []
+        names = []
+
+        for key, params in parameter_dict.items():
+            # Skip if any parameter is NaN
+            if any(np.isnan(v) for v in params.values()):
+                continue
+            dist = self.__get_distribution_fn__(params)
+            components.append(dist)
+            weights.append(params.get("weight", 1.0))
+            names.append(key)
+
+        # Normalize weights to sum to 1
+        weights = np.array(weights)
+        weights = weights / weights.sum()
+        
+        self.mixture = stats.Mixture(components, weights=weights.tolist())
+        self.names = names
+        self.components = components
+        self.weights = weights.tolist()
+
+    def get_statistic(
+        self, parameter_dict: Dict[str, Dict[str, float]], quantiles: List[float]
+    ) -> Dict[str, float]:
+        self.__create_mixture__(parameter_dict)
+
+        mean = self.mixture.mean()
+
+        # Vectorized quantile calculation - compute all at once
+        quantiles_array = np.array(quantiles)
+        quantile_values_array = self.mixture.icdf(quantiles_array)
+        
+        # Build result dictionary
+        result = {"mean": mean}
+        for q, val in zip(quantiles, quantile_values_array):
+            result[f"Q{int(q * 100)}"] = val
+
+        # Optional validation check for Q50
+        if "Q50" in result:
+            median = self.mixture.median()
+            ratio = result["Q50"] / median
+            epsilon = 1e-4
+            if abs(ratio - 1) > epsilon:
+                logger.warning(
+                    f"Warning: Q50/Median ratio is {ratio:.4f}, which is outside the expected range. "
+                    f"This indicates a wrong quantile calculation."
+                )
+
+        return result
+
+    def plot_distributions(
+        self,
+        x_range: Tuple[float, float] = None,
+        n_points: int = 1000,
+        figsize: Tuple[int, int] = (10, 6),
+    ) -> plt.Figure:
+        """
+        Simple plot showing individual components and mixture distribution.
+
+        Args:
+            x_range: Tuple of (min, max) values for x-axis. If None, uses data range.
+            n_points: Number of points to evaluate distributions at.
+            figsize: Figure size as (width, height).
+
+        Returns:
+            matplotlib Figure object
+        """
+        if not hasattr(self, "mixture"):
+            raise ValueError("Mixture not created yet. Call get_statistic() first.")
+
+        # Set up x values
+        if x_range is None:
+            means = [comp.mean() for comp in self.components]
+            stds = [comp.standard_deviation() for comp in self.components]
+            x_min = min(means) - 3 * max(stds)
+            x_max = max(means) + 3 * max(stds)
+        else:
+            x_min, x_max = x_range
+
+        x = np.linspace(x_min, x_max, n_points)
+
+        # Create figure
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # Plot individual components (weighted)
+        colors = plt.cm.tab10(np.linspace(0, 1, len(self.components)))
+
+        for i, (comp, weight, name, color) in enumerate(
+            zip(self.components, self.weights, self.names, colors)
+        ):
+            comp_pdf = comp.pdf(x)
+            weighted_pdf = comp_pdf * weight
+
+            ax.plot(
+                x,
+                weighted_pdf,
+                "--",
+                color=color,
+                alpha=0.7,
+                label=f"{name} (w={weight:.3f})",
+                linewidth=2,
+            )
+
+        # Plot mixture distribution
+        mixture_pdf = self.mixture.pdf(x)
+        ax.plot(
+            x, mixture_pdf, "k-", linewidth=3, label="Mixture Distribution", alpha=0.9
+        )
+
+        ax.set_title(
+            "Component Distributions vs Mixture Distribution",
+            fontsize=14,
+            fontweight="bold",
+        )
+        ax.set_xlabel("Value", fontsize=12)
+        ax.set_ylabel("Probability Density", fontsize=12)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        return fig
+    
+    def clear_cache(self):
+        """Clear the distribution cache to free memory if needed."""
+        self._dist_cache.clear()
+
+class MixtureModel_Old:
     def __init__(self, distribution_type: str = "ALD"):
         self.distribution_type = distribution_type
 

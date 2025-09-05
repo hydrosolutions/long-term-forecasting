@@ -456,6 +456,8 @@ Examples:
         import traceback
 
         tb = traceback.format_exc()
+        # Also print to stderr for immediate visibility in the console
+        print(f"Calibration script failed: {e}\nFull traceback:\n{tb}", file=sys.stderr)
         logger.error(f"Calibration script failed: {e}\nFull traceback:\n{tb}")
         sys.exit(1)
 

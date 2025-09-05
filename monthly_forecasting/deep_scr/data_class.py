@@ -7,6 +7,13 @@ from typing import List, Tuple, Any, Dict, Optional
 
 import pytorch_lightning as pl
 
+# Shared logging
+import logging
+from monthly_forecasting.log_config import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
+
 
 class MetaMonthDataModule(pl.LightningDataModule):
     def __init__(
@@ -303,26 +310,153 @@ class TabularDataset(Dataset):
     """
 
     def __init__(self, df: pd.DataFrame, features: List[str], target: str):
-        self.df = df
+        
+        self.df = df.copy()
         self.features = features
         self.y = df[target].values
 
-        self.codes = self.df["code"].values
+        self.codes = self.df["code"].astype(int).values
         self.dates = pd.to_datetime(self.df["date"])
         self.days = self.dates.dt.day.values
         self.months = self.dates.dt.month.values
         self.years = self.dates.dt.year.values
         self.X = self.df[self.features].values
 
+        logger.info(f"TabularDataset initialized with {len(self.X)} samples.")
+        logger.info(f"Features: {self.features}")
+
     def __len__(self):
-        return len(self.df)
+        return len(self.X)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         return {
-            "X": torch.tensor(self.X[idx], dtype=torch.float),
-            "y": torch.tensor(self.y[idx], dtype=torch.float),
-            "code": torch.tensor(self.codes[idx], dtype=torch.long),
-            "day": torch.tensor(self.days[idx], dtype=torch.float),
-            "month": torch.tensor(self.months[idx], dtype=torch.float),
-            "year": torch.tensor(self.years[idx], dtype=torch.float),
+            "X": torch.tensor(self.X[idx], dtype=torch.float32),
+            "y": torch.tensor(self.y[idx], dtype=torch.float32),
+            "code": torch.tensor(self.codes[idx], dtype=torch.float32),
+            "day": torch.tensor(self.days[idx], dtype=torch.float32),
+            "month": torch.tensor(self.months[idx], dtype=torch.float32),
+            "year": torch.tensor(self.years[idx], dtype=torch.float32),
         }
+
+
+if __name__ == "__main__":
+    """
+    Test function for TabularDataset.
+    Creates a synthetic dataset and demonstrates iteration and DataLoader usage.
+    """
+    print("Testing TabularDataset...")
+    
+    # Create synthetic test data
+    np.random.seed(42)
+    n_samples = 10**6
+    n_features = 70
+    
+    # Generate synthetic data
+    dates = pd.date_range(start="2020-01-01", periods=n_samples, freq="s")
+    codes = np.random.choice([1, 2, 3, 4, 5], size=n_samples)
+    
+    # Create feature columns
+    feature_names = [f"feature_{i}" for i in range(n_features)]
+    features_data = np.random.randn(n_samples, n_features)
+    
+    # Create target (simple linear combination of features + noise)
+    target = np.random.randn(n_samples)
+
+    # Create DataFrame
+    data = {
+        "date": dates,
+        "code": codes,
+        "target": target,
+    }
+    for i, name in enumerate(feature_names):
+        data[name] = features_data[:, i]
+    
+    df = pd.DataFrame(data)
+    
+    print(f"Created synthetic dataset with {len(df)} samples")
+    print(f"Features: {feature_names}")
+    print(f"DataFrame shape: {df.shape}")
+    print(f"First few rows:")
+    print(df.head())
+    
+    # Create TabularDataset
+    dataset = TabularDataset(df=df, features=feature_names, target="target")
+    
+    print(f"\nDataset length: {len(dataset)}")
+    
+    # Test direct iteration through dataset
+    print("\n=== Testing direct iteration ===")
+    for i in range(min(3, len(dataset))):
+        sample = dataset[i]
+        print(f"Sample {i}:")
+        for key, value in sample.items():
+            if isinstance(value, torch.Tensor):
+                if value.numel() == 1:
+                    print(f"  {key}: {value.item():.4f}")
+                else:
+                    print(f"  {key}: shape={value.shape}, mean={value.mean():.4f}")
+            else:
+                print(f"  {key}: {value}")
+        print()
+    
+    # Test DataLoader
+    print("=== Testing DataLoader ===")
+    dataloader = DataLoader(
+        dataset, 
+        batch_size=8, 
+        shuffle=True, 
+        num_workers=0  # Use 0 for testing to avoid multiprocessing issues
+    )
+    
+    print(f"DataLoader created with batch_size=8")
+    print(f"Number of batches: {len(dataloader)}")
+
+    print("About to create iterator...")
+    train_iter = iter(dataloader)
+    print("Iterator created, getting first batch...")
+    batch = next(train_iter)
+    print("First batch retrieved!")
+    
+    # Iterate through first few batches
+    for batch_idx, batch in enumerate(dataloader):
+        if batch_idx >= 2:  # Only show first 2 batches
+            break
+            
+        print(f"\nBatch {batch_idx + 1}:")
+        for key, value in batch.items():
+            if isinstance(value, torch.Tensor):
+                print(f"  {key}: shape={value.shape}, dtype={value.dtype}")
+                if key == "X":
+                    print(f"    X min/max: {value.min():.4f}/{value.max():.4f}")
+                elif key == "y":
+                    print(f"    y min/max: {value.min():.4f}/{value.max():.4f}")
+                elif value.numel() <= 16:  # Show values for small tensors
+                    print(f"    values: {value.flatten()[:8]}...")  # Show first 8 values
+            else:
+                print(f"  {key}: {value}")
+    
+    # Test with missing values
+    print("\n=== Testing with missing values ===")
+    df_with_nan = df.copy()
+    # Introduce some NaN values
+    df_with_nan.loc[5:10, "feature_1"] = np.nan
+    df_with_nan.loc[15:20, "target"] = np.nan
+    
+    dataset_with_nan = TabularDataset(df=df_with_nan, features=feature_names, target="target")
+    print(f"Dataset with NaN values created, length: {len(dataset_with_nan)}")
+    
+    # Test with a smaller batch
+    print("\n=== Testing different batch sizes ===")
+    small_dataloader = DataLoader(dataset, batch_size=3, shuffle=False, num_workers=0)
+    batch = next(iter(small_dataloader))
+    print(f"Small batch (size=3):")
+    for key, value in batch.items():
+        if isinstance(value, torch.Tensor):
+            print(f"  {key}: shape={value.shape}")
+    
+    print("\n=== Testing completed successfully! ===")
+    print(f"Total samples processed: {len(dataset)}")
+    print(f"Features shape: {dataset.X.shape}")
+    print(f"Target shape: {dataset.y.shape}")
+    print(f"Unique codes: {sorted(np.unique(dataset.codes))}")
+    print(f"Date range: {dataset.dates.min()} to {dataset.dates.max()}")
