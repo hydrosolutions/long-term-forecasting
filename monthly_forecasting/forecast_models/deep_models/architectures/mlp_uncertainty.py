@@ -130,18 +130,18 @@ class MLPUncertaintyModel(pl.LightningModule):
             # Use first feature as μ
             mu = x[:, 0]
             beta = self.softplus(params[:, 0]) + 1e-2
-            tau = torch.sigmoid(params[:, 1]) 
+            tau = torch.sigmoid(params[:, 1])
 
-            #clip tau to be in range
+            # clip tau to be in range
             tau = torch.clamp(tau, min=1e-2, max=0.99)
 
-            #detach mu to avoid gradients flowing into input feature
-            #mu = mu.detach()
+            # detach mu to avoid gradients flowing into input feature
+            # mu = mu.detach()
         else:
             mu = params[:, 0]
             beta = self.softplus(params[:, 1]) + 1e-2
-            tau = torch.sigmoid(params[:, 2]) 
-            #clip tau to be in range
+            tau = torch.sigmoid(params[:, 2])
+            # clip tau to be in range
             tau = torch.clamp(tau, min=1e-3, max=0.999)
 
         return mu, beta, tau
@@ -225,11 +225,14 @@ class MLPUncertaintyModel(pl.LightningModule):
         # Safely extract optional metadata
         batch_size = x.shape[0]
         if all(k in batch for k in ["year", "month", "day"]):
-            data["date"] = pd.to_datetime({
-                'year': batch["year"].cpu().numpy(),
-                'month': batch["month"].cpu().numpy(),
-                'day': batch["day"].cpu().numpy()
-            }, errors="coerce")
+            data["date"] = pd.to_datetime(
+                {
+                    "year": batch["year"].cpu().numpy(),
+                    "month": batch["month"].cpu().numpy(),
+                    "day": batch["day"].cpu().numpy(),
+                },
+                errors="coerce",
+            )
         else:
             data["date"] = [pd.NaT] * batch_size
 
@@ -240,7 +243,6 @@ class MLPUncertaintyModel(pl.LightningModule):
 
         return pd.DataFrame(data)
 
-
     def configure_optimizers(self) -> Dict:
         """
         Configure optimizer and learning rate scheduler.
@@ -248,7 +250,7 @@ class MLPUncertaintyModel(pl.LightningModule):
         Returns:
             Dictionary with optimizer and scheduler configuration
         """
-        optimizer = torch.optim.AdamW(
+        optimizer = torch.optim.Adam(
             self.parameters(),
             lr=self.hparams.learning_rate,
             weight_decay=self.hparams.weight_decay,
@@ -286,17 +288,17 @@ def test_mlp_uncertainty_model():
     Creates a model with dummy data and performs forward pass and loss computation.
     """
     print("Testing MLP Uncertainty Model...")
-    
+
     # Set random seed for reproducibility
     torch.manual_seed(42)
     np.random.seed(42)
-    
+
     # Model parameters
     num_features = 10
     batch_size = 32
     hidden_size = 64
     num_residual_blocks = 3
-    
+
     # Create model
     model = MLPUncertaintyModel(
         num_features=num_features,
@@ -304,33 +306,37 @@ def test_mlp_uncertainty_model():
         num_residual_blocks=num_residual_blocks,
         dropout=0.1,
         learning_rate=1e-3,
-        use_ensemble_mean=False
+        use_ensemble_mean=False,
     )
-    
+
     print(f"Created model with {sum(p.numel() for p in model.parameters())} parameters")
-    
+
     # Create dummy data
     x = torch.randn(batch_size, num_features)
     y = torch.randn(batch_size)  # Target values
-    
+
     # Test forward pass
     print("\nTesting forward pass...")
     model.eval()
     with torch.no_grad():
         mu, beta, tau = model(x)
-        
+
     print(f"Output shapes - μ: {mu.shape}, β: {beta.shape}, τ: {tau.shape}")
     print(f"μ range: [{mu.min().item():.3f}, {mu.max().item():.3f}]")
-    print(f"β range: [{beta.min().item():.3f}, {beta.max().item():.3f}] (should be positive)")
-    print(f"τ range: [{tau.min().item():.3f}, {tau.max().item():.3f}] (should be in [0,1])")
-    
+    print(
+        f"β range: [{beta.min().item():.3f}, {beta.max().item():.3f}] (should be positive)"
+    )
+    print(
+        f"τ range: [{tau.min().item():.3f}, {tau.max().item():.3f}] (should be in [0,1])"
+    )
+
     # Test training step
     print("\nTesting training step...")
     model.train()
     batch = {"X": x, "y": y}
     loss = model.training_step(batch, 0)
     print(f"Training loss: {loss.item():.4f}")
-    
+
     # Test prediction
     print("\nTesting prediction...")
     model.eval()
@@ -339,29 +345,29 @@ def test_mlp_uncertainty_model():
         "day": torch.ones(batch_size) * 15,
         "month": torch.ones(batch_size) * 6,
         "year": torch.ones(batch_size) * 2023,
-        "code": torch.arange(batch_size)
+        "code": torch.arange(batch_size),
     }
-    
+
     prediction_df = model.predict(batch_with_metadata)
     print(f"Prediction DataFrame shape: {prediction_df.shape}")
     print("First few predictions:")
     print(prediction_df.head())
-    
+
     # Test with ensemble mean mode
     print("\nTesting with use_ensemble_mean=True...")
     model_ensemble = MLPUncertaintyModel(
         num_features=num_features,
         hidden_size=hidden_size,
         num_residual_blocks=num_residual_blocks,
-        use_ensemble_mean=True
+        use_ensemble_mean=True,
     )
-    
+
     model_ensemble.eval()
     with torch.no_grad():
         mu_ens, beta_ens, tau_ens = model_ensemble(x)
-    
+
     print(f"Ensemble mode - μ uses first feature: {torch.allclose(mu_ens, x[:, 0])}")
-    
+
     print("\n✅ All tests passed! MLP Uncertainty Model is working correctly.")
 
 

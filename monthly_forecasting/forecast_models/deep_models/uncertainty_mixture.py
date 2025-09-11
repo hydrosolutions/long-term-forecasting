@@ -36,7 +36,7 @@ from monthly_forecasting.log_config import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
-logging.getLogger('fsspec').setLevel(logging.WARNING)
+logging.getLogger("fsspec").setLevel(logging.WARNING)
 
 
 class UncertaintyMixtureModel(BaseMetaLearner):
@@ -148,7 +148,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         )
 
         # Add error features for base models
-        for model_name in model_names:
+        """for model_name in model_names:
             if (
                 model_name in merged_data.columns
                 and self.target_col in merged_data.columns
@@ -158,7 +158,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
                     merged_data[self.target_col] - merged_data[model_name]
                 )
                 abs_error_col = f"{model_name}_abs_error"
-                merged_data[abs_error_col] = merged_data[error_col].abs()
+                merged_data[abs_error_col] = merged_data[error_col].abs()"""
 
         ensemble_mean = merged_data[model_names].mean(axis=1)
         merged_data["ensemble_mean"] = ensemble_mean
@@ -180,6 +180,9 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # 5. Create periods column for temporal features
         logger.info("Creating period columns")
         preprocessed_data = du.get_periods(preprocessed_data)
+
+        # calculate error statistics for each code, period and ensemble member , loocv style
+        preprocessed_data = self._loo_error_stats(preprocessed_data)
 
         preprocessed_data["dist_to_ens"] = (
             preprocessed_data["ensemble_mean"] - preprocessed_data["Q_pred"]
@@ -204,9 +207,6 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         if len(model_names) > 1:
             self.features.extend(ensemble_cols)
 
-        error_cols = [col for col in preprocessed_data.columns if "error" in col]
-        self.features.extend(error_cols)
-
         features_from_aggregation = [
             "error_mean",
             "error_std",
@@ -215,8 +215,8 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             "abs_error_mean",
             "abs_error_std",
             "abs_error_max",
-            "abs_error_skew",
         ]
+
         self.features.extend(features_from_aggregation)
 
         logger.info(f"Preprocessed data shape: {preprocessed_data.shape}")
@@ -247,7 +247,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
         return data
 
-    def _m3_to_mm(self, data: pd.DataFrame, col : str = 'discharge') -> pd.DataFrame:
+    def _m3_to_mm(self, data: pd.DataFrame, col: str = "discharge") -> pd.DataFrame:
         for code in data.code.unique():
             area = self.static_data[self.static_data["code"] == code][
                 "area_km2"
@@ -259,7 +259,6 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         return data
 
     def _mm_to_m3(self, data: pd.DataFrame, col: Union[List[str], str]) -> pd.DataFrame:
-        
         for code in data.code.unique():
             area = self.static_data[self.static_data["code"] == code][
                 "area_km2"
@@ -322,37 +321,8 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             value_name="Q_pred",
         )
 
-        # Process error columns efficiently using vectorized operations
-        error_data = []
-        abs_error_data = []
-
-        for model in existing_models:
-            error_col = f"{model}_error"
-            abs_error_col = f"{model}_abs_error"
-
-            # Create arrays of the same length as original df
-            if error_col in df.columns:
-                error_data.extend(df[error_col].values)
-            else:
-                logger.warning(
-                    f"Error column '{error_col}' not found for model '{model}'."
-                )
-                error_data.extend([np.nan] * len(df))
-
-            if abs_error_col in df.columns:
-                abs_error_data.extend(df[abs_error_col].values)
-            else:
-                logger.warning(
-                    f"Absolute error column '{abs_error_col}' not found for model '{model}'."
-                )
-                abs_error_data.extend([np.nan] * len(df))
-
-        # Add error columns to melted dataframe
-        pred_df["error"] = error_data
-        pred_df["abs_error"] = abs_error_data
-
         # Reorder columns for consistency
-        column_order = shared_cols + ["ensemble_member", "Q_pred", "error", "abs_error"]
+        column_order = shared_cols + ["ensemble_member", "Q_pred"]
         reformatted_df = pred_df[column_order]
 
         logger.info(
@@ -387,7 +357,10 @@ class UncertaintyMixtureModel(BaseMetaLearner):
                 # Avoid division by zero
                 if target_std == 0:
                     target_std = 1.0
-                scaler[f"{target_col}_scaler"] = {"mean": target_mean, "std": target_std}
+                scaler[f"{target_col}_scaler"] = {
+                    "mean": target_mean,
+                    "std": target_std,
+                }
 
         # Calculate scalers for all feature columns
         for col in self.features[1:]:
@@ -403,9 +376,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
         return scaler
 
-    def _scale_data(
-        self, data: pd.DataFrame, scaler: Dict[str, Any]
-    ) -> pd.DataFrame:
+    def _scale_data(self, data: pd.DataFrame, scaler: Dict[str, Any]) -> pd.DataFrame:
         """
         Scales the data using z-score normalization (mean=0, std=1) for all numeric features.
         Uses the provided scaler parameters.
@@ -421,14 +392,18 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             if target_col_scaler_key in scaler:
                 target_scaler = scaler[target_col_scaler_key]
                 # Apply standardization: (x - mean) / std
-                data_scaled[target_col] = (data_scaled[target_col] - target_scaler["mean"]) / target_scaler["std"]
-        
+                data_scaled[target_col] = (
+                    data_scaled[target_col] - target_scaler["mean"]
+                ) / target_scaler["std"]
+
         if pred_col in data_scaled.columns:
             target_col_scaler_key = f"{target_col}_scaler"
             if target_col_scaler_key in scaler:
                 target_scaler = scaler[target_col_scaler_key]
-                # Apply standardization: (x - mean) / std  
-                data_scaled[pred_col] = (data_scaled[pred_col] - target_scaler["mean"]) / target_scaler["std"]
+                # Apply standardization: (x - mean) / std
+                data_scaled[pred_col] = (
+                    data_scaled[pred_col] - target_scaler["mean"]
+                ) / target_scaler["std"]
 
         # Apply z-score scaling to all feature columns
         for col in self.features[1:]:
@@ -452,8 +427,11 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
         returns the aggregated statistics as a DataFrame
         cols : [code, period, ensemble_member, error_mean, error_std, error_skew, error_max,
-                abs_error_mean, abs_error_std, abs_error_skew, abs_error_max]
+                abs_error_mean, abs_error_std, abs_error_max]
         """
+        df = df.copy()
+        df["error"] = df["Q_pred"] - df[self.target_col]
+        df["abs_error"] = df["error"].abs()
         # Initialize list to store results
         results = []
 
@@ -474,7 +452,6 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             if "abs_error" in group.columns:
                 row["abs_error_mean"] = group["abs_error"].mean()
                 row["abs_error_std"] = group["abs_error"].std()
-                row["abs_error_skew"] = group["abs_error"].skew()
                 row["abs_error_max"] = group["abs_error"].max()
 
             results.append(row)
@@ -483,6 +460,36 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         aggregated_stats = pd.DataFrame(results)
 
         return aggregated_stats
+
+    def _loo_error_stats(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Calculates the error statistics for each code, period, and ensemble_member
+        for all years except one and inserts them as a column for the left out year."""
+
+        df = df.copy()
+        df["year"] = pd.to_datetime(df["date"]).dt.year
+
+        all_years = df["year"].unique()
+        all_years.sort()
+
+        merged_dfs = []
+
+        for year in all_years:
+            df_loo = df[df["year"] != year].copy()
+            agg_stats = self._calculate_aggregated_statistics(df_loo)
+
+            df_year = df[df["year"] == year].copy()
+            df_year = df_year.merge(
+                agg_stats, on=["code", "period", "ensemble_member"], how="left"
+            )
+            merged_dfs.append(df_year)
+
+        df_loo = pd.concat(merged_dfs, ignore_index=True)
+        logger.info("-" * 40)
+        logger.info(f"LOO error stats added, new shape: {df_loo.shape}")
+        logger.info(f"Columns after LOO error stats: {df_loo.columns.tolist()}")
+        logger.info("-" * 40)
+        return df_loo
 
     def _rescale_predictions(
         self, df: pd.DataFrame, scaler: Dict[str, Any]
@@ -495,7 +502,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             logger.warning(f"Scaler key '{scaler_key}' not found in scaler dictionary.")
             df = self._mm_to_m3(df, col=prediction_columns)
             return df
-            
+
         mean = scaler[scaler_key]["mean"]
         std = scaler[scaler_key]["std"]
         for col in prediction_columns:
@@ -529,11 +536,11 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
     def create_mixture_predictions_old(self, df: pd.DataFrame) -> pd.DataFrame:
         mixture_model = mixture.MixtureModel(distribution_type="ALD")
-        
+
         # Group and create nested structure more efficiently
         grouped = df.groupby(["code", "date"])
         final_pred = []
-        
+
         for (code, date), group in grouped:
             # Create ensemble_dict directly without iterating rows
             ensemble_dict = {
@@ -544,36 +551,36 @@ class UncertaintyMixtureModel(BaseMetaLearner):
                 }
                 for row in group.itertuples(index=False)
             }
-            
+
             stats = mixture_model.get_statistic(
                 parameter_dict=ensemble_dict, quantiles=self.quantiles
             )
-            
+
             this_dict = {"code": code, "date": date, **stats}
             final_pred.append(this_dict)
-        
+
         final_pred = pd.DataFrame(final_pred)
         final_pred.rename(columns={"mean": f"Q_{self.name}"}, inplace=True)
-        
+
         return final_pred
 
-    def create_mixture_predictions(self,df: pd.DataFrame) -> pd.DataFrame:
+    def create_mixture_predictions(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Fast version using groupby with itertuples for better performance.
-        
+
         Args:
             df: DataFrame with columns [code, date, ensemble_member, loc, scale, asymmetry]
             quantiles: List of quantiles to compute
             name: Name for the mean column renaming
-        
+
         Returns:
             DataFrame with predictions
         """
         mixture_model = mixture.MixtureModel(distribution_type="ALD")
-        
+
         grouped = df.groupby(["code", "date"])
         results = []
-        
+
         for (code, date), group in grouped:
             # Create ensemble_dict using itertuples (much faster than iterrows)
             ensemble_dict = {
@@ -583,21 +590,22 @@ class UncertaintyMixtureModel(BaseMetaLearner):
                     "asymmetry": row.asymmetry,
                 }
                 for row in group.itertuples(index=False)
-                if not (np.isnan(row.loc) or np.isnan(row.scale) or np.isnan(row.asymmetry))
+                if not (
+                    np.isnan(row.loc) or np.isnan(row.scale) or np.isnan(row.asymmetry)
+                )
             }
-            
+
             if ensemble_dict:  # Only process if we have valid data
                 stats = mixture_model.get_statistic(
-                    parameter_dict=ensemble_dict,
-                    quantiles=self.quantiles
+                    parameter_dict=ensemble_dict, quantiles=self.quantiles
                 )
                 results.append({"code": code, "date": date, **stats})
-        
+
         final_pred = pd.DataFrame(results)
         final_pred.rename(columns={"mean": f"Q_{self.name}"}, inplace=True)
-        
+
         return final_pred
-    
+
     def fit(
         self,
         train_data: pd.DataFrame = None,
@@ -605,16 +613,6 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         run_name: str = "final",
     ) -> Tuple[pl.LightningModule, Dict[str, Any], Dict[str, Any], pd.DataFrame]:
         # Prepare the data
-        # calculate aggregated statistics
-        aggregated_stats = self._calculate_aggregated_statistics(train_data)
-
-        # merge aggregated_stats with train_data
-        train_data = train_data.merge(
-            aggregated_stats, on=["code", "period", "ensemble_member"], how="left"
-        )
-        val_data = val_data.merge(
-            aggregated_stats, on=["code", "period", "ensemble_member"], how="left"
-        )
         # Scale it, remove nans
         scaler = self._calculate_scaler(train_data)
         train_data = self._scale_data(train_data, scaler)
@@ -625,8 +623,12 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         val_data = val_data.reset_index(drop=True)
 
         # Create the data class
-        train_data = train_data.dropna(subset=self.features + [self.target_col]).reset_index(drop=True)
-        val_data = val_data.dropna(subset=self.features + [self.target_col]).reset_index(drop=True)
+        train_data = train_data.dropna(
+            subset=self.features + [self.target_col]
+        ).reset_index(drop=True)
+        val_data = val_data.dropna(
+            subset=self.features + [self.target_col]
+        ).reset_index(drop=True)
 
         train_dataset = TabularDataset(
             df=train_data, features=self.features, target=self.target_col
@@ -721,14 +723,13 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             metrics_df = pd.read_csv(os.path.join(log_dir, "metrics.csv"))
             history = metrics_df.to_dict(orient="list")
 
-        return model, history, scaler, aggregated_stats
-    
+        return model, history, scaler
+
     def predict(
         self,
         df: pd.DataFrame,
         model: pl.LightningModule,
         scaler: Dict[str, Any] = None,
-        aggregated_stats: pd.DataFrame = None,
     ) -> pd.DataFrame:
         """
         Make predictions using the trained uncertainty mixture model.
@@ -747,17 +748,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             DataFrame with predictions including uncertainty parameters (loc, scale,
             asymmetry) and identifying columns.
         """
-        # 1. Prepare the data
-        if aggregated_stats is None:
-            # This is a fallback, but for consistency, it's better to pass
-            # the same stats used in training.
-            logger.warning("Aggregated stats not provided; calculating from input df.")
-            aggregated_stats = self._calculate_aggregated_statistics(df)
-
-        # Merge aggregated_stats with df
-        predict_df = df.merge(
-            aggregated_stats, on=["code", "period", "ensemble_member"], how="left"
-        )
+        predict_df = df.copy()
 
         # Drop rows with missing features, which can't be predicted
         predict_df.dropna(subset=self.features, inplace=True)
@@ -765,7 +756,9 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         identifiers = predict_df[["date", "code", "ensemble_member"]].copy()
 
         if predict_df.empty:
-            logger.warning("DataFrame is empty after dropping NaNs. No predictions can be made.")
+            logger.warning(
+                "DataFrame is empty after dropping NaNs. No predictions can be made."
+            )
             return pd.DataFrame()
 
         # 2. Scale features
@@ -790,12 +783,9 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # 4. Make predictions
         # Initialize a single trainer for prediction
         trainer = Trainer(
-            logger=False,
-            enable_progress_bar=False,
-            accelerator="auto",
-            devices=1
+            logger=False, enable_progress_bar=False, accelerator="auto", devices=1
         )
-        
+
         # trainer.predict returns a list of batch results (DataFrames)
         batch_predictions = trainer.predict(model, dataloader)
 
@@ -808,69 +798,156 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         prediction_results = pd.concat(batch_predictions, ignore_index=True)
         prediction_results = prediction_results[["loc", "scale", "asymmetry"]]
         final_df = pd.concat([identifiers, prediction_results], axis=1)
-        
+
         logger.info(f"Generated predictions for {len(final_df)} rows.")
         logger.info(f"Prediction columns: {final_df.columns.tolist()}")
-        
+
         return final_df
 
     def predict_operational(self, today=None):
         """
-        Make operational predictions using the trained uncertainty mixture model.
+        Predict in operational mode using global trained models.
 
         Args:
-            today: Date for prediction (optional)
+            today (datetime.datetime, optional): Date to use as "today" for prediction.
+                If None, uses current datetime.
 
         Returns:
-            DataFrame with operational predictions
+            forecast (pd.DataFrame): DataFrame containing the forecasted values.
         """
         logger.info(f"Starting operational prediction for {self.name}")
 
         # Preprocess data (this will call _reformat_df)
         self.__preprocess_data__()
 
-        # Prepare the data for operational prediction
-        operational_data = self.data.copy()
+        if today is None:
+            today = datetime.datetime.now()
+            today = pd.to_datetime(today.strftime("%Y-%m-%d"))
+        else:
+            today = pd.to_datetime(today.strftime("%Y-%m-%d"))
 
-        # Calculate aggregated statistics
-        aggregated_stats = self._calculate_aggregated_statistics(operational_data)
+        # Step 1: Load models and artifacts
+        self.load_model()
 
-        # Merge aggregated_stats with operational_data
-        operational_data = operational_data.merge(
-            aggregated_stats, on=["code", "period", "ensemble_member"], how="left"
+        # Step 2: Data processing
+        self.__preprocess_data__()
+
+        # Step 3: Calculate valid period
+        if not self.general_config.get("offset"):
+            self.general_config["offset"] = self.general_config["prediction_horizon"]
+        shift = (
+            self.general_config["offset"] - self.general_config["prediction_horizon"]
+        )
+        valid_from = today + datetime.timedelta(days=1) + datetime.timedelta(days=shift)
+        valid_to = valid_from + datetime.timedelta(
+            days=self.general_config["prediction_horizon"]
         )
 
-        # Scale with the same procedure as during training
-        scaler = self._calculate_scaler(operational_data)
-        operational_data = self._scale_data(operational_data, scaler)
+        valid_from_str = valid_from.strftime("%Y-%m-%d")
+        valid_to_str = valid_to.strftime("%Y-%m-%d")
 
-        if self.target_col not in operational_data.columns:
-            operational_data[self.target_col] = np.nan
+        logger.info(f"Forecast valid from: {valid_from_str} to: {valid_to_str}")
 
-        # Create dataset
-        operational_dataset = TabularDataset(
+        # Step 4: Filter data for operational prediction
+        all_codes = self.data["code"].unique()
+        # how many days delayed can the prediction be made
+        allowable_delay = self.general_config.get("allowable_delay", 3)
+        cutoff_date = today - pd.Timedelta(days=allowable_delay)
+        logger.info(
+            f"Cutoff date for operational prediction: {cutoff_date.date()}. Considering all data after this date."
+        )
+
+        operational_data = self.data[self.data["date"] >= cutoff_date].copy()
+        # drop rows with missing features
+        operational_data = operational_data.dropna(subset=self.features).reset_index(
+            drop=True
+        )
+
+        # sort by date and take for each code the most recent date
+        operational_data = operational_data.sort_values(
+            by=["code", "date"], ascending=[True, False]
+        )
+        operational_data = operational_data.drop_duplicates(
+            subset=["code"], keep="first"
+        )
+
+        logger.info(f"Operational data shape after filtering: {operational_data.shape}")
+        missing_codes = set(all_codes) - set(operational_data["code"].unique())
+        if missing_codes:
+            logger.warning(
+                f"No recent data available for codes: {missing_codes}. These will be skipped in the forecast."
+            )
+
+        if operational_data.empty:
+            logger.warning(
+                "No data available for operational prediction after filtering. Exiting."
+            )
+            return pd.DataFrame()
+
+        # Step 5: Make predictions
+        preds = self.predict(
             df=operational_data,
-            features=operational_data.columns.tolist(),
-            target=self.target_col,
+            model=self.model,
+            scaler=self.scaler,
         )
 
-        # Load the Model
-        model = self.load_model()
+        if preds.empty:
+            logger.warning("No predictions were made. Exiting.")
+            return pd.DataFrame()
 
-        # Predict
-        predictions = model.predict(operational_dataset)
+        # Step 6: Create mixture predictions
+        logger.info("Creating mixture predictions")
+        mixture_preds = self.create_mixture_predictions(preds)
 
-        # Add predictions to the dataframe
-        operational_data["Q_pred_scaled"] = predictions
+        logger.info("Rescaling predictions to original units")
+        forecast = self._rescale_predictions(mixture_preds, self.scaler)
+        logger.info(f"Forecast columns after rescaling: {forecast.columns.tolist()}")
 
-        # Create prediction df with mixture model
-        prediction_df = operational_data[
-            ["date", "code", "ensemble_member", "Q_pred_scaled"]
-        ].copy()
+        # Step 7: Rescale the predictions to original scale
+        pred_cols = [col for col in forecast.columns if col.startswith("Q")]
+        pred_cols.append("date")
+        pred_cols.append("code")
+        forecast = forecast[pred_cols]
 
-        return prediction_df
+        logger.info("Operational prediction completed")
+        logger.info("Head of forecast DataFrame:")
+        logger.info(forecast.head())
 
-    def calibrate_model_and_hindcast(self):
+        forecast_date = today.strftime("%Y-%m-%d")
+        forecast["forecast_date"] = forecast_date
+        forecast["valid_from"] = valid_from_str
+        forecast["valid_to"] = valid_to_str
+
+        all_pred_cols = [col for col in forecast.columns if col.startswith("Q")]
+
+        if missing_codes:
+            # Handle those codes by adding them with NaN predictions
+            for code in missing_codes:
+                empty_row = {
+                    "code": code,
+                }
+                for col in all_pred_cols:
+                    empty_row[col] = np.nan
+
+                empty_row_df = pd.DataFrame([empty_row], index=[0])
+
+                # Add the empty row to the forecast DataFrame
+                forecast = pd.concat([forecast, empty_row_df], ignore_index=True)
+
+        forecast_date = today.strftime("%Y-%m-%d")
+        forecast["forecast_date"] = forecast_date
+        forecast["valid_from"] = valid_from_str
+        forecast["valid_to"] = valid_to_str
+
+        # round numeric columns to 2 decimals
+        numeric_cols = forecast.select_dtypes(include=[np.number]).columns
+        # exclude code column
+        numeric_cols = [col for col in numeric_cols if col != "code"]
+        forecast[numeric_cols] = forecast[numeric_cols].round(2)
+
+        return forecast
+
+    def calibrate_model_and_hindcast(self) -> pd.DataFrame:
         """
         Calibrate the ensemble models using Leave-One-Year-Out cross-validation.
 
@@ -916,7 +993,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             test_data = self.data[self.data["year"] == loo].copy()
 
             # Fit the model
-            model, cal_history, scaler, aggregated_stats = self.fit(
+            model, cal_history, scaler = self.fit(
                 train_data=train_data, val_data=val_data, run_name=str(loo)
             )
             # Predict on the test set
@@ -924,7 +1001,6 @@ class UncertaintyMixtureModel(BaseMetaLearner):
                 df=test_data,
                 model=model,
                 scaler=scaler,
-                aggregated_stats=aggregated_stats,
             )
 
             if hindcast_df is None:
@@ -940,26 +1016,26 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         train_data = train_data.drop(val_data.index)
 
         # Fit the model on all (minus test years) data
-        model, cal_history, scaler, aggregated_stats = self.fit(
+        self.model, self.cal_history, self.scaler = self.fit(
             train_data=train_data, val_data=val_data
         )
+        self.is_fitted = True
         if test_years is not None:
             test_data = self.data[self.data["year"].isin(test_years)].copy()
             preds = self.predict(
                 df=test_data,
                 model=model,
                 scaler=scaler,
-                aggregated_stats=aggregated_stats,
             )
             hindcast_df = pd.concat([hindcast_df, preds], axis=0)
 
         logger.info("Creating mixture predictions")
         mixture_preds = self.create_mixture_predictions(hindcast_df)
-        logger.info(f"Mixture predictions columns: {mixture_preds.columns.tolist()}")
-        
-        #mixture_preds = hindcast_df.copy()
+        # logger.info(f"Mixture predictions columns: {mixture_preds.columns.tolist()}")
+
+        # mixture_preds = hindcast_df.copy()
         # rename mu to Q_{self.name}
-        #mixture_preds.rename(columns={"loc": f"Q_{self.name}"}, inplace=True)
+        # mixture_preds.rename(columns={"loc": f"Q_{self.name}"}, inplace=True)
 
         logger.info("Rescaling predictions to original units")
         hindcast = self._rescale_predictions(mixture_preds, scaler)
@@ -970,27 +1046,28 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         pred_cols = [
             col for col in hindcast.columns if col.startswith("Q") and col != "Q_obs"
         ]
-        pred_cols.append('date')
-        pred_cols.append('code')
+        pred_cols.append("date")
+        pred_cols.append("code")
         hindcast = hindcast[pred_cols]
         hindcast = hindcast.merge(ground_truth, on=["date", "code"], how="left")
 
         # save model (commented out intentionally)
-        logger.info("Saving final model (skipped in current implementation)")
-        # self.save_model(model=model, scaler=scaler, history=cal_history)
+        self.save_model(model=model, scaler=scaler, history=cal_history)
 
         logger.info("Hindcasting completed")
         logger.info("Head of hindcast DataFrame:")
         logger.info(hindcast.head())
 
-        # very quick sanity check 
+        # very quick sanity check
         coverage_90 = np.mean(
-            (hindcast["Q_obs"] >= hindcast["Q5"]) & (hindcast["Q_obs"] <= hindcast["Q95"])
+            (hindcast["Q_obs"] >= hindcast["Q5"])
+            & (hindcast["Q_obs"] <= hindcast["Q95"])
         )
         logger.info(f"Approximate 90% coverage: {coverage_90:.2f}")
 
         coverage_50 = np.mean(
-            (hindcast["Q_obs"] >= hindcast["Q25"]) & (hindcast["Q_obs"] <= hindcast["Q75"])
+            (hindcast["Q_obs"] >= hindcast["Q25"])
+            & (hindcast["Q_obs"] <= hindcast["Q75"])
         )
         logger.info(f"Approximate 50% coverage: {coverage_50:.2f}")
 
@@ -1000,7 +1077,76 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         return True, "UncertaintyMixtureMLP: Hyperparameter tuning not implemented yet"
 
     def save_model(self):
-        return super().save_model()
+        logger.info(f"Saving {self.name} models")
+        save_path = os.path.join(self.path_config["model_home_path"], f"{self.name}")
+        os.makedirs(save_path, exist_ok=True)
+
+        # Save general model configuration
+        model_config_path = os.path.join(save_path, "model_config.json")
+        with open(model_config_path, "w") as f:
+            json.dump(self.model_config, f, indent=4)
+        # Save general feature configuration
+        feature_config_path = os.path.join(save_path, "feature_config.json")
+        with open(feature_config_path, "w") as f:
+            json.dump(self.feature_config, f, indent=4)
+        # Save general experiment configuration
+        experiment_config_path = os.path.join(save_path, "experiment_config.json")
+        with open(experiment_config_path, "w") as f:
+            json.dump(self.general_config, f, indent=4)
+
+        if self.is_fitted:
+            # Save the trained model
+            model_path = os.path.join(save_path, "final_model.ckpt")
+            self.model.to("cpu")
+            torch.save(self.model.state_dict(), model_path)
+            logger.info(f"Model saved to {model_path}")
+
+            # Save the scaler
+            scaler_path = os.path.join(save_path, "scaler.json")
+            with open(scaler_path, "w") as f:
+                json.dump(self.scaler, f, indent=4)
+            logger.info(f"Scaler saved to {scaler_path}")
+
+            # Save the training history
+            history_path = os.path.join(save_path, "training_history.json")
+            with open(history_path, "w") as f:
+                json.dump(self.cal_history, f, indent=4)
+            logger.info(f"Training history saved to {history_path}")
+
+        else:
+            logger.warning(
+                "Model is not fitted; skipping model, scaler, and history saving."
+            )
 
     def load_model(self):
-        return super().load_model()
+        logger.info(f"Loading {self.name} model")
+        load_path = os.path.join(self.path_config["model_home_path"], f"{self.name}")
+
+        model_path = os.path.join(load_path, "final_model.ckpt")
+        scaler_path = os.path.join(load_path, "scaler.json")
+
+        # check if files exist
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found at {model_path}")
+        if not os.path.exists(scaler_path):
+            raise FileNotFoundError(f"Scaler file not found at {scaler_path}")
+
+        # Load the scaler
+        with open(scaler_path, "r") as f:
+            self.scaler = json.load(f)
+        logger.info(f"Scaler loaded from {scaler_path}")
+
+        # Initialize the model architecture
+        model = self._init_model(
+            hidden_size=self.hidden_size,
+            num_residual_blocks=self.num_residual_blocks,
+            dropout=self.dropout,
+            learning_rate=self.learning_rate,
+            weight_decay=self.weight_decay,
+            gradient_clip_val=self.gradient_clip_val,
+        )
+
+        model.load_state_dict(torch.load(model_path))
+        self.model = model
+
+        logger.info(f"Model loaded from {model_path}")

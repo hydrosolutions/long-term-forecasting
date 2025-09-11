@@ -20,15 +20,16 @@ logger = logging.getLogger(__name__)
 logging.getLogger("matplotlib").setLevel(logging.WARNING)
 logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
 
+
 class MixtureModel:
     # Class-level distribution generators (created once)
     _ALD_DIST = None
     _NORM_DIST = None
-    
+
     def __init__(self, distribution_type: str = "ALD"):
         self.distribution_type = distribution_type
         self._dist_cache = {}  # Cache for distribution objects
-        
+
         # Initialize distribution generators once at class level
         if MixtureModel._ALD_DIST is None:
             MixtureModel._ALD_DIST = stats.make_distribution(stats.laplace_asymmetric)
@@ -38,33 +39,27 @@ class MixtureModel:
     def __get_distribution_fn__(self, params):
         # Create a hashable cache key from parameters
         if self.distribution_type == "ALD":
-            cache_key = (
-                "ALD",
-                params["loc"],
-                params["scale"],
-                params["asymmetry"]
-            )
+            cache_key = ("ALD", params["loc"], params["scale"], params["asymmetry"])
         elif self.distribution_type == "Gaussian":
-            cache_key = (
-                "Gaussian",
-                params["mu"],
-                params["sigma"]
-            )
+            cache_key = ("Gaussian", params["mu"], params["sigma"])
         else:
             raise ValueError(f"Unknown distribution type: {self.distribution_type}")
-        
+
         # Check cache first
         if cache_key in self._dist_cache:
             return self._dist_cache[cache_key]
-        
+
         # Create distribution if not cached
         if self.distribution_type == "ALD":
-            base = self._ALD_DIST(kappa=params["asymmetry"])
-            dist = params["scale"] * base + params["loc"]
+            tau = params["asymmetry"]
+            kappa = np.sqrt(tau / (1.0 - tau))
+            scale = params["scale"] / np.sqrt(tau * (1.0 - tau))
+            base = self._ALD_DIST(kappa=kappa)
+            dist = scale * base + params["loc"]
         elif self.distribution_type == "Gaussian":
             base = self._NORM_DIST()
             dist = params["sigma"] * base + params["mu"]
-        
+
         # Cache the distribution
         self._dist_cache[cache_key] = dist
         return dist
@@ -86,7 +81,7 @@ class MixtureModel:
         # Normalize weights to sum to 1
         weights = np.array(weights)
         weights = weights / weights.sum()
-        
+
         self.mixture = stats.Mixture(components, weights=weights.tolist())
         self.names = names
         self.components = components
@@ -102,7 +97,7 @@ class MixtureModel:
         # Vectorized quantile calculation - compute all at once
         quantiles_array = np.array(quantiles)
         quantile_values_array = self.mixture.icdf(quantiles_array)
-        
+
         # Build result dictionary
         result = {"mean": mean}
         for q, val in zip(quantiles, quantile_values_array):
@@ -192,10 +187,11 @@ class MixtureModel:
 
         plt.tight_layout()
         return fig
-    
+
     def clear_cache(self):
         """Clear the distribution cache to free memory if needed."""
         self._dist_cache.clear()
+
 
 class MixtureModel_Old:
     def __init__(self, distribution_type: str = "ALD"):

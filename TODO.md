@@ -19,10 +19,18 @@ this should be fairly straight forward when the fit and predict function is in p
 
 - [ ] create a plot showing the individual memebers pdf and the resulting combination for sanity checking.
 - [ ] validate on metrics like coverage , obs vs theretical prob of exceedance, cprs etc.
+- [ ] Create operational prediction
+- [ ] model saving / loadng
+- [ ] artifacts saving loading
+- [ ] hparam tuning
+  
 
 
 ## Urgent Fixes
 - [ ] Integration of Meta-Model in Prediction Pipeline
+- [x] Uncertainty Net - Calculate error statistics for all years except the one at hand - loocv errors -> this creates new columns in the data frame - error_mean, error_skew, error_std, error_max , abs_error_mean, abs_error_std, abs_error_max
+- [ ] Test model performance
+
 
 ## Fixes 
 - [x] Proper Scaling -> Improved performance

@@ -5,10 +5,15 @@
 set -e  # Exit on any error
 
 # Configuration
-CONFIG_DIR="../monthly_forecasting_models/Uncertainty/UncertaintyMixtureMLP"  # Path to model configuration directory
-MODEL_NAME="UncertaintyMixtureMLP"  # Model name
-INPUT_FAMILY="Uncertainty"  # Input family for the model
+CONFIG_DIR="../monthly_forecasting_models/GlacierMapper_Based/Gla_GBT_simple"  # Path to model configuration directory
+MODEL_NAME="Gla_GBT_simple"  # Model name
+INPUT_FAMILY="GlacierMapper_Based"  # Input family for the model
 LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
+
+#CONFIG_DIR="../monthly_forecasting_models/Uncertainty/UncertaintyMixtureMLP"  # Path to model configuration directory
+#MODEL_NAME="UncertaintyMixtureMLP"  # Model name
+#INPUT_FAMILY="Uncertainty"  # Input family for the model
+#LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
 
 # Hyperparameter tuning specific settings
 TRIALS=100  # Number of Optuna trials (adjust as needed)
