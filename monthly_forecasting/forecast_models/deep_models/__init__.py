@@ -5,7 +5,6 @@ This package provides PyTorch-based deep learning models that inherit from
 BaseForecastModel and integrate seamlessly with the existing forecasting workflow.
 """
 
-from .deep_regressor import DeepRegressor
-from .deep_meta_learner import DeepMetaLearner
+from .uncertainty_mixture import UncertaintyMixtureModel
 
-__all__ = ["DeepRegressor", "DeepMetaLearner"]
+__all__ = ["UncertaintyMixtureModel"]

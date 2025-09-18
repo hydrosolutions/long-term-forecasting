@@ -107,7 +107,7 @@ class BaseMetaLearner(BaseForecastModel):
                 include_ensemble = use_mean_pred
 
             for col in pred_cols:
-                sub_model = col.split("_")[1]
+                sub_model = col.replace("Q_", "")
                 member_name = sub_model
 
                 if sub_model == model_name:
@@ -116,7 +116,8 @@ class BaseMetaLearner(BaseForecastModel):
                     base_models_cols.append(member_name)
 
                 else:
-                    member_name = f"{model_name}_{sub_model}"
+                    sub_sub_model = sub_model.split("_")[-1]
+                    member_name = f"{model_name}_{sub_sub_model}"
                     base_models_cols.append(member_name)
 
                 sub_df = pred_df[["date", "code", col]].copy()

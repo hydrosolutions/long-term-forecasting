@@ -21,6 +21,9 @@ sys.path.insert(0, str(project_root))
 # Import forecast models
 from monthly_forecasting.forecast_models.LINEAR_REGRESSION import LinearRegressionModel
 from monthly_forecasting.forecast_models.SciRegressor import SciRegressor
+from monthly_forecasting.forecast_models.deep_models.uncertainty_mixture import (
+    UncertaintyMixtureModel,
+)
 from monthly_forecasting.scr import data_loading as dl
 
 
@@ -61,7 +64,10 @@ MODELS_OPERATIONAL = {
         ("LR", "LR_Snowmapper_DT"),
         ("SciRegressor", "Snow_GBT"),
         ("SciRegressor", "Snow_GBT_LR"),
-        ("SciRegressor", "Snow_GBT_Norm"),
+        # ("SciRegressor", "Snow_GBT_Norm"),
+    ],
+    "Uncertainty": [
+        ("UncertaintyMixtureMLP", "UncertaintyMixtureMLP"),
     ],
 }
 
@@ -657,6 +663,15 @@ def create_model_instance(
         )
     elif model_type == "SciRegressor":
         model = SciRegressor(
+            data=data,
+            static_data=static_data,
+            general_config=general_config,
+            model_config=model_config,
+            feature_config=feature_config,
+            path_config=path_config,
+        )
+    elif model_type == "UncertaintyMixture":
+        model = UncertaintyMixtureModel(
             data=data,
             static_data=static_data,
             general_config=general_config,

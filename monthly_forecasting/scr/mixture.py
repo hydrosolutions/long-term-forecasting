@@ -193,157 +193,82 @@ class MixtureModel:
         self._dist_cache.clear()
 
 
-class MixtureModel_Old:
+class FastMixtureModel:
     def __init__(self, distribution_type: str = "ALD"):
         self.distribution_type = distribution_type
+        self._dist_cache = {}
 
-    def __get_distribution_fn__(self, params):
-        if self.distribution_type == "ALD":
-            # 1) New-style class from the generator
-            ALD = stats.make_distribution(stats.laplace_asymmetric)
-            # 2) Instantiate with shape-only (kappa)
-            base = ALD(kappa=params["asymmetry"])
-            # 3) Apply scale/loc as affine transforms (this "freezes" it)
-            dist = params["scale"] * base + params["loc"]
+        # Pre-compile the distribution classes once
+        if distribution_type == "ALD":
+            from scipy.stats import laplace_asymmetric
 
-        elif self.distribution_type == "Gaussian":
-            # Uniform approach across SciPy versions:
-            Normal = stats.make_distribution(stats.norm)
-            base = Normal()  # no shape params for Normal
-            dist = params["sigma"] * base + params["mu"]
-
-            # (If you're on a recent SciPy, this also works:
-            # from scipy.stats import Normal
-            # dist = Normal(mu=params["mu"], sigma=params["sigma"])
-            # but keeping the affine style makes ALD & Gaussian consistent.)
-
+            self._base_dist = laplace_asymmetric
         else:
-            raise ValueError(f"Unknown distribution type: {self.distribution_type}")
+            from scipy.stats import norm
 
-        return dist  # <- new-style ContinuousDistribution, ready for Mixture
+            self._base_dist = norm
 
-    def __create_mixture__(self, parameter_dict: Dict[str, Dict[str, np.float_]]):
-        components = []
-        weights = []
-        names = []
-
-        for key, params in parameter_dict.items():
-            # if any item in params is nan continue
-            if any(np.isnan(v) for v in params.values()):
-                continue
-            dist = self.__get_distribution_fn__(params)
-            components.append(dist)
-            weights.append(params.get("weight", 1.0))
-            names.append(key)
-
-        weights = np.array(weights) / np.sum(
-            weights
-        )  # Normalize weights to sum up to 1
-        weights = weights.tolist()
-
-        self.mixture = stats.Mixture(components, weights=weights)
-        self.names = names
-        self.components = components
-        self.weights = weights
-
-    def get_statistic(
+    def get_statistic_fast(
         self, parameter_dict: Dict[str, Dict[str, float]], quantiles: List[float]
     ) -> Dict[str, float]:
-        self.__create_mixture__(parameter_dict)
+        """
+        Fast version that computes quantiles directly without creating mixture object
+        """
+        # Collect valid components
+        valid_params = []
+        weights = []
 
-        mean = self.mixture.mean()
+        for key, params in parameter_dict.items():
+            if any(np.isnan(v) for v in params.values()):
+                continue
+            valid_params.append(params)
+            weights.append(params.get("weight", 1.0))
 
-        # Compute quantiles using inverse CDF (icdf)
-        quantile_values = {}
-        for q in quantiles:
-            quantile_values[f"Q{int(q * 100)}"] = self.mixture.icdf(q)
+        if not valid_params:
+            return {f"Q{int(q * 100)}": np.nan for q in quantiles} | {"mean": np.nan}
 
-        if "Q50" in quantile_values:
-            median = self.mixture.median()
-            ratio = quantile_values["Q50"] / median
-            epsilon = 1e-4
-            if abs(ratio - 1) > epsilon:
-                logger.warning(
-                    f"Warning: Q50/Median ratio is {ratio:.4f}, which is outside the expected range. This indicates a wrong quantile calculation."
+        # Normalize weights
+        weights = np.array(weights)
+        weights = weights / weights.sum()
+
+        # Convert quantiles to array
+        quantiles_array = np.array(quantiles)
+        n_quantiles = len(quantiles)
+        n_components = len(valid_params)
+
+        # Pre-allocate result array
+        component_quantiles = np.zeros((n_components, n_quantiles))
+        component_means = np.zeros(n_components)
+
+        # Compute quantiles for each component
+        for i, params in enumerate(valid_params):
+            if self.distribution_type == "ALD":
+                tau = params["asymmetry"]
+                kappa = np.sqrt(tau / (1.0 - tau))
+                scale = params["scale"] / np.sqrt(tau * (1.0 - tau))
+
+                # Direct computation without creating distribution object
+                component_quantiles[i] = self._base_dist.ppf(
+                    quantiles_array, kappa=kappa, loc=params["loc"], scale=scale
                 )
+                component_means[i] = params["loc"]  # For ALD, mean = loc
 
-        # Combine mean and quantiles
-        result = {"mean": mean}
-        result.update(quantile_values)
+            else:  # Gaussian
+                component_quantiles[i] = self._base_dist.ppf(
+                    quantiles_array, loc=params["mu"], scale=params["sigma"]
+                )
+                component_means[i] = params["mu"]
+
+        # Weighted average of quantiles (approximation for mixture)
+        mixed_quantiles = np.average(component_quantiles, weights=weights, axis=0)
+        mixed_mean = np.average(component_means, weights=weights)
+
+        # Build result
+        result = {"mean": mixed_mean}
+        for q, val in zip(quantiles, mixed_quantiles):
+            result[f"Q{int(q * 100)}"] = val
 
         return result
-
-    def plot_distributions(
-        self,
-        x_range: Tuple[float, float] = None,
-        n_points: int = 1000,
-        figsize: Tuple[int, int] = (10, 6),
-    ) -> plt.Figure:
-        """
-        Simple plot showing individual components and mixture distribution.
-
-        Args:
-            x_range: Tuple of (min, max) values for x-axis. If None, uses data range.
-            n_points: Number of points to evaluate distributions at.
-            figsize: Figure size as (width, height).
-
-        Returns:
-            matplotlib Figure object
-        """
-        if not hasattr(self, "mixture"):
-            raise ValueError("Mixture not created yet. Call get_statistic() first.")
-
-        # Set up x values
-        if x_range is None:
-            means = [comp.mean() for comp in self.components]
-            stds = [comp.standard_deviation() for comp in self.components]
-            x_min = min(means) - 3 * max(stds)
-            x_max = max(means) + 3 * max(stds)
-        else:
-            x_min, x_max = x_range
-
-        x = np.linspace(x_min, x_max, n_points)
-
-        # Create figure
-        fig, ax = plt.subplots(figsize=figsize)
-
-        # Plot individual components (weighted)
-        colors = plt.cm.tab10(np.linspace(0, 1, len(self.components)))
-
-        for i, (comp, weight, name, color) in enumerate(
-            zip(self.components, self.weights, self.names, colors)
-        ):
-            comp_pdf = comp.pdf(x)
-            weighted_pdf = comp_pdf * weight
-
-            ax.plot(
-                x,
-                weighted_pdf,
-                "--",
-                color=color,
-                alpha=0.7,
-                label=f"{name} (w={weight:.3f})",
-                linewidth=2,
-            )
-
-        # Plot mixture distribution
-        mixture_pdf = self.mixture.pdf(x)
-        ax.plot(
-            x, mixture_pdf, "k-", linewidth=3, label="Mixture Distribution", alpha=0.9
-        )
-
-        ax.set_title(
-            "Component Distributions vs Mixture Distribution",
-            fontsize=14,
-            fontweight="bold",
-        )
-        ax.set_xlabel("Value", fontsize=12)
-        ax.set_ylabel("Probability Density", fontsize=12)
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-
-        plt.tight_layout()
-        return fig
 
 
 if __name__ == "__main__":

@@ -19,13 +19,12 @@ logger = logging.getLogger(__name__)
 
 # Model family mappings
 MODEL_FAMILIES = {
-    "BaseCase": [
-        "LR_Q_T_P",
-    ],
+    "BaseCase": ["LR_Q_T_P", "LR_Base"],
     "SCA_Based": ["LR_Q_SCA", "LR_Q_T_SCA"],
     "SnowMapper_Based": [
         "LR_Snowmapper",
         "LR_Snowmapper_DT",
+        "LR_Snowmapper_ROF",
         "Snow_GBT",
         # "Snow_GBT_old",
         "Snow_GBT_LR",

@@ -152,9 +152,12 @@ class LinearRegressionModel(BaseForecastModel):
             feat for feat in best_features if abs_corr[feat] >= threshold
         ]
 
+        if len(best_features) > num_features:
+            best_features = best_features[:num_features]
+
         if len(best_features_above_threshold) == 0:
             logger.warning(
-                f"No features found above threshold {threshold} for {this_period}."
+                f"No features with a correlation greater than {threshold} for {this_period}. Selecting top {num_low_corr_features} features regardless of correlation."
             )
 
             # Select top features up to num_features

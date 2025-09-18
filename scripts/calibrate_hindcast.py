@@ -164,7 +164,8 @@ def create_model(
     path_config = configs["path_config"]
 
     # Set model name in general config
-    general_config["model_name"] = model_name
+    if "model_name" not in general_config:
+        general_config["model_name"] = model_name
 
     # Determine model type based on configuration or name
     model_type = general_config.get("model_type", "linear_regression")

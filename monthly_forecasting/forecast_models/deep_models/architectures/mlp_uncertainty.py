@@ -222,25 +222,6 @@ class MLPUncertaintyModel(pl.LightningModule):
             "asymmetry": tau.cpu().numpy(),
         }
 
-        # Safely extract optional metadata
-        batch_size = x.shape[0]
-        if all(k in batch for k in ["year", "month", "day"]):
-            data["date"] = pd.to_datetime(
-                {
-                    "year": batch["year"].cpu().numpy(),
-                    "month": batch["month"].cpu().numpy(),
-                    "day": batch["day"].cpu().numpy(),
-                },
-                errors="coerce",
-            )
-        else:
-            data["date"] = [pd.NaT] * batch_size
-
-        if "code" in batch:
-            data["code"] = batch["code"].cpu().numpy()
-        else:
-            data["code"] = [None] * batch_size
-
         return pd.DataFrame(data)
 
     def configure_optimizers(self) -> Dict:

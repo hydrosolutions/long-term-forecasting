@@ -1,4 +1,7 @@
 import os
+
+os.environ["OMP_NUM_THREADS"] = "1"
+import shutil
 import pandas as pd
 import numpy as np
 import datetime
@@ -8,6 +11,8 @@ from typing import Dict, Any, List, Tuple, Optional, Union
 from tqdm import tqdm as progress_bar
 
 import torch
+
+torch.set_num_threads(1)
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import (
@@ -16,6 +21,8 @@ from pytorch_lightning.callbacks import (
     LearningRateMonitor,
 )
 from torch.utils.data import DataLoader
+
+import optuna
 
 from monthly_forecasting.forecast_models.meta_learners.base_meta_learner import (
     BaseMetaLearner,
@@ -76,6 +83,9 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             path_config=path_config,
         )
 
+        # this will be overwritten in calibration / fit
+        self.is_fitted = False
+
         self.name = self.general_config.get("model_name", "UncertaintyMixtureModel")
         self.model_home_path = self.path_config.get("model_home_path")
         self.save_dir = os.path.join(self.model_home_path, self.name)
@@ -90,6 +100,8 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         self.weight_decay = self.model_config.get("weight_decay", 0.0)
         self.gradient_clip_val = self.model_config.get("gradient_clip_val", 1.0)
         self.use_pred_mean = self.model_config.get("use_pred_mean", True)
+
+        self.hparam_tuning_years = self.general_config.get("hparam_tuning_years", 3)
 
         self.quantiles = self.model_config.get(
             "quantiles", [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
@@ -134,7 +146,9 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
         # 2. Load base predictors using inherited method
         logger.info("Loading base predictors")
-        base_predictors, model_names = self.__load_base_predictors__()
+        base_predictors, model_names = self.__load_base_predictors__(
+            use_mean_pred=False
+        )
         self.model_names = model_names
 
         logger.info("converting base predictors to mm/day")
@@ -146,19 +160,6 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         merged_data = target_data.merge(
             base_predictors, on=["date", "code"], how="left"
         )
-
-        # Add error features for base models
-        """for model_name in model_names:
-            if (
-                model_name in merged_data.columns
-                and self.target_col in merged_data.columns
-            ):
-                error_col = f"{model_name}_error"
-                merged_data[error_col] = (
-                    merged_data[self.target_col] - merged_data[model_name]
-                )
-                abs_error_col = f"{model_name}_abs_error"
-                merged_data[abs_error_col] = merged_data[error_col].abs()"""
 
         ensemble_mean = merged_data[model_names].mean(axis=1)
         merged_data["ensemble_mean"] = ensemble_mean
@@ -215,9 +216,17 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             "abs_error_mean",
             "abs_error_std",
             "abs_error_max",
+            f"{self.target_col}_mean",
+            f"{self.target_col}_std",
+            f"{self.target_col}_max",
+            f"{self.target_col}_skew",
+            f"{self.target_col}_min",
         ]
 
         self.features.extend(features_from_aggregation)
+
+        # Force contiguous copy to minimize fragmentation after all transformations
+        preprocessed_data = preprocessed_data.copy()
 
         logger.info(f"Preprocessed data shape: {preprocessed_data.shape}")
         logger.info(f"Model names: {model_names}")
@@ -324,6 +333,9 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # Reorder columns for consistency
         column_order = shared_cols + ["ensemble_member", "Q_pred"]
         reformatted_df = pred_df[column_order]
+
+        # Force contiguous copy and reset index to minimize fragmentation
+        reformatted_df = reformatted_df.copy().reset_index(drop=True)
 
         logger.info(
             f"Reformatted DataFrame from {len(df)} rows to {len(reformatted_df)} rows "
@@ -454,6 +466,14 @@ class UncertaintyMixtureModel(BaseMetaLearner):
                 row["abs_error_std"] = group["abs_error"].std()
                 row["abs_error_max"] = group["abs_error"].max()
 
+            if self.target_col in group.columns:
+                row["n_samples"] = group[self.target_col].notna().sum()
+                row[f"{self.target_col}_mean"] = group[self.target_col].mean()
+                row[f"{self.target_col}_std"] = group[self.target_col].std()
+                row[f"{self.target_col}_max"] = group[self.target_col].max()
+                row[f"{self.target_col}_skew"] = group[self.target_col].skew()
+                row[f"{self.target_col}_min"] = group[self.target_col].min()
+
             results.append(row)
 
         # Convert to DataFrame
@@ -485,6 +505,8 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             merged_dfs.append(df_year)
 
         df_loo = pd.concat(merged_dfs, ignore_index=True)
+        # Force contiguous copy after concat to minimize fragmentation
+        df_loo = df_loo.copy()
         logger.info("-" * 40)
         logger.info(f"LOO error stats added, new shape: {df_loo.shape}")
         logger.info(f"Columns after LOO error stats: {df_loo.columns.tolist()}")
@@ -618,17 +640,23 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         train_data = self._scale_data(train_data, scaler)
         val_data = self._scale_data(val_data, scaler)
 
-        # Reset index to prevent potential issues with shuffling
-        train_data = train_data.reset_index(drop=True)
-        val_data = val_data.reset_index(drop=True)
+        # Reset index to prevent potential issues with shuffling and improve contiguity
+        train_data = train_data.reset_index(drop=True).copy()
+        # shuffle train data
+        train_data = train_data.sample(frac=1, random_state=42).reset_index(drop=True)
+        val_data = val_data.reset_index(drop=True).copy()
 
         # Create the data class
-        train_data = train_data.dropna(
-            subset=self.features + [self.target_col]
-        ).reset_index(drop=True)
-        val_data = val_data.dropna(
-            subset=self.features + [self.target_col]
-        ).reset_index(drop=True)
+        train_data = (
+            train_data.dropna(subset=self.features + [self.target_col])
+            .reset_index(drop=True)
+            .copy()
+        )
+        val_data = (
+            val_data.dropna(subset=self.features + [self.target_col])
+            .reset_index(drop=True)
+            .copy()
+        )
 
         train_dataset = TabularDataset(
             df=train_data, features=self.features, target=self.target_col
@@ -645,7 +673,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         train_loader = DataLoader(
             train_dataset,
             batch_size=self.batch_size,
-            shuffle=False,
+            shuffle=True,
             num_workers=0,  # Set to 0 for debugging
             pin_memory=False,  # Pin memory can cause issues with some setups
         )
@@ -672,8 +700,6 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
         # Clear old checkpoints to prevent conflicts
         if os.path.exists(checkpoint_dir):
-            import shutil
-
             shutil.rmtree(checkpoint_dir)
             logger.info(f"Cleared old checkpoint directory: {checkpoint_dir}")
 
@@ -753,6 +779,8 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # Drop rows with missing features, which can't be predicted
         predict_df.dropna(subset=self.features, inplace=True)
         predict_df.reset_index(drop=True, inplace=True)
+        # Force contiguous copy after dropna
+        predict_df = predict_df.copy()
         identifiers = predict_df[["date", "code", "ensemble_member"]].copy()
 
         if predict_df.empty:
@@ -783,7 +811,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # 4. Make predictions
         # Initialize a single trainer for prediction
         trainer = Trainer(
-            logger=False, enable_progress_bar=False, accelerator="auto", devices=1
+            logger=False, enable_progress_bar=False, accelerator="cpu", devices=1
         )
 
         # trainer.predict returns a list of batch results (DataFrames)
@@ -1051,8 +1079,8 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         hindcast = hindcast[pred_cols]
         hindcast = hindcast.merge(ground_truth, on=["date", "code"], how="left")
 
-        # save model (commented out intentionally)
-        self.save_model(model=model, scaler=scaler, history=cal_history)
+        # save model
+        self.save_model()
 
         logger.info("Hindcasting completed")
         logger.info("Head of hindcast DataFrame:")
@@ -1073,8 +1101,164 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
         return hindcast
 
+    def objective(
+        self,
+        trial: optuna.Trial,
+        train_loader: DataLoader,
+        val_df: pd.DataFrame,
+        scaler: Dict[str, Any],
+    ) -> float:
+        # tune lr, hidden_size, num_residual_blocks, dropout, weight_decay
+        # number epochs is set to a fixed value of 20 for tuning
+        learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-2)
+        hidden_size = trial.suggest_categorical("hidden_size", [16, 32, 64])
+        num_residual_blocks = trial.suggest_int("num_residual_blocks", 1, 5)
+        dropout = trial.suggest_uniform("dropout", 0.0, 0.5)
+        weight_decay = trial.suggest_loguniform("weight_decay", 1e-6, 1e-2)
+
+        model = self._init_model(
+            hidden_size=hidden_size,
+            num_residual_blocks=num_residual_blocks,
+            dropout=dropout,
+            learning_rate=learning_rate,
+            weight_decay=weight_decay,
+            gradient_clip_val=self.gradient_clip_val,
+        )
+
+        epochs_hparam_tuning = self.general_config.get(
+            "epochs_hparam_tuning", self.max_epochs
+        )
+
+        # fit the model
+        trainer = pl.Trainer(
+            max_epochs=epochs_hparam_tuning,
+            devices=1,
+            accelerator="cpu",
+            enable_progress_bar=True,
+            gradient_clip_val=self.gradient_clip_val,
+        )
+
+        trainer.fit(model, train_loader)
+
+        # predict on the validation set
+        preds = self.predict(
+            df=val_df,
+            model=model,
+            scaler=scaler,
+        )
+
+        if preds.empty:
+            logger.warning("No predictions were made during hyperparameter tuning.")
+            return float("inf")
+
+        # create mixture predictions
+        logger.info("Creating mixture predictions for validation set")
+        mixture_preds = self.create_mixture_predictions(preds)
+        # rescale to original units
+        val_preds = self._rescale_predictions(mixture_preds, scaler)
+        # merge with ground truth
+        val_preds = val_preds.merge(self.ground_truth, on=["date", "code"], how="left")
+
+        # calculate coverage
+        coverage_90 = np.mean(
+            (val_preds["Q_obs"] >= val_preds["Q5"])
+            & (val_preds["Q_obs"] <= val_preds["Q95"])
+        )
+        coverage_50 = np.mean(
+            (val_preds["Q_obs"] >= val_preds["Q25"])
+            & (val_preds["Q_obs"] <= val_preds["Q75"])
+        )
+
+        # score is the mean squared error of the coverage
+        score = (coverage_90 - 0.9) ** 2 + (coverage_50 - 0.5) ** 2
+
+        return score
+
     def tune_hyperparameters(self):
-        return True, "UncertaintyMixtureMLP: Hyperparameter tuning not implemented yet"
+        """
+        Tune the hyperparameters of the uncertainty models with optuna.
+
+        Returns:
+            Tuple[bool, str]: A tuple containing a boolean indicating success and a message.
+        """
+        logger.info(f"Starting hyperparameter tuning for {self.name}")
+
+        # Apply the same preprocessing as other methods
+        self.__preprocess_data__()
+
+        num_hparam_tuning_years = self.hparam_tuning_years
+
+        if num_hparam_tuning_years <= 0:
+            return False, "UncertaintyMixtureMLP: num_hparam_tuning_years must be > 0"
+
+        all_years = sorted(self.data["year"].unique())
+        years_train = all_years[:-num_hparam_tuning_years]
+        years_val = all_years[-num_hparam_tuning_years:]
+        train_data = self.data[self.data["year"].isin(years_train)]
+        val_data = self.data[self.data["year"].isin(years_val)]
+
+        # process the train and val data like in the fit method
+        scaler = self._calculate_scaler(train_data)
+        train_data = self._scale_data(train_data, scaler)
+        val_data = self._scale_data(val_data, scaler)
+
+        # Reset index and force contiguous copies to minimize fragmentation
+        train_data = train_data.reset_index(drop=True).copy()
+        val_data = val_data.reset_index(drop=True).copy()
+
+        # Create the data class
+        train_data = (
+            train_data.dropna(subset=self.features + [self.target_col])
+            .reset_index(drop=True)
+            .copy()
+        )
+        val_data = (
+            val_data.dropna(subset=self.features + [self.target_col])
+            .reset_index(drop=True)
+            .copy()
+        )
+
+        # shuffle train data
+        train_data = train_data.sample(frac=1.0, random_state=42).reset_index(drop=True)
+        train_dataset = TabularDataset(
+            df=train_data, features=self.features, target=self.target_col
+        )
+
+        logger.info(f"Training dataset size: {len(train_dataset)}")
+
+        # Create DataLoaders
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=0,
+            pin_memory=False,
+            persistent_workers=False,
+        )
+
+        # create the study
+        study = optuna.create_study(direction="minimize")
+        # number of trials
+        n_trials = self.general_config.get("n_trials", 20)
+        # run the optimization
+        study.optimize(
+            lambda trial: self.objective(trial, train_loader, val_data, scaler),
+            n_trials=n_trials,
+        )
+
+        # get the best hyperparameters
+        best_params = study.best_params
+        logger.info(f"Best hyperparameters: {best_params}")
+        # Overwrite the model configuration with the best hyperparameters
+        self.learning_rate = best_params["learning_rate"]
+        self.hidden_size = best_params["hidden_size"]
+        self.num_residual_blocks = best_params["num_residual_blocks"]
+        self.dropout = best_params["dropout"]
+        self.weight_decay = best_params["weight_decay"]
+        # save the model configuration
+        self.save_model()
+
+        return True, "UncertaintyMixtureMLP: Hyperparameter tuned successfully"
 
     def save_model(self):
         logger.info(f"Saving {self.name} models")

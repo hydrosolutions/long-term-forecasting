@@ -304,37 +304,49 @@ class META_MONTH_DATA(Dataset):
 
 
 class TabularDataset(Dataset):
-    """
-    Tabular Dataset.
-    Returns a tensor in shape (batch_size, num_features)
-    """
-
     def __init__(self, df: pd.DataFrame, features: List[str], target: str):
-        self.df = df.copy()
         self.features = features
-        self.y = df[target].values
+        self.target = target
 
-        self.codes = self.df["code"].astype(int).values
-        self.dates = pd.to_datetime(self.df["date"])
-        self.days = self.dates.dt.day.values
-        self.months = self.dates.dt.month.values
-        self.years = self.dates.dt.year.values
-        self.X = self.df[self.features].values
+        df = self.process_df(df)
 
-        logger.info(f"TabularDataset initialized with {len(self.X)} samples.")
-        logger.info(f"Features: {self.features}")
+        # Don't copy df if not needed
+        self.X = df[self.features].values.astype(np.float32)
+        self.y = df[self.target].values.astype(np.float32)
+
+        # Ensure contiguous memory layout
+        if not self.X.flags["C_CONTIGUOUS"]:
+            self.X = np.ascontiguousarray(self.X)
+        if not self.y.flags["C_CONTIGUOUS"]:
+            self.y = np.ascontiguousarray(self.y)
+
+        logger.info(f"Features shape: {self.X.shape}, Target shape: {self.y.shape}")
+
+    def process_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        # FIX: Reset index before creating dataset
+        df = df.reset_index(drop=True)  # This is critical!
+
+        # Check if your DataFrame is a view
+        logger.info(f"DataFrame is copy: {df._is_copy}")
+        logger.info(f"DataFrame is view: {df._is_view}")
+
+        # FIX: Force a deep copy
+        df = df[self.features + [self.target]].copy(
+            deep=True
+        )  # Select columns and deep copy
+
+        # Or even more aggressive:
+        df = pd.DataFrame(df.values, columns=df.columns).copy()
+
+        return df
 
     def __len__(self):
         return len(self.X)
 
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int):
         return {
             "X": torch.tensor(self.X[idx], dtype=torch.float32),
             "y": torch.tensor(self.y[idx], dtype=torch.float32),
-            "code": torch.tensor(self.codes[idx], dtype=torch.float32),
-            "day": torch.tensor(self.days[idx], dtype=torch.float32),
-            "month": torch.tensor(self.months[idx], dtype=torch.float32),
-            "year": torch.tensor(self.years[idx], dtype=torch.float32),
         }
 
 
@@ -347,7 +359,7 @@ if __name__ == "__main__":
 
     # Create synthetic test data
     np.random.seed(42)
-    n_samples = 10**6
+    n_samples = 10**6  # 10 million samples
     n_features = 70
 
     # Generate synthetic data
@@ -402,12 +414,12 @@ if __name__ == "__main__":
     print("=== Testing DataLoader ===")
     dataloader = DataLoader(
         dataset,
-        batch_size=8,
+        batch_size=32,
         shuffle=True,
         num_workers=0,  # Use 0 for testing to avoid multiprocessing issues
     )
 
-    print(f"DataLoader created with batch_size=8")
+    print(f"DataLoader created with batch_size=32")
     print(f"Number of batches: {len(dataloader)}")
 
     print("About to create iterator...")
@@ -436,18 +448,6 @@ if __name__ == "__main__":
             else:
                 print(f"  {key}: {value}")
 
-    # Test with missing values
-    print("\n=== Testing with missing values ===")
-    df_with_nan = df.copy()
-    # Introduce some NaN values
-    df_with_nan.loc[5:10, "feature_1"] = np.nan
-    df_with_nan.loc[15:20, "target"] = np.nan
-
-    dataset_with_nan = TabularDataset(
-        df=df_with_nan, features=feature_names, target="target"
-    )
-    print(f"Dataset with NaN values created, length: {len(dataset_with_nan)}")
-
     # Test with a smaller batch
     print("\n=== Testing different batch sizes ===")
     small_dataloader = DataLoader(dataset, batch_size=3, shuffle=False, num_workers=0)
@@ -461,5 +461,3 @@ if __name__ == "__main__":
     print(f"Total samples processed: {len(dataset)}")
     print(f"Features shape: {dataset.X.shape}")
     print(f"Target shape: {dataset.y.shape}")
-    print(f"Unique codes: {sorted(np.unique(dataset.codes))}")
-    print(f"Date range: {dataset.dates.min()} to {dataset.dates.max()}")
