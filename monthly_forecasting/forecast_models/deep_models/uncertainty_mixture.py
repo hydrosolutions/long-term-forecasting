@@ -1191,7 +1191,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             return float("inf")
 
         val_preds = preds.merge(val_df, on=["date", "code"], how="left")
-    
+
         # calculate coverage
         coverage_90 = np.mean(
             (val_preds["Q_obs"] >= val_preds["Q5"])
