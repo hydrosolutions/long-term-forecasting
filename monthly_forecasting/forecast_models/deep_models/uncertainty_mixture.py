@@ -177,11 +177,11 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         merged_data["num_valid_pred"] = num_valid_pred
 
         merged_data = merged_data.drop(columns=model_names)
-        merged_data['ensemble_member'] = 'ensemble'
+        merged_data["ensemble_member"] = "ensemble"
 
         # 4. Reformat to long format with ensemble_member column
-        #logger.info("Reformatting DataFrame to long format")
-        #preprocessed_data = self._reformat_df(merged_data)
+        # logger.info("Reformatting DataFrame to long format")
+        # preprocessed_data = self._reformat_df(merged_data)
 
         # 5. Create periods column for temporal features
         logger.info("Creating period columns")
@@ -499,9 +499,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             agg_stats = self._calculate_aggregated_statistics(df_loo)
 
             df_year = df[df["year"] == year].copy()
-            df_year = df_year.merge(
-                agg_stats, on=["code", "period"], how="left"
-            )
+            df_year = df_year.merge(agg_stats, on=["code", "period"], how="left")
             merged_dfs.append(df_year)
 
         df_loo = pd.concat(merged_dfs, ignore_index=True)
@@ -555,7 +553,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         )
 
         return model
-    
+
     def predict_quantile(self, mu, b, tau, q, eps=1e-12):
         """
         Quantile function for Asymmetric Laplace in (m=mu, lambda=b, p=tau) parametrization.
@@ -565,13 +563,13 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         tau : array-like/float in (0,1), asymmetry (quantile pivot)
         q   : scalar or array-like in (0,1), desired quantile(s)
         """
-        mu  = np.asarray(mu, dtype=float)
-        b   = np.asarray(b,  dtype=float)
+        mu = np.asarray(mu, dtype=float)
+        b = np.asarray(b, dtype=float)
         tau = np.asarray(tau, dtype=float)
 
         # Clamp parameters for numerical safety
         tau = np.clip(tau, eps, 1.0 - eps)
-        b   = np.maximum(b, eps)
+        b = np.maximum(b, eps)
 
         # Broadcast q to mu's shape
         q_arr = np.asarray(q, dtype=float)
@@ -585,8 +583,10 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         scale = b / (tau * (1.0 - tau))
 
         # Piecewise branches with broadcasting, no indexing of q
-        left  = mu + scale * tau        * np.log(np.clip(q_arr / tau,            eps, None))
-        right = mu - scale * (1.0-tau)  * np.log(np.clip((1.0 - q_arr)/(1.0-tau), eps, None))
+        left = mu + scale * tau * np.log(np.clip(q_arr / tau, eps, None))
+        right = mu - scale * (1.0 - tau) * np.log(
+            np.clip((1.0 - q_arr) / (1.0 - tau), eps, None)
+        )
 
         return np.where(q_arr <= tau, left, right)
 
@@ -605,7 +605,9 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         required_cols = {"code", "date", "loc", "scale", "asymmetry"}
         missing = required_cols - set(df.columns)
         if missing:
-            raise ValueError(f"Missing required columns for quantile computation: {missing}")
+            raise ValueError(
+                f"Missing required columns for quantile computation: {missing}"
+            )
 
         # Ensure numerics
         work_df = df.copy()
@@ -615,10 +617,15 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # Drop rows with invalid params
         work_df = work_df.dropna(subset=["loc", "scale", "asymmetry"])
         if work_df.empty:
-            return pd.DataFrame(columns=["code", "date", f"Q_{self.name}"] + [f"Q{int(q*100)}" for q in self.quantiles])
+            return pd.DataFrame(
+                columns=["code", "date", f"Q_{self.name}"]
+                + [f"Q{int(q * 100)}" for q in self.quantiles]
+            )
 
         # Assume single component per (code, date). If duplicates exist, keep first.
-        work_df = work_df.sort_values(["code", "date"]).drop_duplicates(["code", "date"], keep="first")
+        work_df = work_df.sort_values(["code", "date"]).drop_duplicates(
+            ["code", "date"], keep="first"
+        )
 
         mu = work_df["loc"].values
         beta = work_df["scale"].values
@@ -627,13 +634,12 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # Prepare output DataFrame
         out_df = work_df[["code", "date"]].copy()
 
-        mean_ald = mu + (1-2*tau) / (tau * (1 - tau)) * beta
+        mean_ald = mu + (1 - 2 * tau) / (tau * (1 - tau)) * beta
         out_df[f"Q_{self.name}"] = mean_ald  # mean = loc in this parameterization
-
 
         for q in self.quantiles:
             q_vals = self.predict_quantile(mu, beta, tau, q)
-            out_df[f"Q{int(q*100)}"] = q_vals
+            out_df[f"Q{int(q * 100)}"] = q_vals
 
         return out_df
 
@@ -936,7 +942,9 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             logger.warning("No predictions were made. Exiting.")
             return pd.DataFrame()
 
-        forecast = self._mm_to_m3(preds, col=[col for col in preds.columns if col.startswith("Q")])
+        forecast = self._mm_to_m3(
+            preds, col=[col for col in preds.columns if col.startswith("Q")]
+        )
         # Step 7: Rescale the predictions to original scale
         pred_cols = [col for col in forecast.columns if col.startswith("Q")]
         pred_cols.append("date")
@@ -1074,7 +1082,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         ]
         pred_cols.append("date")
         pred_cols.append("code")
-        
+
         hindcast = hindcast[pred_cols]
         hindcast = hindcast.merge(ground_truth, on=["date", "code"], how="left")
 
@@ -1099,28 +1107,36 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
         logger.info(f"Approximate 50% coverage: {coverage_50:.2f}")
 
-        hindcast['in_90'] = (hindcast["Q_obs"] >= hindcast["Q5"]) & (hindcast["Q_obs"] <= hindcast["Q95"])
-        hindcast['in_50'] = (hindcast["Q_obs"] >= hindcast["Q25"]) & (hindcast["Q_obs"] <= hindcast["Q75"])
+        hindcast["in_90"] = (hindcast["Q_obs"] >= hindcast["Q5"]) & (
+            hindcast["Q_obs"] <= hindcast["Q95"]
+        )
+        hindcast["in_50"] = (hindcast["Q_obs"] >= hindcast["Q25"]) & (
+            hindcast["Q_obs"] <= hindcast["Q75"]
+        )
 
         # group by code and calculate coverage per code
-        coverage_by_code = hindcast.groupby("code").agg(
-            coverage_90=("in_90", "mean"),
-            coverage_50=("in_50", "mean"),
-            n_samples=("Q_obs", "count")
-        ).reset_index()
+        coverage_by_code = (
+            hindcast.groupby("code")
+            .agg(
+                coverage_90=("in_90", "mean"),
+                coverage_50=("in_50", "mean"),
+                n_samples=("Q_obs", "count"),
+            )
+            .reset_index()
+        )
 
         import matplotlib.pyplot as plt
         import seaborn as sns
+
         # boxplot of coverage_90 and coverage_50
         plt.figure(figsize=(10, 6))
-        sns.boxplot(data=coverage_by_code[['coverage_90', 'coverage_50']])
-        plt.title('Coverage by Code')
-        plt.ylabel('Coverage')
+        sns.boxplot(data=coverage_by_code[["coverage_90", "coverage_50"]])
+        plt.title("Coverage by Code")
+        plt.ylabel("Coverage")
         plt.ylim(0, 1)
-        plt.grid(axis='y')
+        plt.grid(axis="y")
         plt.tight_layout()
         plt.show()
-
 
         return hindcast
 
@@ -1175,7 +1191,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             return float("inf")
 
         val_preds = preds.merge(val_df, on=["date", "code"], how="left")
-
+    
         # calculate coverage
         coverage_90 = np.mean(
             (val_preds["Q_obs"] >= val_preds["Q5"])
@@ -1267,11 +1283,11 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         best_params = study.best_params
         logger.info(f"Best hyperparameters: {best_params}")
         # Overwrite the model configuration with the best hyperparameters
-        self.model_config['learning_rate'] = best_params["learning_rate"]
-        self.model_config['hidden_size'] = best_params["hidden_size"]
-        self.model_config['num_residual_blocks'] = best_params["num_residual_blocks"]
-        self.model_config['dropout'] = best_params["dropout"]
-        self.model_config['weight_decay'] = best_params["weight_decay"]
+        self.model_config["learning_rate"] = best_params["learning_rate"]
+        self.model_config["hidden_size"] = best_params["hidden_size"]
+        self.model_config["num_residual_blocks"] = best_params["num_residual_blocks"]
+        self.model_config["dropout"] = best_params["dropout"]
+        self.model_config["weight_decay"] = best_params["weight_decay"]
         # save the model configuration
         self.save_model()
 
