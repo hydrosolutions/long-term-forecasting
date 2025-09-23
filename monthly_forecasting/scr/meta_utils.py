@@ -15,45 +15,6 @@ from scipy.special import softmax
 logger = logging.getLogger(__name__)
 
 
-def get_periods(data: pd.DataFrame, period_type: str = "monthly") -> pd.DataFrame:
-    """
-    Create period columns for temporal grouping.
-
-    Parameters:
-    -----------
-    data : pd.DataFrame
-        DataFrame with 'date' column
-    period_type : str
-        Type of period grouping ('monthly', 'weekly', 'daily')
-
-    Returns:
-    --------
-    pd.DataFrame
-        DataFrame with additional period columns
-    """
-    df = data.copy()
-
-    if "date" not in df.columns:
-        raise ValueError("DataFrame must contain a 'date' column")
-
-    # Ensure date column is datetime
-    df["date"] = pd.to_datetime(df["date"])
-
-    if period_type == "monthly":
-        df["period"] = df["date"].dt.month
-        df["period_name"] = df["date"].dt.month_name()
-    elif period_type == "weekly":
-        df["period"] = df["date"].dt.isocalendar().week
-        df["period_name"] = "Week_" + df["period"].astype(str)
-    elif period_type == "daily":
-        df["period"] = df["date"].dt.dayofyear
-        df["period_name"] = "Day_" + df["period"].astype(str)
-    else:
-        raise ValueError(f"Unsupported period_type: {period_type}")
-
-    return df
-
-
 def calculate_weights_softmax(
     performance_values: np.ndarray, temperature: float = 1.0, invert: bool = False
 ) -> np.ndarray:
@@ -93,9 +54,63 @@ def calculate_weights_softmax(
             np.isnan(perf_values), np.nanmin(perf_values), perf_values
         )
 
+    max_value = np.nanmax(perf_values)
+    perf_values = perf_values - max_value  # Shift for numerical stability
     # Apply softmax with temperature
     weights = softmax(perf_values / temperature)
+    # Ensure weights are non-negative
+    weights = np.clip(weights, 0, 1)
 
+    return weights
+
+
+def top_n_uniform_weights(
+    performance_values: np.ndarray, top_n: int = 3, invert: bool = False
+) -> np.ndarray:
+    """
+    Calculate uniform weights for the top N models based on performance values.
+
+    Parameters:
+    -----------
+    performance_values : np.ndarray
+        Array of performance values
+    top_n : int
+        Number of top models to consider (default: 3)
+    invert : bool
+        Whether to invert the performance values (for error metrics)
+
+    Returns:
+    --------
+    np.ndarray
+        Array of weights for the top N models, uniform distribution
+    """
+    # Handle NaN values
+    if np.all(np.isnan(performance_values)):
+        return np.full(len(performance_values), 1.0 / len(performance_values))
+
+    perf_values = performance_values.copy()
+
+    # Replace NaN with worst performance
+    if invert:
+        perf_values = np.where(
+            np.isnan(perf_values), np.nanmax(perf_values), perf_values
+        )
+    else:
+        perf_values = np.where(
+            np.isnan(perf_values), np.nanmin(perf_values), perf_values
+        )
+        # invert for accuracy metrics (lower is better)
+        perf_values = -perf_values
+
+    # Get indices of top N models
+    top_indices = np.argsort(perf_values)[:top_n]
+
+    # Create uniform weights for top N models
+    weights = np.zeros_like(perf_values, dtype=float)
+    weights[top_indices] = 1.0 / top_n
+
+    # Ensure weights are non-negative
+    weights = np.clip(weights, 0, 1)
     return weights
 
 
@@ -143,8 +158,49 @@ def calculate_weights_normalized(
 
     # Normalize to sum to 1
     weights = perf_values / np.sum(perf_values)
+    # Ensure weights are non-negative
+    weights = np.clip(weights, 0, 1)
 
     return weights
+
+
+def weights_hybrid(
+    performance_values: np.ndarray,
+    delta: float = 0.1,  # threshold for "small difference" (10%)
+    top_n: int = 3,  # average top-n when differences are tiny
+    temperature: float = 0.5,  # softmax temperature on *relative* gaps
+    is_error_metric: bool = True,  # whether higher is worse (error metric)
+) -> np.ndarray:
+    e = np.asarray(performance_values, dtype=float)
+    # All NaN -> uniform
+    if np.all(np.isnan(e)):
+        return np.full(e.size, 1.0 / e.size)
+
+    if not is_error_metric:
+        e = -e  # Invert for accuracy metrics (higher is better)
+
+    # Replace NaNs with "worst" so they get tiny weight
+    worst = np.nanmax(e)
+    e = np.where(np.isnan(e), worst, e)
+
+    # Relative gaps to the best
+    e_min = np.min(e)
+    rel_gap = (e - e_min) / max(e_min, 1e-12)  # dimensionless
+
+    # If all within delta -> average top-n
+    if np.max(rel_gap) <= delta:
+        idx = np.argsort(e)[:top_n]
+        w = np.zeros_like(e, dtype=float)
+        w[idx] = 1.0 / top_n
+        return w
+
+    # Otherwise softmax on "higher is better" = negative relative error
+    x = -rel_gap
+    w = softmax(x / max(temperature, 1e-8))
+
+    w = np.clip(w, 0, 1)  # Ensure non-negative weights
+
+    return w
 
 
 def create_weighted_ensemble(
@@ -152,9 +208,11 @@ def create_weighted_ensemble(
     weights: pd.DataFrame,
     model_columns: List[str],
     group_columns: List[str] = None,
+    debug: bool = False,
+    naive_approach: bool = False,
 ) -> pd.DataFrame:
     """
-    Create weighted ensemble predictions.
+    Create weighted ensemble predictions with proper NaN handling.
 
     Parameters:
     -----------
@@ -166,6 +224,8 @@ def create_weighted_ensemble(
         List of model column names
     group_columns : List[str], optional
         Columns to group by for weight application
+    debug : bool, optional
+        If True, print debug information
 
     Returns:
     --------
@@ -177,57 +237,107 @@ def create_weighted_ensemble(
     if group_columns is None:
         group_columns = ["code", "period"]
 
+    # Validate that all model columns exist in predictions
+    missing_cols = set(model_columns) - set(predictions.columns)
+    if missing_cols:
+        raise ValueError(
+            f"Model columns {missing_cols} not found in predictions DataFrame"
+        )
+
+    if naive_approach:
+        # Naive approach: simple average of model predictions
+        logger.info("Using naive approach: simple average of model predictions")
+        result["ensemble"] = result[model_columns].mean(axis=1, skipna=True)
+        return result
+
     # Initialize ensemble column
     result["ensemble"] = np.nan
 
-    # Group by specified columns
-    for group_keys, group_data in result.groupby(group_columns):
-        # Get weights for this group
-        weight_mask = weights[group_columns[0]] == group_keys[0]
-        if len(group_columns) > 1:
-            for i, col in enumerate(group_columns[1:], 1):
-                weight_mask = weight_mask & (weights[col] == group_keys[i])
+    # Iterate over each group defined by group_columns
+    for group_idx, group in result.groupby(group_columns):
+        # Get the weights for this group
+        weight_mask = True
+        for col in group_columns:
+            weight_mask = weight_mask & (weights[col] == group[col].iloc[0])
 
-        group_weights = weights[weight_mask]
+        group_weights = weights.loc[weight_mask]
 
-        if len(group_weights) == 0:
-            # No weights found, use equal weights
-            group_weights = pd.Series(
-                [1.0 / len(model_columns)] * len(model_columns), index=model_columns
+        if group_weights.empty:
+            logger.warning(
+                f"No weights found for group {dict(zip(group_columns, group_idx))}"
             )
-        else:
-            # Get weights for this group
-            group_weights = group_weights.iloc[0]
+            continue
 
-        # Calculate weighted average
-        group_indices = group_data.index
-        ensemble_values = np.zeros(len(group_indices))
+        # Get predictions for this group (can be multiple rows)
+        group_predictions = group[model_columns].values  # Shape: (n_rows, n_models)
 
-        for i, idx in enumerate(group_indices):
-            model_preds = []
-            model_weights = []
+        # Get weights as 1D array
+        base_weights = group_weights[
+            model_columns
+        ].values.flatten()  # Shape: (n_models,)
 
-            for model in model_columns:
-                if model in group_data.columns and not pd.isna(
-                    group_data.loc[idx, model]
-                ):
-                    model_preds.append(group_data.loc[idx, model])
-                    model_weights.append(group_weights.get(model, 0.0))
+        if debug:
+            print(f"\nGroup {dict(zip(group_columns, group_idx))}:")
+            print(f"Base weights: {base_weights}")
+            print(f"Base weights sum: {base_weights.sum()}")
 
-            if len(model_preds) > 0:
-                model_preds = np.array(model_preds)
-                model_weights = np.array(model_weights)
+        # Check if all predictions are NaN
+        if np.all(np.isnan(group_predictions)):
+            logger.warning(
+                f"All predictions are NaN for group {dict(zip(group_columns, group_idx))}"
+            )
+            continue
 
-                # Normalize weights
-                if np.sum(model_weights) > 0:
-                    model_weights = model_weights / np.sum(model_weights)
-                    ensemble_values[i] = np.sum(model_preds * model_weights)
-                else:
-                    ensemble_values[i] = np.mean(model_preds)
+        # Process each row in the group
+        ensemble_values = []
+        for row_predictions in group_predictions:
+            # Create mask for non-NaN predictions
+            valid_mask = ~np.isnan(row_predictions)
+
+            if not valid_mask.any():
+                # All predictions in this row are NaN
+                ensemble_values.append(np.nan)
+                continue
+
+            # Apply weights only to valid predictions
+            row_weights = base_weights.copy()
+            row_weights[~valid_mask] = 0  # Set weights to 0 for NaN predictions
+
+            # Normalize weights to sum to 1
+            weight_sum = row_weights.sum()
+            if weight_sum > 0:
+                row_weights = row_weights / weight_sum
+
+                # Calculate weighted average
+                # Use only valid predictions and their normalized weights
+                valid_predictions = row_predictions[valid_mask]
+                valid_weights = row_weights[valid_mask]
+
+                if debug:
+                    print(f"  Row predictions: {row_predictions}")
+                    print(f"  Valid mask: {valid_mask}")
+                    print(f"  Valid predictions: {valid_predictions}")
+                    print(f"  Valid weights: {valid_weights}")
+                    print(f"  Valid weights sum: {valid_weights.sum()}")
+
+                # Double-check weights sum to 1
+                assert np.abs(valid_weights.sum() - 1.0) < 1e-10, (
+                    f"Weights don't sum to 1: {valid_weights.sum()}"
+                )
+
+                weighted_sum = np.sum(valid_predictions * valid_weights)
+
+                if debug:
+                    print(f"  Weighted sum: {weighted_sum}")
+                    print(f"  Simple mean of valid: {np.mean(valid_predictions)}")
+
+                ensemble_values.append(weighted_sum)
             else:
-                ensemble_values[i] = np.nan
+                # All weights are 0 (shouldn't happen if we have valid predictions)
+                ensemble_values.append(np.nanmean(row_predictions[valid_mask]))
 
-        result.loc[group_indices, "ensemble"] = ensemble_values
+        # Assign ensemble values back to result DataFrame
+        result.loc[group.index, "ensemble"] = ensemble_values
 
     return result
 

@@ -6,9 +6,9 @@
 set -e  # Exit on any error
 
 # Configuration
-CONFIG_DIR="../monthly_forecasting_models/SnowMapper_Based/LR_Q_dSWEdt_T_P"
-MODEL_NAME="LR_Q_dSWEdt_T_P"  # Model name
-INPUT_FAMILY="SnowMapper_Based"  # Input family for the model
+CONFIG_DIR="../monthly_forecasting_models/Uncertainty/UncertaintyMixtureMLP"
+MODEL_NAME="UncertaintyMixtureMLP"  # Model name
+INPUT_FAMILY="Uncertainty"  # Input family for the model
 LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
 
 # Environment configuration - Choose one of the following:

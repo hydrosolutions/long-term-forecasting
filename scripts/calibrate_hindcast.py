@@ -33,6 +33,9 @@ from monthly_forecasting.forecast_models.SciRegressor import SciRegressor
 from monthly_forecasting.forecast_models.meta_learners.historical_meta_learner import (
     HistoricalMetaLearner,
 )
+from monthly_forecasting.forecast_models.deep_models.uncertainty_mixture import (
+    UncertaintyMixtureModel,
+)
 from monthly_forecasting.scr import data_loading as dl
 from dev_tools.eval_scr import eval_helper, metric_functions
 
@@ -161,7 +164,8 @@ def create_model(
     path_config = configs["path_config"]
 
     # Set model name in general config
-    general_config["model_name"] = model_name
+    if "model_name" not in general_config:
+        general_config["model_name"] = model_name
 
     # Determine model type based on configuration or name
     model_type = general_config.get("model_type", "linear_regression")
@@ -187,6 +191,15 @@ def create_model(
         )
     elif model_type == "historical_meta_learner":
         model = HistoricalMetaLearner(
+            data=data,
+            static_data=static_data,
+            general_config=general_config,
+            model_config=model_config,
+            feature_config=feature_config,
+            path_config=path_config,
+        )
+    elif model_type == "UncertaintyMixtureModel":
+        model = UncertaintyMixtureModel(
             data=data,
             static_data=static_data,
             general_config=general_config,
@@ -440,10 +453,13 @@ Examples:
         logger.info("Calibration interrupted by user")
         sys.exit(1)
     except Exception as e:
-        logger.error(f"Calibration script failed: {e}")
+        # Log full traceback at ERROR level so shell script surfaces root cause
         import traceback
 
-        logger.debug(traceback.format_exc())
+        tb = traceback.format_exc()
+        # Also print to stderr for immediate visibility in the console
+        print(f"Calibration script failed: {e}\nFull traceback:\n{tb}", file=sys.stderr)
+        logger.error(f"Calibration script failed: {e}\nFull traceback:\n{tb}")
         sys.exit(1)
 
 

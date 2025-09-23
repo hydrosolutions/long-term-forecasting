@@ -5,9 +5,14 @@
 set -e  # Exit on any error
 
 # Configuration
-CONFIG_DIR="../monthly_forecasting_models/SnowMapper_Based/Snow_GBT"  # Path to model configuration directory
-MODEL_NAME="Snow_GBT"  # Model name
-INPUT_FAMILY="SnowMapper_Based"  # Input family for the model
+#CONFIG_DIR="../monthly_forecasting_models/GlacierMapper_Based/Gla_GBT_simple"  # Path to model configuration directory
+#MODEL_NAME="Gla_GBT_simple"  # Model name
+#INPUT_FAMILY="GlacierMapper_Based"  # Input family for the model
+#LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
+
+CONFIG_DIR="../monthly_forecasting_models/Uncertainty/UncertaintyMixtureMLP"  # Path to model configuration directory
+MODEL_NAME="UncertaintyMixtureMLP"  # Model name
+INPUT_FAMILY="Uncertainty"  # Input family for the model
 LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
 
 # Hyperparameter tuning specific settings
@@ -131,7 +136,7 @@ run_calibration_hindcasting() {
         --config_dir "$CONFIG_DIR" \
         --model_name "$MODEL_NAME" \
         --input_family "$INPUT_FAMILY" \
-        --log_level "$LOG_LEVEL"
+        --log_level "$LOG_LEVEL" 2>&1
     
     # Check if calibration was successful
     if [ $? -eq 0 ]; then

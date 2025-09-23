@@ -144,13 +144,30 @@ class LinearRegressionModel(BaseForecastModel):
         best_features = sorted(
             feature_types.values(), key=lambda x: abs_corr[x], reverse=True
         )
-        # Select top features up to num_features
-        features_week = best_features[:num_features]
 
-        if len(features_week) < num_features:
+        threshold = self.general_config.get("corr_threshold", 0.3)
+        num_low_corr_features = self.general_config.get("num_low_corr_features", 2)
+
+        best_features_above_threshold = [
+            feat for feat in best_features if abs_corr[feat] >= threshold
+        ]
+
+        if len(best_features) > num_features:
+            best_features = best_features[:num_features]
+
+        if len(best_features_above_threshold) == 0:
             logger.warning(
-                f"Warning: Only {len(features_week)} features found for {this_period}."
+                f"No features with a correlation greater than {threshold} for {this_period}. Selecting top {num_low_corr_features} features regardless of correlation."
             )
+
+            # Select top features up to num_features
+            features_week = best_features[:num_low_corr_features]
+        else:
+            # Select top features above threshold, up to num_features
+            features_week = best_features_above_threshold
+            if len(features_week) < num_low_corr_features:
+                # Select top features up to num_features
+                features_week = best_features[:num_low_corr_features]
 
         # Convert to Index to maintain compatibility with the rest of the code
         features_week = pd.Index(features_week)
@@ -550,9 +567,13 @@ class LinearRegressionModel(BaseForecastModel):
             bool: True if hyperparameters were tuned successfully, False otherwise.
             str: Message indicating the result of the tuning process.
         """
+        logger.warning(
+            "Hyperparameter tuning is not applicable for Linear Regression models. "
+            "Please use the model as is or implement a tuning method."
+        )
         return (
-            False,
-            "Hyperparameter tuning is not applicable for Linear Regression models. Please use the model as is or implement a custom tuning method.",
+            True,
+            "Hyperparameter tuning is not applicable for Linear Regression models. Please use the model as is or implement a tuning method.",
         )
 
     def save_model(self) -> None:

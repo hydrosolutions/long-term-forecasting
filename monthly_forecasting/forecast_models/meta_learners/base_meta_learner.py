@@ -71,7 +71,11 @@ class BaseMetaLearner(BaseForecastModel):
         else:
             self.invert_metric = False
 
-    def __load_base_predictors__(self) -> Tuple[pd.DataFrame, List[str]]:
+        self.target = self.general_config.get("target_column", "Q_obs")
+
+    def __load_base_predictors__(
+        self, use_mean_pred: bool = False
+    ) -> Tuple[pd.DataFrame, List[str]]:
         """
         Load base predictors from the specified path.
 
@@ -97,15 +101,23 @@ class BaseMetaLearner(BaseForecastModel):
                 col for col in pred_df.columns if "Q_" in col and col != "Q_obs"
             ]
 
+            if len(pred_cols) == 1:
+                include_ensemble = True
+            else:
+                include_ensemble = use_mean_pred
+
             for col in pred_cols:
-                sub_model = col.split("_")[1]
+                sub_model = col.replace("Q_", "")
                 member_name = sub_model
 
                 if sub_model == model_name:
+                    if not include_ensemble:
+                        continue
                     base_models_cols.append(member_name)
 
                 else:
-                    member_name = f"{model_name}_{sub_model}"
+                    sub_sub_model = sub_model.split("_")[-1]
+                    member_name = f"{model_name}_{sub_sub_model}"
                     base_models_cols.append(member_name)
 
                 sub_df = pred_df[["date", "code", col]].copy()
@@ -124,146 +136,120 @@ class BaseMetaLearner(BaseForecastModel):
 
         return df_to_merge_on, base_models_cols
 
+    def __filter_forecast_days__(
+        self,
+    ) -> None:
+        forecast_days = self.general_config.get(
+            "forecast_days", [5, 10, 15, 20, 25, "end"]
+        )
+
+        # Filter data to include only the specified forecast days
+        if forecast_days:
+            day_conditions = []
+            for forecast_day in forecast_days:
+                if forecast_day == "end":
+                    day_conditions.append(
+                        self.data["date"].dt.day == self.data["date"].dt.days_in_month
+                    )
+                else:
+                    day_conditions.append(self.data["date"].dt.day == forecast_day)
+
+            # Combine all conditions with OR logic
+            combined_condition = day_conditions[0]
+            for condition in day_conditions[1:]:
+                combined_condition = combined_condition | condition
+
+            self.data = self.data[combined_condition]
+
     def __calculate_historical_performance__(
         self, base_predictors: pd.DataFrame, model_names: List[str]
     ) -> pd.DataFrame:
         """
-        Calculate the historical performance of the base models for each code and period.
-        And the global performance for each model for each period.
-        If there are less than 'num_samples_val' we use the global performance.
-
-        Args:
-            base_predictors (pd.DataFrame): The DataFrame containing base predictors.
-            model_names (List[str]): The list of model names to evaluate.
-
-        Returns:
-            pd.DataFrame: A DataFrame containing the historical performance metrics.
-                        Columns: ['code', 'period', 'model_xy', 'model_zy', ...]
-                        where 'model_xy' and 'model_zy' are the model names and the values in the columns
-                        are the performance metrics (e.g., MSE, R2).
+        Calculate historical performance metrics for the given base predictors.
         """
         from monthly_forecasting.scr.metrics import get_metric_function
 
         logger.info(f"Calculating historical performance using metric: {self.metric}")
-
-        # Get the metric function
         metric_func = get_metric_function(self.metric)
+        target_col = self.target
 
-        # Initialize results list
-        results = []
-
-        # Get target column name (assuming it's 'Q_obs')
-        target_col = "Q_obs"
         if target_col not in base_predictors.columns:
             raise ValueError(
-                f"Target column '{target_col}' not found in base_predictors: \n Only found columns {base_predictors.columns.to_list()}"
+                f"Target column '{target_col}' not found in base_predictors: {list(base_predictors.columns)}"
             )
 
-        # Calculate performance for each combination of code and period
-        for code in base_predictors["code"].unique():
-            for period in base_predictors["period"].unique():
-                # Filter data for this code and period
-                mask = (base_predictors["code"] == code) & (
-                    base_predictors["period"] == period
+        # Ensure only needed columns
+        cols_needed = ["code", "period", target_col] + [
+            m for m in model_names if m in base_predictors.columns
+        ]
+        df = base_predictors[cols_needed].copy()
+
+        def calc_metric(group, model):
+            obs = group[target_col].values
+            pred = group[model].values
+            mask = ~(np.isnan(obs) | np.isnan(pred))
+            if mask.sum() < 2:
+                return np.nan
+            return metric_func(obs[mask], pred[mask])
+
+        # --- Step 1: local performance ---
+        local_perf = (
+            df.groupby(["code", "period"])
+            .apply(
+                lambda g: pd.Series(
+                    {m: calc_metric(g, m) for m in model_names if m in g.columns}
                 )
-
-                subset_data = base_predictors[mask]
-
-                # dropna based on the target
-                subset_data.dropna(subset=[target_col], inplace=True)
-
-                if len(subset_data) < self.num_samples_val:
-                    logger.debug(
-                        f"Insufficient data for code {code}, period {period}: {len(subset_data)} < {self.num_samples_val}"
-                    )
-                    # Use global performance for this period if insufficient local data
-                    global_mask = base_predictors["period"] == period
-                    subset_data = base_predictors[global_mask]
-
-                    if len(subset_data) < self.num_samples_val:
-                        logger.debug(
-                            f"Insufficient global data for period {period}: {len(subset_data)} < {self.num_samples_val}"
-                        )
-                        continue
-
-                # Calculate performance for each model
-                performance_row = {"code": code, "period": period}
-
-                for model_name in model_names:
-                    if model_name not in subset_data.columns:
-                        logger.debug(f"Model {model_name} not found in data")
-                        performance_row[model_name] = np.nan
-                        continue
-
-                    # Get observed and predicted values
-                    observed = subset_data[target_col].values
-                    predicted = subset_data[model_name].values
-
-                    # Remove NaN pairs
-                    valid_mask = ~(np.isnan(observed) | np.isnan(predicted))
-
-                    if np.sum(valid_mask) < 2:
-                        performance_row[model_name] = np.nan
-                        continue
-
-                    observed_clean = observed[valid_mask]
-                    predicted_clean = predicted[valid_mask]
-
-                    # Calculate performance metric
-                    try:
-                        performance_value = metric_func(observed_clean, predicted_clean)
-                        performance_row[model_name] = performance_value
-                    except Exception as e:
-                        logger.debug(
-                            f"Error calculating {self.metric} for model {model_name}: {str(e)}"
-                        )
-                        performance_row[model_name] = np.nan
-
-                results.append(performance_row)
-
-        # Convert results to DataFrame
-        performance_df = pd.DataFrame(results)
-
-        # Fill remaining NaN values with global performance
-        for model_name in model_names:
-            if model_name not in performance_df.columns:
-                continue
-
-            # Calculate global performance by period for models with NaN values
-            for period in performance_df["period"].unique():
-                period_mask = performance_df["period"] == period
-                nan_mask = performance_df[model_name].isna()
-
-                if np.any(period_mask & nan_mask):
-                    # Calculate global performance for this period
-                    global_data = base_predictors[base_predictors["period"] == period]
-
-                    if (
-                        len(global_data) >= self.num_samples_val
-                        and model_name in global_data.columns
-                    ):
-                        observed = global_data[target_col].values
-                        predicted = global_data[model_name].values
-
-                        valid_mask = ~(np.isnan(observed) | np.isnan(predicted))
-
-                        if np.sum(valid_mask) >= 2:
-                            try:
-                                global_performance = metric_func(
-                                    observed[valid_mask], predicted[valid_mask]
-                                )
-
-                                # Fill NaN values with global performance
-                                performance_df.loc[
-                                    period_mask & nan_mask, model_name
-                                ] = global_performance
-
-                            except Exception as e:
-                                logger.debug(
-                                    f"Error calculating global {self.metric} for model {model_name}: {str(e)}"
-                                )
-
-        logger.info(
-            f"Historical performance calculated for {len(performance_df)} code-period combinations"
+            )
+            .reset_index()
         )
-        return performance_df
+
+        # --- Step 2: determine which local groups have enough samples ---
+        group_sizes = (
+            df.dropna(subset=[target_col])
+            .groupby(["code", "period"])
+            .size()
+            .reset_index(name="n_samples")
+        )
+        local_perf = local_perf.merge(group_sizes, on=["code", "period"], how="left")
+
+        # --- Step 3: global performance per period ---
+        global_perf = (
+            df.groupby("period")
+            .apply(
+                lambda g: pd.Series(
+                    {m: calc_metric(g, m) for m in model_names if m in g.columns}
+                )
+            )
+            .reset_index()
+        )
+        global_sizes = (
+            df.dropna(subset=[target_col])
+            .groupby("period")
+            .size()
+            .reset_index(name="n_samples_global")
+        )
+        global_perf = global_perf.merge(global_sizes, on="period", how="left")
+
+        # --- Step 4: fill NaNs or insufficient samples with global ---
+        merged = local_perf.merge(global_perf, on="period", suffixes=("", "_global"))
+        for m in model_names:
+            if m not in merged.columns:
+                continue
+            cond_replace = (merged["n_samples"] < self.num_samples_val) | merged[
+                m
+            ].isna()
+            enough_global = merged["n_samples_global"] >= self.num_samples_val
+            merged.loc[cond_replace & enough_global, m] = merged.loc[
+                cond_replace & enough_global, f"{m}_global"
+            ]
+
+        # --- Step 5: final cleanup ---
+        perf_df = merged[["code", "period"] + model_names]
+        logger.info(
+            f"Historical performance calculated for {len(perf_df)} code-period combinations"
+        )
+
+        logger.debug(f"Performance DataFrame columns: {perf_df.columns.tolist()}")
+        logger.debug(f"Performance DataFrame head:\n{perf_df.head()}")
+
+        return perf_df

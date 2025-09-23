@@ -832,10 +832,6 @@ class SciRegressor(BaseForecastModel):
             obs_col=None,  # No observations in operational mode
         )
 
-        # Add metadata
-        forecast["model_name"] = self.name
-        forecast["created_at"] = today.strftime("%Y-%m-%d %H:%M:%S")
-
         # Reorder columns for better readability
         base_cols = [
             "code",
@@ -846,9 +842,8 @@ class SciRegressor(BaseForecastModel):
         ]
 
         pred_cols = [col for col in forecast.columns if col.startswith("Q_")]
-        meta_cols = ["model_name", "created_at"]
 
-        forecast = forecast[base_cols + pred_cols + meta_cols]
+        forecast = forecast[base_cols + pred_cols]
 
         # check if all basin_codes are in the forecast
         missing_basin_codes = set(basin_codes) - set(forecast["code"].unique())

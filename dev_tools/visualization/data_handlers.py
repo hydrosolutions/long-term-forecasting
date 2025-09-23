@@ -65,7 +65,7 @@ class MetricsDataHandler:
 
         # Rename columns for consistency
         if "model_name" in self._df.columns:
-            self._df["model"] = self._df["model_name"]
+            self._df["model"] = self._df["model_id"]
 
         # Sort by model and month if columns exist
         sort_cols = []

@@ -327,6 +327,7 @@ class StreamflowFeatureExtractor:
         pandas.Series
             Target variable
         """
+        df = df.copy()
         min_periods = min(int(self.prediction_horizon * 0.75), 15)
         target = pd.Series(index=df.index, dtype=float)
 
@@ -403,9 +404,6 @@ class StreamflowFeatureExtractor:
                     features = self._create_rolling_features(df, col, c)
                     feature_dfs.append(features)
 
-        # Combine all features
-        X = pd.concat(feature_dfs, axis=1)
-
         # Create target
         y = self.create_target(df)
 
@@ -415,6 +413,13 @@ class StreamflowFeatureExtractor:
         # Combine everything into a single DataFrame in one operation
         # Start with base information
         base_data = {"date": df["date"], "code": df["code"], "target": y}
+
+        if len(feature_dfs) == 0:
+            logger.warning("No features created. Returning empty DataFrame.")
+            return pd.DataFrame(base_data)
+
+        # Combine all features
+        X = pd.concat(feature_dfs, axis=1)
 
         # Add all feature columns from X
         for col in X.columns:

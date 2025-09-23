@@ -499,9 +499,9 @@ def run_evaluation_pipeline(
     ensemble_method: str = "mean",
     include_code_month: bool = False,
     min_samples_overall: int = 10,
-    min_samples_code: int = 5,
-    min_samples_month: int = 3,
-    min_samples_code_month: int = 2,
+    min_samples_code: int = 10,
+    min_samples_month: int = 10,
+    min_samples_code_month: int = 10,
 ) -> bool:
     """
     Convenience function to run the evaluation pipeline.
@@ -607,21 +607,21 @@ def main():
     parser.add_argument(
         "--min_samples_code",
         type=int,
-        default=5,
+        default=10,
         help="Minimum samples for per-code evaluation",
     )
 
     parser.add_argument(
         "--min_samples_month",
         type=int,
-        default=3,
+        default=10,
         help="Minimum samples for per-month evaluation",
     )
 
     parser.add_argument(
         "--min_samples_code_month",
         type=int,
-        default=2,
+        default=10,
         help="Minimum samples for per-code-month evaluation",
     )
 

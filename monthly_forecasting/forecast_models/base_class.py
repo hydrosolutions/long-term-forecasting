@@ -3,6 +3,11 @@ import pandas as pd
 import datetime
 from abc import ABC, abstractmethod
 from typing import Dict, Any
+import logging
+from monthly_forecasting.log_config import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 
 class BaseForecastModel(ABC):
