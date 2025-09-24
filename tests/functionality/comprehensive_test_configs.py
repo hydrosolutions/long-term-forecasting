@@ -76,12 +76,11 @@ BASE_GENERAL_CONFIG = {
     "feature_cols": ["discharge", "P", "T"],
     "static_features": ["area", "elevation"],
     "rivers_to_exclude": [],
-    "test_years": 3,
+    "test_years": [2022, 2023],
     "num_elevation_zones": 5,
     "n_trials": 1,  # Single trial for fast testing
-    "hparam_tuning_years": 3,
+    "hparam_tuning_years": [2018, 2019, 2020],
     "early_stopping_val_fraction": 0.1,
-    "num_test_years": 2,
     "use_relative_target": False,
     "relative_scaling_vars": [],
 }

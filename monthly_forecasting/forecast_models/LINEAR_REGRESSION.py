@@ -568,7 +568,7 @@ class LinearRegressionModel(BaseForecastModel):
             str: Message indicating the result of the tuning process.
         """
         logger.warning(
-            "Hyperparameter tuning is not applicable for Linear Regression models. "
+            "Hyperparameter tuning is not applicable for Linear Regression models yet. "
             "Please use the model as is or implement a tuning method."
         )
         return (

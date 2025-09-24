@@ -1,14 +1,5 @@
 # TODO 
 
-## Next steps
-
-### Push
-I put all not used files in Z folders (deep models) - run the uncertainty mixture model to see if if it still works - then create a pull/merge request. -> should work.
-
-### Uncertainty MLP
-- [ ] create a plot showing the individual memebers pdf and the resulting combination for sanity checking.
-- [ ] validate on metrics like coverage , obs vs theretical prob of exceedance, cprs etc.
-- [ ] Create operational prediction
 
 ### Decide on Models
 - [ ] Base Case LR (1)
@@ -20,23 +11,23 @@ I put all not used files in Z folders (deep models) - run the uncertainty mixtur
 - [ ] SM GBT LR (3)
 - [ ] SM GBT Norm (3)
 - [ ] SM GBT Elev (3)
+- [ ] Uncertainty ALD
   
 This would result in 19 models...
 How many max features for the linear regression models? 2, 3, 4 (i think it is very unlikely that 4 features have a high correlation - set to 4)? it is also coupled with a correlation threshold (set to 0.4 so far).
 
-## Urgent Fixes
+## Operationalize
 - [ ] Integration of Meta-Model in Prediction Pipeline
-- [x] Uncertainty Net - Calculate error statistics for all years except the one at hand - loocv errors -> this creates new columns in the data frame - error_mean, error_skew, error_std, error_max , abs_error_mean, abs_error_std, abs_error_max
-- [ ] Test model performance
-
+- [ ] Integration of Uncertainty Net in Prediction Pipeline
+- [ ] Decide on Models
+- [ ] Release Version 0.1.0
 
 ## Fixes 
-- [x] Proper Scaling -> Improved performance
-
+- [ ] adapt test years and hparam years to list[int] -> fully configurable.
 
 ## Features (Needed)
-- [x] Uncertainty Net
 - [ ] Plot Generation (workshop)
+- [ ] Documentation
 
 ## Features (Nice to Have)
 - [ ] Deep Learning Regressors

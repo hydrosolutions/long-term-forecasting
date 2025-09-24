@@ -132,7 +132,7 @@ GENERAL_CONFIG = {
     "static_features": ["area", "elevation"],
     "rivers_to_exclude": [],
     "snow_vars": [],
-    "test_years": 3,
+    "test_years": [2019, 2020],
     "num_elevation_zones": 5,
     "n_trials": 1,  # Optimized for fast testing
 }

@@ -101,7 +101,26 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         self.gradient_clip_val = self.model_config.get("gradient_clip_val", 1.0)
         self.use_pred_mean = self.model_config.get("use_pred_mean", True)
 
-        self.hparam_tuning_years = self.general_config.get("hparam_tuning_years", 3)
+        self.test_years = self.general_config.get("test_years", [2021, 2022, 2023])
+        self.hparam_tuning_years = self.general_config.get(
+            "hparam_tuning_years", [2018, 2019, 2020]
+        )
+
+        assert isinstance(self.test_years, list), (
+            f"test_years should be a list of years but got {type(self.test_years)}"
+        )
+        assert isinstance(self.hparam_tuning_years, list), (
+            f"hparam_tuning_years should be a list of years but got {type(self.hparam_tuning_years)}"
+        )
+
+        # check if there are some years both in test_years and hparam_tuning_years
+        overlapping_years = set(self.test_years).intersection(
+            set(self.hparam_tuning_years)
+        )
+        if overlapping_years:
+            logger.warning(
+                f"Overlapping years found in test_years and hparam_tuning_years: {overlapping_years}. Please ensure these are distinct."
+            )
 
         self.quantiles = self.model_config.get(
             "quantiles", [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
