@@ -551,6 +551,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             learning_rate=learning_rate,
             weight_decay=weight_decay,
             gradient_clip_val=gradient_clip_val,
+            lr_scheduler=self.model_config.get("scheduler", None),
             use_pred_mean=self.use_pred_mean,
         )
 

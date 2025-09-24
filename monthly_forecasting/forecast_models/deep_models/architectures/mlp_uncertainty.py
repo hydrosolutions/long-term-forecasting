@@ -134,7 +134,6 @@ class MLPUncertaintyModel(pl.LightningModule):
         # Output layer: predicts μ, σ, p (or σ, p if use_ensemble_mean)
         output_size = 2 if use_pred_mean else 3
         self.output_layer = nn.Linear(hidden_size, output_size)
-        self.dropout = nn.Dropout(dropout / 2)
 
         self.loss_fn = AsymmetricLaplaceLoss()
 
@@ -164,13 +163,11 @@ class MLPUncertaintyModel(pl.LightningModule):
         """
         # Input projection
         out = F.relu(self.input_layer(x))
-        out = self.dropout(out)
 
         # Residual blocks
         for block in self.residual_blocks:
             out = block(out)
 
-        out = self.dropout(out)
         # Output parameters
         params = self.output_layer(out)
 
