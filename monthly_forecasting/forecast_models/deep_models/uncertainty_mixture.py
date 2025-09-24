@@ -175,7 +175,9 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         merged_data["ensemble_median"] = ensemble_median
         num_valid_pred = merged_data[model_names].notna().sum(axis=1)
         merged_data["num_valid_pred"] = num_valid_pred
-        max_distance = merged_data[model_names].max(axis=1) - merged_data[model_names].min(axis=1)
+        max_distance = merged_data[model_names].max(axis=1) - merged_data[
+            model_names
+        ].min(axis=1)
         merged_data["ensemble_range"] = max_distance
 
         merged_data = merged_data.drop(columns=model_names)
@@ -554,7 +556,6 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
         return model
 
-
     def fit(
         self,
         train_data: pd.DataFrame = None,
@@ -743,12 +744,12 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # push model to the trainer device
         model = model.to("cpu")
         # trainer.predict returns a list of batch results (DataFrames)
-        #batch_predictions = trainer.predict(model, dataloader)
+        # batch_predictions = trainer.predict(model, dataloader)
         prediction_results = model.MC_quantile_sampling(
-            dataloader = dataloader,
-            MC_num_samples = self.model_config.get("MC_num_samples", 100),
-            ALD_num_samples = self.model_config.get("ALD_num_samples", 500),
-            quantiles = self.quantiles
+            dataloader=dataloader,
+            MC_num_samples=self.model_config.get("MC_num_samples", 100),
+            ALD_num_samples=self.model_config.get("ALD_num_samples", 500),
+            quantiles=self.quantiles,
         )
         """
         # 5. Combine and format results
@@ -762,10 +763,10 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         final_df = pd.concat([identifiers, prediction_results], axis=1)
 
         # create the mixed quantile predictions
-        #final_df = self.create_mixture_predictions(final_df)
+        # final_df = self.create_mixture_predictions(final_df)
         final_df = self._rescale_predictions(final_df, scaler)
 
-        #rename Q_mean to Q_<model_name>
+        # rename Q_mean to Q_<model_name>
         if f"Q_mean" in final_df.columns:
             final_df = final_df.rename(columns={f"Q_mean": f"Q_{self.name}"})
 

@@ -43,18 +43,17 @@ def sample_ald(mu: torch.Tensor, beta: torch.Tensor, tau: torch.Tensor, num_samp
 
     # Initialize output array
     samples = np.zeros((B, num_samples))
-    
+
     # Sample for each instance (vectorized approach doesn't work well with scipy here)
     for i in range(B):
         samples[i, :] = stats.laplace_asymmetric.rvs(
             kappa=kappa[i],
             loc=mu_np[i],  # Note: use 'loc' not 'mu'
             scale=scale[i],
-            size=num_samples
+            size=num_samples,
         )
 
     return samples
-
 
 
 class ResidualBlock(torch.nn.Module):
@@ -135,7 +134,7 @@ class MLPUncertaintyModel(pl.LightningModule):
         # Output layer: predicts μ, σ, p (or σ, p if use_ensemble_mean)
         output_size = 2 if use_pred_mean else 3
         self.output_layer = nn.Linear(hidden_size, output_size)
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(dropout / 2)
 
         self.loss_fn = AsymmetricLaplaceLoss()
 
@@ -169,8 +168,9 @@ class MLPUncertaintyModel(pl.LightningModule):
 
         # Residual blocks
         for block in self.residual_blocks:
-            out = self.dropout(block(out))
-        
+            out = block(out)
+
+        out = self.dropout(out)
         # Output parameters
         params = self.output_layer(out)
 
@@ -271,68 +271,75 @@ class MLPUncertaintyModel(pl.LightningModule):
         }
 
         return pd.DataFrame(data)
-    
+
     def MC_quantile_sampling(
-            self,
-            dataloader: torch.utils.data.DataLoader,
-            MC_num_samples: int = 100,
-            ALD_num_samples: int = 100, 
-            quantiles: Optional[List[float]] = None,
-        ) -> pd.DataFrame:
-        
+        self,
+        dataloader: torch.utils.data.DataLoader,
+        MC_num_samples: int = 100,
+        ALD_num_samples: int = 100,
+        quantiles: Optional[List[float]] = None,
+    ) -> pd.DataFrame:
         if quantiles is None:
             quantiles = list(self.quantiles)
 
         self.eval()
         self.enable_dropout()
-        
+
         results: list[pd.DataFrame] = []
-        
+
         for batch in dataloader:
             if "X" not in batch:
                 raise KeyError("Batch dictionary must contain an 'X' key for features.")
-            
+
             x = batch["X"]
             batch_size = x.shape[0]
-            
+
             # Collect all samples: shape (batch_size, MC_num_samples * ALD_num_samples)
             all_samples = []
             locs = []
-            
+
             # Run MC forward passes
             for i in range(MC_num_samples):
                 with torch.no_grad():
                     mu, beta, tau = self(x)
-                
+
                 # Move to CPU
                 mu_cpu = mu.cpu()
                 beta_cpu = beta.cpu()
                 tau_cpu = tau.cpu()
-                
+
                 # Store location parameters
                 locs.append(mu_cpu.numpy())
-                
+
                 # Draw multiple samples from ALD for this MC iteration
-                samples_i = sample_ald(mu_cpu, beta_cpu, tau_cpu, num_samples=ALD_num_samples)
+                samples_i = sample_ald(
+                    mu_cpu, beta_cpu, tau_cpu, num_samples=ALD_num_samples
+                )
                 all_samples.append(samples_i)  # Shape: (batch_size, ALD_num_samples)
-            
+
             # Combine all samples
             # all_samples is list of arrays with shape (batch_size, ALD_num_samples)
-            all_samples = np.concatenate(all_samples, axis=1)  # Shape: (batch_size, MC * ALD samples)
+            all_samples = np.concatenate(
+                all_samples, axis=1
+            )  # Shape: (batch_size, MC * ALD samples)
             locs = np.stack(locs, axis=1)  # Shape: (batch_size, MC_num_samples)
-            
+
             # Compute quantiles across all samples
-            qvals = np.quantile(all_samples, quantiles, axis=1).T if len(quantiles) > 0 else np.empty((batch_size, 0))
-            
+            qvals = (
+                np.quantile(all_samples, quantiles, axis=1).T
+                if len(quantiles) > 0
+                else np.empty((batch_size, 0))
+            )
+
             # Sample mean from all drawn samples
             sample_mean = all_samples.mean(axis=1)
-            
+
             # Average loc parameter across MC runs
             avg_loc = locs.mean(axis=1)
-            
+
             # Build result dict (rest of your code is fine)
             data: dict[str, object] = {}
-            
+
             # Include metadata
             meta_fields = [k for k in batch.keys() if k != "X"]
             for k in meta_fields:
@@ -341,24 +348,24 @@ class MLPUncertaintyModel(pl.LightningModule):
                     data[k] = v.cpu().numpy()
                 else:
                     data[k] = np.array(v)
-            
+
             # Add quantiles
             for idx, q in enumerate(quantiles):
-                col_name = f"Q{int(round(q*100))}"
+                col_name = f"Q{int(round(q * 100))}"
                 data[col_name] = qvals[:, idx]
-            
+
             data["Q_mean"] = sample_mean
             data["Q_loc"] = avg_loc
-            
+
             df_batch = pd.DataFrame(data)
             results.append(df_batch)
-        
+
         # Concatenate results
         if results:
             df_all = pd.concat(results, ignore_index=True)
         else:
             df_all = pd.DataFrame()
-        
+
         self.eval()
         return df_all
 
@@ -405,8 +412,6 @@ class MLPUncertaintyModel(pl.LightningModule):
             }
 
         return optimizer
-    
-
 
 
 def test_mlp_uncertainty_model():
