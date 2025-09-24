@@ -13,7 +13,9 @@ I put all not used files in Z folders (deep models) - run the uncertainty mixtur
 ### Decide on Models
 - [ ] Base Case LR (1)
 - [ ] Base Case GBT (3)
-- [ ] Snowmapper LR, LR DT, LR ROF (3) 
+- [ ] SM LR, 
+- [ ] SM LR DT, 
+- [ ] SM LR ROF 
 - [ ] SM GBT (3)
 - [ ] SM GBT LR (3)
 - [ ] SM GBT Norm (3)

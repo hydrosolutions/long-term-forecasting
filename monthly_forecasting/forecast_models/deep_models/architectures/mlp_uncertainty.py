@@ -7,8 +7,10 @@ import logging
 import pytorch_lightning as pl
 from torch.optim.lr_scheduler import StepLR
 import pandas as pd
+from scipy import stats
 
 from ..losses import AsymmetricLaplaceLoss
+from ..losses.asymmetric_laplace_loss import predict_ALD_quantile
 
 # Shared logging
 import logging
@@ -16,6 +18,43 @@ from monthly_forecasting.log_config import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
+
+
+def sample_ald(mu: torch.Tensor, beta: torch.Tensor, tau: torch.Tensor, num_samples=1):
+    """
+    Sample from the Asymmetric Laplace Distribution using the inverse CDF method.
+
+    Args:
+        mu: Location parameter (mean) - shape (B,)
+        beta: Scale parameter - shape (B,)
+        tau: Asymmetry parameter - shape (B,)
+        num_samples: Number of samples to draw per instance
+    Returns:
+        samples: Samples drawn from the ALD - shape (B, num_samples)
+    """
+    B = mu.shape[0]
+    # torch to numpy
+    mu_np = mu.cpu().numpy()
+    beta_np = beta.cpu().numpy()
+    tau_np = tau.cpu().numpy()
+
+    kappa = np.sqrt(tau_np / (1.0 - tau_np))
+    scale = beta_np / np.sqrt(tau_np * (1.0 - tau_np))
+
+    # Initialize output array
+    samples = np.zeros((B, num_samples))
+    
+    # Sample for each instance (vectorized approach doesn't work well with scipy here)
+    for i in range(B):
+        samples[i, :] = stats.laplace_asymmetric.rvs(
+            kappa=kappa[i],
+            loc=mu_np[i],  # Note: use 'loc' not 'mu'
+            scale=scale[i],
+            size=num_samples
+        )
+
+    return samples
+
 
 
 class ResidualBlock(torch.nn.Module):
@@ -35,6 +74,7 @@ class ResidualBlock(torch.nn.Module):
 
     def forward(self, x: torch.Tensor):
         hid = self.act(self.hidden_layer(x))
+        hid = self.dropout(hid)
         out = self.output_layer(hid)
         res = self.residual_layer(x)
         out = out + res
@@ -95,11 +135,18 @@ class MLPUncertaintyModel(pl.LightningModule):
         # Output layer: predicts μ, σ, p (or σ, p if use_ensemble_mean)
         output_size = 2 if use_pred_mean else 3
         self.output_layer = nn.Linear(hidden_size, output_size)
+        self.dropout = nn.Dropout(dropout)
 
         self.loss_fn = AsymmetricLaplaceLoss()
 
         # Activation for scale parameter to ensure positivity
         self.softplus = nn.Softplus()
+
+    def enable_dropout(self):
+        """Enable dropout during inference for MC Dropout sampling."""
+        for m in self.modules():
+            if isinstance(m, nn.Dropout):
+                m.train()  # set dropout layers to train mode
 
     def forward(
         self, x: torch.Tensor
@@ -118,11 +165,12 @@ class MLPUncertaintyModel(pl.LightningModule):
         """
         # Input projection
         out = F.relu(self.input_layer(x))
+        out = self.dropout(out)
 
         # Residual blocks
         for block in self.residual_blocks:
-            out = block(out)
-
+            out = self.dropout(block(out))
+        
         # Output parameters
         params = self.output_layer(out)
 
@@ -223,6 +271,96 @@ class MLPUncertaintyModel(pl.LightningModule):
         }
 
         return pd.DataFrame(data)
+    
+    def MC_quantile_sampling(
+            self,
+            dataloader: torch.utils.data.DataLoader,
+            MC_num_samples: int = 100,
+            ALD_num_samples: int = 100, 
+            quantiles: Optional[List[float]] = None,
+        ) -> pd.DataFrame:
+        
+        if quantiles is None:
+            quantiles = list(self.quantiles)
+
+        self.eval()
+        self.enable_dropout()
+        
+        results: list[pd.DataFrame] = []
+        
+        for batch in dataloader:
+            if "X" not in batch:
+                raise KeyError("Batch dictionary must contain an 'X' key for features.")
+            
+            x = batch["X"]
+            batch_size = x.shape[0]
+            
+            # Collect all samples: shape (batch_size, MC_num_samples * ALD_num_samples)
+            all_samples = []
+            locs = []
+            
+            # Run MC forward passes
+            for i in range(MC_num_samples):
+                with torch.no_grad():
+                    mu, beta, tau = self(x)
+                
+                # Move to CPU
+                mu_cpu = mu.cpu()
+                beta_cpu = beta.cpu()
+                tau_cpu = tau.cpu()
+                
+                # Store location parameters
+                locs.append(mu_cpu.numpy())
+                
+                # Draw multiple samples from ALD for this MC iteration
+                samples_i = sample_ald(mu_cpu, beta_cpu, tau_cpu, num_samples=ALD_num_samples)
+                all_samples.append(samples_i)  # Shape: (batch_size, ALD_num_samples)
+            
+            # Combine all samples
+            # all_samples is list of arrays with shape (batch_size, ALD_num_samples)
+            all_samples = np.concatenate(all_samples, axis=1)  # Shape: (batch_size, MC * ALD samples)
+            locs = np.stack(locs, axis=1)  # Shape: (batch_size, MC_num_samples)
+            
+            # Compute quantiles across all samples
+            qvals = np.quantile(all_samples, quantiles, axis=1).T if len(quantiles) > 0 else np.empty((batch_size, 0))
+            
+            # Sample mean from all drawn samples
+            sample_mean = all_samples.mean(axis=1)
+            
+            # Average loc parameter across MC runs
+            avg_loc = locs.mean(axis=1)
+            
+            # Build result dict (rest of your code is fine)
+            data: dict[str, object] = {}
+            
+            # Include metadata
+            meta_fields = [k for k in batch.keys() if k != "X"]
+            for k in meta_fields:
+                v = batch[k]
+                if isinstance(v, torch.Tensor):
+                    data[k] = v.cpu().numpy()
+                else:
+                    data[k] = np.array(v)
+            
+            # Add quantiles
+            for idx, q in enumerate(quantiles):
+                col_name = f"Q{int(round(q*100))}"
+                data[col_name] = qvals[:, idx]
+            
+            data["Q_mean"] = sample_mean
+            data["Q_loc"] = avg_loc
+            
+            df_batch = pd.DataFrame(data)
+            results.append(df_batch)
+        
+        # Concatenate results
+        if results:
+            df_all = pd.concat(results, ignore_index=True)
+        else:
+            df_all = pd.DataFrame()
+        
+        self.eval()
+        return df_all
 
     def configure_optimizers(self) -> Dict:
         """
@@ -247,6 +385,12 @@ class MLPUncertaintyModel(pl.LightningModule):
                     step_size=scheduler_config.get("step_size", 10),
                     gamma=scheduler_config.get("gamma", 0.1),
                 )
+            elif scheduler_type == "annealing_cosine":
+                scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer,
+                    T_max=scheduler_config.get("T_max", 10),
+                    eta_min=scheduler_config.get("eta_min", 0),
+                )
             else:
                 # Default to no scheduler
                 return optimizer
@@ -261,6 +405,8 @@ class MLPUncertaintyModel(pl.LightningModule):
             }
 
         return optimizer
+    
+
 
 
 def test_mlp_uncertainty_model():

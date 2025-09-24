@@ -175,13 +175,13 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         merged_data["ensemble_median"] = ensemble_median
         num_valid_pred = merged_data[model_names].notna().sum(axis=1)
         merged_data["num_valid_pred"] = num_valid_pred
+        max_distance = merged_data[model_names].max(axis=1) - merged_data[model_names].min(axis=1)
+        merged_data["ensemble_range"] = max_distance
 
         merged_data = merged_data.drop(columns=model_names)
         merged_data["ensemble_member"] = "ensemble"
 
         # 4. Reformat to long format with ensemble_member column
-        # logger.info("Reformatting DataFrame to long format")
-        # preprocessed_data = self._reformat_df(merged_data)
 
         # 5. Create periods column for temporal features
         logger.info("Creating period columns")
@@ -554,94 +554,6 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
         return model
 
-    def predict_quantile(self, mu, b, tau, q, eps=1e-12):
-        """
-        Quantile function for Asymmetric Laplace in (m=mu, lambda=b, p=tau) parametrization.
-
-        mu  : array-like, location
-        b   : array-like/float, scale (>0)
-        tau : array-like/float in (0,1), asymmetry (quantile pivot)
-        q   : scalar or array-like in (0,1), desired quantile(s)
-        """
-        mu = np.asarray(mu, dtype=float)
-        b = np.asarray(b, dtype=float)
-        tau = np.asarray(tau, dtype=float)
-
-        # Clamp parameters for numerical safety
-        tau = np.clip(tau, eps, 1.0 - eps)
-        b = np.maximum(b, eps)
-
-        # Broadcast q to mu's shape
-        q_arr = np.asarray(q, dtype=float)
-        if q_arr.shape == ():  # scalar q
-            q_arr = np.full_like(mu, np.clip(q_arr, eps, 1 - eps))
-        else:
-            q_arr = np.clip(q_arr, eps, 1 - eps)
-            q_arr = np.broadcast_to(q_arr, mu.shape)
-
-        # Scale = b / (tau*(1-tau))  (your earlier choice)
-        scale = b / (tau * (1.0 - tau))
-
-        # Piecewise branches with broadcasting, no indexing of q
-        left = mu + scale * tau * np.log(np.clip(q_arr / tau, eps, None))
-        right = mu - scale * (1.0 - tau) * np.log(
-            np.clip((1.0 - q_arr) / (1.0 - tau), eps, None)
-        )
-
-        return np.where(q_arr <= tau, left, right)
-
-    def create_mixture_predictions(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Create quantile predictions directly from Asymmetric Laplace parameters
-        without constructing a mixture distribution.
-
-        Args:
-            df: DataFrame with columns [code, date, loc, scale, asymmetry]
-
-        Returns:
-            DataFrame with columns [code, date, Q_<model_name>, Q5, Q10, ...].
-        """
-
-        required_cols = {"code", "date", "loc", "scale", "asymmetry"}
-        missing = required_cols - set(df.columns)
-        if missing:
-            raise ValueError(
-                f"Missing required columns for quantile computation: {missing}"
-            )
-
-        # Ensure numerics
-        work_df = df.copy()
-        for c in ["loc", "scale", "asymmetry"]:
-            work_df[c] = pd.to_numeric(work_df[c], errors="coerce")
-
-        # Drop rows with invalid params
-        work_df = work_df.dropna(subset=["loc", "scale", "asymmetry"])
-        if work_df.empty:
-            return pd.DataFrame(
-                columns=["code", "date", f"Q_{self.name}"]
-                + [f"Q{int(q * 100)}" for q in self.quantiles]
-            )
-
-        # Assume single component per (code, date). If duplicates exist, keep first.
-        work_df = work_df.sort_values(["code", "date"]).drop_duplicates(
-            ["code", "date"], keep="first"
-        )
-
-        mu = work_df["loc"].values
-        beta = work_df["scale"].values
-        tau = work_df["asymmetry"].values
-
-        # Prepare output DataFrame
-        out_df = work_df[["code", "date"]].copy()
-
-        mean_ald = mu + (1 - 2 * tau) / (tau * (1 - tau)) * beta
-        out_df[f"Q_{self.name}"] = mean_ald  # mean = loc in this parameterization
-
-        for q in self.quantiles:
-            q_vals = self.predict_quantile(mu, beta, tau, q)
-            out_df[f"Q{int(q * 100)}"] = q_vals
-
-        return out_df
 
     def fit(
         self,
@@ -828,10 +740,17 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         trainer = Trainer(
             logger=False, enable_progress_bar=False, accelerator="cpu", devices=1
         )
-
+        # push model to the trainer device
+        model = model.to("cpu")
         # trainer.predict returns a list of batch results (DataFrames)
-        batch_predictions = trainer.predict(model, dataloader)
-
+        #batch_predictions = trainer.predict(model, dataloader)
+        prediction_results = model.MC_quantile_sampling(
+            dataloader = dataloader,
+            MC_num_samples = self.model_config.get("MC_num_samples", 100),
+            ALD_num_samples = self.model_config.get("ALD_num_samples", 500),
+            quantiles = self.quantiles
+        )
+        """
         # 5. Combine and format results
         if not batch_predictions:
             logger.warning("Prediction returned no results.")
@@ -839,12 +758,16 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
         # Concatenate all batch prediction DataFrames
         prediction_results = pd.concat(batch_predictions, ignore_index=True)
-        prediction_results = prediction_results[["loc", "scale", "asymmetry"]]
+        prediction_results = prediction_results[["loc", "scale", "asymmetry"]]"""
         final_df = pd.concat([identifiers, prediction_results], axis=1)
 
         # create the mixed quantile predictions
-        final_df = self.create_mixture_predictions(final_df)
+        #final_df = self.create_mixture_predictions(final_df)
         final_df = self._rescale_predictions(final_df, scaler)
+
+        #rename Q_mean to Q_<model_name>
+        if f"Q_mean" in final_df.columns:
+            final_df = final_df.rename(columns={f"Q_mean": f"Q_{self.name}"})
 
         logger.info(f"Generated predictions for {len(final_df)} rows.")
         logger.info(f"Prediction columns: {final_df.columns.tolist()}")
@@ -864,7 +787,6 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         """
         logger.info(f"Starting operational prediction for {self.name}")
 
-        # Preprocess data (this will call _reformat_df)
         self.__preprocess_data__()
 
         if today is None:
@@ -1152,8 +1074,11 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         learning_rate = trial.suggest_loguniform("learning_rate", 1e-4, 1e-2)
         hidden_size = trial.suggest_categorical("hidden_size", [16, 32])
         num_residual_blocks = trial.suggest_int("num_residual_blocks", 1, 4)
-        dropout = trial.suggest_uniform("dropout", 0.0, 0.5)
+        dropout = trial.suggest_uniform("dropout", 0.0, 0.8)
         weight_decay = trial.suggest_loguniform("weight_decay", 1e-6, 5e-3)
+
+        val_org_scale = val_df.copy()
+        val_df = val_df.drop(columns=[self.target_col]).copy()
 
         model = self._init_model(
             hidden_size=hidden_size,
@@ -1190,7 +1115,8 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             logger.warning("No predictions were made during hyperparameter tuning.")
             return float("inf")
 
-        val_preds = preds.merge(val_df, on=["date", "code"], how="left")
+        val_org_scale = self._mm_to_m3(val_org_scale, col=self.target_col)
+        val_preds = preds.merge(val_org_scale, on=["date", "code"], how="left")
 
         # calculate coverage
         coverage_90 = np.mean(
@@ -1204,7 +1130,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
         # score is the mean squared error of the coverage
         score = abs(coverage_90 - 0.9) + abs(coverage_50 - 0.5)
-
+        score *= 100
         return score
 
     def tune_hyperparameters(self):
@@ -1214,6 +1140,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         Returns:
             Tuple[bool, str]: A tuple containing a boolean indicating success and a message.
         """
+
         logger.info(f"Starting hyperparameter tuning for {self.name}")
 
         # Apply the same preprocessing as other methods
@@ -1233,7 +1160,6 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # process the train and val data like in the fit method
         scaler = self._calculate_scaler(train_data)
         train_data = self._scale_data(train_data, scaler)
-        val_data = self._scale_data(val_data, scaler)
 
         # Reset index and force contiguous copies to minimize fragmentation
         train_data = train_data.reset_index(drop=True).copy()
