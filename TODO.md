@@ -23,7 +23,7 @@ How many max features for the linear regression models? 2, 3, 4 (i think it is v
 - [ ] Release Version 0.1.0
 
 ## Fixes 
-- [ ] adapt test years and hparam years to list[int] -> fully configurable.
+- [ ]
 
 ## Features (Needed)
 - [ ] Plot Generation (workshop)

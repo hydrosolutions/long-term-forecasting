@@ -19,20 +19,20 @@ logger = logging.getLogger(__name__)
 
 # Model family mappings
 MODEL_FAMILIES = {
-    "BaseCase": ["LR_Q_T_P", "LR_Base"],
-    "SCA_Based": ["LR_Q_SCA", "LR_Q_T_SCA"],
+    "BaseCase": ["LR_Base", "GBT"],
+    #"SCA_Based": ["LR_Q_SCA", "LR_Q_T_SCA"],
     "SnowMapper_Based": [
         "LR_Snowmapper",
         "LR_Snowmapper_DT",
-        "LR_Snowmapper_ROF",
         "Snow_GBT",
         # "Snow_GBT_old",
         "Snow_GBT_LR",
         "Snow_GBT_Norm",
         # "Snow_HistMeta",
     ],
-    "GlacierMapper_Based": ["Gla_GBT", "Gla_GBT_NormFeat"],
-    "Uncertainty": ["UncertaintyMixtureMLP", "MC_ALD"],
+    #"GlacierMapper_Based": ["Gla_GBT", "Gla_GBT_NormFeat"],
+    "Uncertainty": [#"UncertaintyMixtureMLP",
+                     "MC_ALD"],
 }
 
 # Configuration

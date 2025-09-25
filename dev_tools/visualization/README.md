@@ -123,3 +123,38 @@ To modify the dashboard:
 - `data_handlers.py` - Data loading and processing
 - `plotting_utils.py` - Styling and color management
 - `dashboard_components.py` - Reusable UI components
+
+## Static / Publication Plots
+
+For presentation-ready (non-interactive) figures, use `create_plots.py` which builds
+high-quality seaborn/matplotlib bar plots (mean ± std across basins) and boxplots
+of basin-level distributions for any metric and set of models.
+
+Example usage:
+
+```bash
+uv run python dev_tools/visualization/create_plots.py \
+  --metrics-path ../monthly_forecasting_results/evaluation/metrics.csv \
+  --models LR_Q_SWE LR_Q_T_SWE DeviationLR \
+  --metric nse \
+  --outdir figures \
+  --formats png pdf
+```
+
+Flags:
+- `--no-bar` to skip the bar (mean ± std) plot
+- `--no-box` to skip the box distribution plot
+- `--order` to enforce a custom ordering of models in both plots
+- `--formats` list of output formats (e.g. `png pdf svg`)
+
+Output files (example names):
+- `figures/bar_nse.png`
+- `figures/box_nse.png`
+
+Notes:
+- Figures use globally configured style (whitegrid, 300 DPI, consistent font sizes)
+- Metric metadata (display name, higher-is-better) reused from `plotting_utils.py`
+- Only per-basin overall rows (month = -1, code not null) are used for summaries
+
+Future extensions could include seasonal breakdowns (per-code-month), timeseries
+panels with uncertainty envelopes, and automated multi-metric summary dashboards.
