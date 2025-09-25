@@ -35,6 +35,7 @@ Temporary overrides:
 ...     ax.plot(x, y)
 
 """
+
 from __future__ import annotations
 
 from contextlib import contextmanager

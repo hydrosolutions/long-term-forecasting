@@ -483,8 +483,8 @@ def calculate_R2(observed: np.ndarray, simulated: np.ndarray) -> float:
 
 
 def calculate_prob_exceedance(
-        observed: np.ndarray, 
-        simulated: np.ndarray,
+    observed: np.ndarray,
+    simulated: np.ndarray,
 ) -> float:
     """
     Calculate the Probability of Exceedance (POE) for observed and simulated data.
@@ -534,6 +534,7 @@ def calculate_prob_exceedance(
 
     return poe
 
+
 def calculate_coverage(
     observed: np.ndarray,
     lower_bound: np.ndarray,
@@ -582,7 +583,9 @@ def calculate_coverage(
         return np.nan
 
     # Calculate Coverage
-    coverage = np.mean((valid_observed >= valid_lower) & (valid_observed <= valid_upper))
+    coverage = np.mean(
+        (valid_observed >= valid_lower) & (valid_observed <= valid_upper)
+    )
 
     # Handle edge cases
     if np.isinf(coverage) or np.isnan(coverage):
@@ -590,7 +593,6 @@ def calculate_coverage(
         return np.nan
 
     return coverage
-
 
 
 from scipy import integrate
@@ -808,13 +810,16 @@ def nse(observed, predicted):
     """Convenience wrapper for NSE calculation."""
     return calculate_NSE(observed, predicted)
 
+
 def prob_exceedance(observed, predicted):
     """Convenience wrapper for Probability of Exceedance calculation."""
     return calculate_prob_exceedance(observed, predicted)
 
+
 def coverage(observed, lower_bound, upper_bound):
     """Convenience wrapper for Coverage calculation."""
     return calculate_coverage(observed, lower_bound, upper_bound)
+
 
 def kge(observed, predicted):
     """Calculate Kling-Gupta Efficiency."""

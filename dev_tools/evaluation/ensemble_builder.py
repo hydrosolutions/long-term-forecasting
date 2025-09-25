@@ -18,6 +18,88 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _filter_internal_aggregates(
+    loaded_predictions: Dict[str, pd.DataFrame],
+) -> Dict[str, pd.DataFrame]:
+    """Filter out internal (per-model) aggregate prediction DataFrames when submodels exist.
+
+    Some models export multiple prediction columns (submodels / ensemble members). The
+    loader expands these into separate DataFrames with ids like:
+
+        family_model_submember   (true submodel)
+        family_model             (aggregate / average across submembers) -> ensemble_member == 'ensemble'
+
+    For downstream *ensemble building* (family ensembles and global individual
+    ensembles) we don't want to count both the aggregate and its constituent
+    submodels (would double count / overweight that model family). We therefore
+    drop the aggregate entry (ensemble_member == 'ensemble') whenever at least
+    one sibling submodel (same family + model_name, different ensemble_member)
+    exists. Single-output legacy models (no 'ensemble_member' column) are kept.
+
+    The exception: when constructing a *global family* ensemble (use_families=True)
+    we operate on already-computed family ensembles, so this filtering is not
+    relevant there. Hence this function is only applied prior to building
+    family ensembles and the global individual ensemble.
+
+    Parameters
+    ----------
+    loaded_predictions : Dict[str, pd.DataFrame]
+        Original mapping of model_id -> prediction DataFrame.
+
+    Returns
+    -------
+    Dict[str, pd.DataFrame]
+        Filtered mapping excluding internal aggregate models that have
+        submodel counterparts.
+    """
+    if not loaded_predictions:
+        return loaded_predictions
+
+    # Build index of groups (family, model_name) -> list[model_id]
+    groups: Dict[tuple, List[str]] = {}
+    for model_id, df in loaded_predictions.items():
+        # Defensive: skip malformed
+        if "family" not in df.columns or "model_name" not in df.columns:
+            continue
+        key = (df["family"].iloc[0], df["model_name"].iloc[0])
+        groups.setdefault(key, []).append(model_id)
+
+    to_drop: set[str] = set()
+    for (family, model_name), model_ids in groups.items():
+        # Find members & aggregate indicators
+        # A DataFrame has 'ensemble_member' column only in new multi-member case
+        member_info = []
+        for mid in model_ids:
+            df = loaded_predictions[mid]
+            ensemble_member = (
+                df["ensemble_member"].iloc[0]
+                if "ensemble_member" in df.columns
+                else None
+            )
+            member_info.append((mid, ensemble_member))
+
+        # Determine if there are submodels
+        has_submodels = any(em not in (None, "ensemble") for _, em in member_info)
+        if not has_submodels:
+            continue  # legacy single-output model or only aggregate present
+
+        # Mark aggregate (ensemble_member == 'ensemble') for removal
+        for mid, em in member_info:
+            if em == "ensemble":
+                to_drop.add(mid)
+
+    if not to_drop:
+        return loaded_predictions
+
+    filtered = {k: v for k, v in loaded_predictions.items() if k not in to_drop}
+    logger.info(
+        "Filtered out %d internal aggregate model(s): %s",
+        len(to_drop),
+        sorted(to_drop),
+    )
+    return filtered
+
+
 def create_simple_ensemble(
     prediction_data: List[pd.DataFrame],
     ensemble_method: str = "mean",
@@ -237,6 +319,7 @@ def create_all_ensembles(
     ensemble_method: str = "mean",
     create_global: bool = True,
     weights: Optional[Dict[str, List[float]]] = None,
+    exclude_internal_aggregates: bool = True,
 ) -> Tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]:
     """
     Create all ensemble predictions (family and global).
@@ -257,9 +340,16 @@ def create_all_ensembles(
     Tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]
         Tuple of (family_ensembles, global_ensembles)
     """
-    # Get unique families
+    # Optionally filter out internal aggregate (average) models before building ensembles
+    # (exception: global family ensemble path works on the family ensembles themselves)
+    if exclude_internal_aggregates:
+        base_predictions = _filter_internal_aggregates(loaded_predictions)
+    else:
+        base_predictions = loaded_predictions
+
+    # Get unique families from (possibly) filtered predictions
     families = set()
-    for df in loaded_predictions.values():
+    for df in base_predictions.values():
         if "family" in df.columns:
             families.add(df["family"].iloc[0])
 
@@ -271,7 +361,7 @@ def create_all_ensembles(
     for family in families:
         family_weights = weights.get(family) if weights else None
         family_ensemble = create_family_ensemble(
-            loaded_predictions, family, ensemble_method, family_weights
+            base_predictions, family, ensemble_method, family_weights
         )
 
         if family_ensemble is not None:
@@ -284,7 +374,10 @@ def create_all_ensembles(
     if create_global:
         # Global ensemble using family ensembles
         global_family_ensemble = create_global_ensemble(
-            loaded_predictions, family_ensembles, ensemble_method, use_families=True
+            loaded_predictions,  # use original set; filtering irrelevant here
+            family_ensembles,
+            ensemble_method,
+            use_families=True,
         )
 
         if global_family_ensemble is not None:
@@ -292,7 +385,10 @@ def create_all_ensembles(
 
         # Global ensemble using individual models
         global_individual_ensemble = create_global_ensemble(
-            loaded_predictions, family_ensembles, ensemble_method, use_families=False
+            base_predictions,  # filtered to atomic models
+            family_ensembles,
+            ensemble_method,
+            use_families=False,
         )
 
         if global_individual_ensemble is not None:
