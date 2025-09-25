@@ -19,20 +19,21 @@ logger = logging.getLogger(__name__)
 
 # Model family mappings
 MODEL_FAMILIES = {
-    "BaseCase": ["LR_Q_T_P", "LR_Base"],
-    "SCA_Based": ["LR_Q_SCA", "LR_Q_T_SCA"],
+    "BaseCase": ["LR_Base", "GBT"],
+    # "SCA_Based": ["LR_Q_SCA", "LR_Q_T_SCA"],
     "SnowMapper_Based": [
         "LR_Snowmapper",
         "LR_Snowmapper_DT",
-        "LR_Snowmapper_ROF",
         "Snow_GBT",
         # "Snow_GBT_old",
         "Snow_GBT_LR",
         "Snow_GBT_Norm",
         # "Snow_HistMeta",
     ],
-    "GlacierMapper_Based": ["Gla_GBT", "Gla_GBT_NormFeat"],
-    "Uncertainty": ["UncertaintyMixtureMLP"],
+    # "GlacierMapper_Based": ["Gla_GBT", "Gla_GBT_NormFeat"],
+    "Uncertainty": [  # "UncertaintyMixtureMLP",
+        "MC_ALD"
+    ],
 }
 
 # Configuration
@@ -169,6 +170,8 @@ def _standardize_prediction_columns(df: pd.DataFrame, model_name: str) -> pd.Dat
     # Ensure required columns exist
     required_cols = ["date", "code", "Q_obs", "Q_pred"]
     missing_cols = [col for col in required_cols if col not in df.columns]
+
+    df["code"] = df["code"].astype(int)
 
     if missing_cols:
         raise ValueError(f"Missing required columns {missing_cols} for {model_name}")
@@ -326,6 +329,7 @@ def load_predictions(
                 # Load CSV file
                 df = pd.read_csv(prediction_file)
                 logger.info(f"Loaded {len(df)} records from {model_id}")
+                df["code"] = df["code"].astype(int)
 
                 # Detect prediction columns
                 prediction_cols = _detect_prediction_columns(df, model_name)
@@ -370,6 +374,13 @@ def load_predictions(
     # Filter to common codes if requested
     if common_codes_only and all_codes:
         common_codes = set.intersection(*all_codes)
+        non_common = set.union(*all_codes) - common_codes
+        if non_common:
+            logger.warning(
+                f"Excluding {len(non_common)} non-common basin codes across models"
+            )
+            logger.debug(f"Non-common codes: {sorted(list(non_common))}")
+
         common_codes = sorted(list(common_codes))
         logger.info(f"Filtering to {len(common_codes)} common basin codes")
 

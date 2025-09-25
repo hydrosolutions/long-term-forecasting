@@ -96,11 +96,30 @@ class SciRegressor(BaseForecastModel):
         self.static_features = self.general_config.get("static_features", [])
         self.rivers_to_exclude = self.general_config.get("rivers_to_exclude", [])
         self.snow_vars = self.general_config.get("snow_vars", ["SWE"])
-        self.hparam_tuning_years = self.general_config.get("hparam_tuning_years", 3)
         self.early_stopping_val_fraction = self.general_config.get(
             "early_stopping_val_fraction", 0.1
         )
-        self.num_test_years = self.general_config.get("num_test_years", 2)
+
+        self.test_years = self.general_config.get("test_years", [2021, 2022, 2023])
+        self.hparam_tuning_years = self.general_config.get(
+            "hparam_tuning_years", [2018, 2019, 2020]
+        )
+
+        assert isinstance(self.test_years, list), (
+            f"test_years should be a list of years but got {type(self.test_years)}"
+        )
+        assert isinstance(self.hparam_tuning_years, list), (
+            f"hparam_tuning_years should be a list of years but got {type(self.hparam_tuning_years)}"
+        )
+
+        # check if there are some years both in test_years and hparam_tuning_years
+        overlapping_years = set(self.test_years).intersection(
+            set(self.hparam_tuning_years)
+        )
+        if overlapping_years:
+            logger.warning(
+                f"Overlapping years found in test_years and hparam_tuning_years: {overlapping_years}. Please ensure these are distinct."
+            )
 
         # New parameters for enhanced long-term mean scaling
         self.use_relative_target = self.general_config.get("use_relative_target", False)
@@ -899,15 +918,15 @@ class SciRegressor(BaseForecastModel):
             self.data["day"] = self.data["date"].dt.day
 
         # Get configuration parameters
-        num_test_years = self.general_config.get("num_test_years", 2)
+        test_years = self.test_years
 
         self.__filter_forecast_days__()
 
         all_years = sorted(self.data["year"].unique())
 
-        if num_test_years > 0:
-            loocv_years = all_years[:-num_test_years]
-            test_years = all_years[-num_test_years:]
+        if len(test_years) > 0:
+            loocv_years = [year for year in all_years if year not in test_years]
+            test_years = [year for year in all_years if year in test_years]
         else:
             loocv_years = all_years
             test_years = None
@@ -1049,13 +1068,13 @@ class SciRegressor(BaseForecastModel):
             self.data["day"] = self.data["date"].dt.day
 
         # Get configuration parameters
-        num_hparam_tuning_years = self.hparam_tuning_years
+        hparam_tuning_years = self.hparam_tuning_years
 
         self.__filter_forecast_days__()
 
         all_years = sorted(self.data["year"].unique())
-        train_years = all_years[:-num_hparam_tuning_years]
-        val_years = all_years[-num_hparam_tuning_years:]
+        train_years = [year for year in all_years if year not in hparam_tuning_years]
+        val_years = [year for year in all_years if year in hparam_tuning_years]
 
         df_train = self.data[self.data["year"].isin(train_years)].copy()
         df_val = self.data[self.data["year"].isin(val_years)].copy()

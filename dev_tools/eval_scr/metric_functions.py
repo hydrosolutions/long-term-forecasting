@@ -482,6 +482,119 @@ def calculate_R2(observed: np.ndarray, simulated: np.ndarray) -> float:
     return r2
 
 
+def calculate_prob_exceedance(
+    observed: np.ndarray,
+    simulated: np.ndarray,
+) -> float:
+    """
+    Calculate the Probability of Exceedance (POE) for observed and simulated data.
+
+    POE = P(Simulated > Observed)
+
+    Parameters:
+    -----------
+    observed : np.ndarray
+        Array of observed values
+    simulated : np.ndarray
+        Array of simulated values
+
+    Returns:
+    --------
+    float
+        Probability of Exceedance value (between 0 and 1)
+    """
+    # Convert inputs to numpy arrays if they aren't already
+    observed = np.asarray(observed)
+    simulated = np.asarray(simulated)
+
+    # Ensure same length
+    if observed.shape != simulated.shape:
+        raise ValueError(
+            f"Observed and simulated arrays must have same shape. "
+            f"Got shapes {observed.shape} and {simulated.shape}"
+        )
+
+    # Find valid indices (non-NaN in both arrays)
+    valid_mask = ~np.isnan(observed) & ~np.isnan(simulated)
+    valid_observed = observed[valid_mask]
+    valid_simulated = simulated[valid_mask]
+
+    # Check if we have enough valid data points
+    n_valid = len(valid_observed)
+    if n_valid == 0:
+        return np.nan
+
+    # Calculate Probability of Exceedance
+    poe = np.mean(valid_simulated > valid_observed)
+
+    # Handle edge cases
+    if np.isinf(poe) or np.isnan(poe):
+        logger.debug(f"Invalid Probability of Exceedance value: {poe}")
+        return np.nan
+
+    return poe
+
+
+def calculate_coverage(
+    observed: np.ndarray,
+    lower_bound: np.ndarray,
+    upper_bound: np.ndarray,
+) -> float:
+    """
+    Calculate the Coverage of prediction intervals.
+
+    Coverage = P(Lower Bound <= Observed <= Upper Bound)
+
+    Parameters:
+    -----------
+    observed : np.ndarray
+        Array of observed values
+    lower_bound : np.ndarray
+        Array of lower bounds of prediction intervals
+    upper_bound : np.ndarray
+        Array of upper bounds of prediction intervals
+
+    Returns:
+    --------
+    float
+        Coverage value (between 0 and 1)
+    """
+    # Convert inputs to numpy arrays if they aren't already
+    observed = np.asarray(observed)
+    lower_bound = np.asarray(lower_bound)
+    upper_bound = np.asarray(upper_bound)
+
+    # Ensure same length
+    if not (observed.shape == lower_bound.shape == upper_bound.shape):
+        raise ValueError(
+            f"Observed, lower bound, and upper bound arrays must have same shape. "
+            f"Got shapes {observed.shape}, {lower_bound.shape}, and {upper_bound.shape}"
+        )
+
+    # Find valid indices (non-NaN in all arrays)
+    valid_mask = ~np.isnan(observed) & ~np.isnan(lower_bound) & ~np.isnan(upper_bound)
+    valid_observed = observed[valid_mask]
+    valid_lower = lower_bound[valid_mask]
+    valid_upper = upper_bound[valid_mask]
+
+    # Check if we have enough valid data points
+    n_valid = len(valid_observed)
+    if n_valid == 0:
+        return np.nan
+
+    # Calculate Coverage
+    coverage = np.mean(
+        (valid_observed >= valid_lower) & (valid_observed <= valid_upper)
+    )
+
+    # Handle edge cases
+    if np.isinf(coverage) or np.isnan(coverage):
+        logger.debug(f"Invalid Coverage value: {coverage}")
+        return np.nan
+
+    return coverage
+
+
 from scipy import integrate
 
 
@@ -696,6 +809,16 @@ def bias(observed, predicted):
 def nse(observed, predicted):
     """Convenience wrapper for NSE calculation."""
     return calculate_NSE(observed, predicted)
+
+
+def prob_exceedance(observed, predicted):
+    """Convenience wrapper for Probability of Exceedance calculation."""
+    return calculate_prob_exceedance(observed, predicted)
+
+
+def coverage(observed, lower_bound, upper_bound):
+    """Convenience wrapper for Coverage calculation."""
+    return calculate_coverage(observed, lower_bound, upper_bound)
 
 
 def kge(observed, predicted):

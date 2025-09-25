@@ -24,8 +24,8 @@
     "cat_features": [
         "code_str"
     ],
-    "hparam_tuning_years": 3,
-    "num_test_years" : 2,
+    "hparam_tuning_years": [2018, 2019, 2020],
+    "test_years" : [2021, 2022, 2023],
     "early_stopping_val_fraction": 0.1,
     "n_trials" : 50,
     "use_lr_predictors": true,
