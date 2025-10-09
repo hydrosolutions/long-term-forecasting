@@ -24,6 +24,7 @@ MODEL_FAMILIES = {
     "SnowMapper_Based": [
         "LR_Snowmapper",
         "LR_Snowmapper_DT",
+        "LR_Snowmapper_ROF",
         "Snow_GBT",
         # "Snow_GBT_old",
         "Snow_GBT_LR",

@@ -102,6 +102,62 @@ def load_snow_data(path_to_file, var_name):
     return df
 
 
+def append_nir_to_sla(sla_df: pd.DataFrame, path_to_nir: str) -> pd.DataFrame:
+    """
+    Append NIR data to the SLA dataframe based on matching date and code.
+
+    Parameters:
+    -----------
+    sla_df : pandas DataFrame
+        DataFrame containing SLA data with 'date' and 'code' columns.
+    path_to_nir : str
+        Path to the CSV file containing NIR data.
+
+    Returns:
+    --------
+    pandas DataFrame
+        Updated SLA DataFrame with NIR data appended.
+    """
+    # Load NIR data
+    nir_data = pd.read_csv(path_to_nir)
+    sla_data = sla_df.copy()
+
+    # rename Code to code in both dataframes
+    sla_data = sla_data.rename(columns={"Code": "code"})
+    nir_data = nir_data.rename(
+        columns={"Code": "code", "Year-Month-Day": "date", "mean_NIR": "NIR"}
+    )
+    nir_data = nir_data[["date", "code", "NIR"]].copy()
+    # convert date columns to datetime
+    sla_data["date"] = pd.to_datetime(sla_data["date"], format="%d.%m.%Y")
+    nir_data["date"] = pd.to_datetime(nir_data["date"], format="%Y-%m-%d")
+    # make sure the date formats are the same
+    sla_data["date"] = sla_data["date"].dt.strftime("%Y-%m-%d")
+    nir_data["date"] = nir_data["date"].dt.strftime("%Y-%m-%d")
+
+    # all codes to str
+    sla_data["code"] = sla_data["code"].astype(str)
+    logger.info(f"Number of unique SLA codes: {sla_data['code'].nunique()}")
+    nir_data["code"] = nir_data["code"].astype(str)
+    logger.info(f"Number of unique NIR codes: {nir_data['code'].nunique()}")
+
+    # print the non matching codes
+    sla_codes = set(sla_data["code"].unique())
+    nir_codes = set(nir_data["code"].unique())
+    non_matching_codes = sla_codes.symmetric_difference(nir_codes)
+    logger.info(
+        f"Number of non-matching codes between SLA and NIR data: {len(non_matching_codes)}"
+    )
+    logger.info(f"Non-matching codes between SLA and NIR data: {non_matching_codes}")
+
+    # merge dataframes on code and date
+    merged_data = pd.merge(sla_data, nir_data, on=["code", "date"], how="inner")
+
+    merged_data["date"] = pd.to_datetime(merged_data["date"], format="%Y-%m-%d")
+
+    return merged_data
+
+
 def time_shift_sla_data(sla_df: pd.DataFrame) -> pd.DataFrame:
     """
     The sla data operates on a decadal basis.
@@ -139,6 +195,69 @@ def time_shift_sla_data(sla_df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def load_forcing_data(path_hindcast, path_operational, HRU):
+    """
+    Load in the forcing file:
+    Names:
+        path_hindcast/00003_P_reanalysis.csv
+        path_hindcast/00003_T_reanalysis.csv
+        path_operational/00003_P_control_member.csv
+        path_operational/00003_T_control_member.csv
+
+    where 00003 is the HRU number
+
+    contains columns: date, code, (P or T)
+    combines the data frames - merge hindcast on date and code (ensure same format)
+    then merge operational on date and code (ensure same format)
+    then combine the two data frames (concat)
+    """
+
+    # Load hindcast data
+    hindcast_files = {
+        "P": os.path.join(path_hindcast, f"{HRU}_P_reanalysis.csv"),
+        "T": os.path.join(path_hindcast, f"{HRU}_T_reanalysis.csv"),
+    }
+
+    hindcast_dfs = {}
+    for var, path in hindcast_files.items():
+        df = pd.read_csv(path)
+        df["date"] = pd.to_datetime(df["date"], format="%Y-%m-%d")
+        df["code"] = df["code"].astype(int)
+        hindcast_dfs[var] = df
+
+    # Merge hindcast data on date and code
+    hindcast_merged = pd.merge(
+        hindcast_dfs["P"], hindcast_dfs["T"], on=["date", "code"], how="inner"
+    )
+
+    # Load operational data
+    operational_files = {
+        "P": os.path.join(path_operational, f"{HRU}_P_control_member.csv"),
+        "T": os.path.join(path_operational, f"{HRU}_T_control_member.csv"),
+    }
+
+    operational_dfs = {}
+    for var, path in operational_files.items():
+        df = pd.read_csv(path)
+        df["date"] = pd.to_datetime(df["date"], format="%Y-%m-%d")
+        df["code"] = df["code"].astype(int)
+        operational_dfs[var] = df
+
+    # Merge operational data on date and code
+    operational_merged = pd.merge(
+        operational_dfs["P"], operational_dfs["T"], on=["date", "code"], how="inner"
+    )
+
+    # Combine hindcast and operational data
+    combined_df = pd.concat([hindcast_merged, operational_merged], ignore_index=True)
+
+    # drop columns if "day_of_year" in columns
+    cols_to_drop = [col for col in combined_df.columns if "dayofyear" in col]
+    combined_df.drop(columns=cols_to_drop, inplace=True)
+
+    return combined_df
+
+
 def load_data(
     path_discharge,
     path_forcing,
@@ -151,6 +270,10 @@ def load_data(
     HRU_HS,
     HRU_ROF,
     path_to_sla=None,
+    path_to_nir=None,
+    path_to_operational_forcing=None,
+    HRU_forcing=None,
+    path_to_hindcast_forcing=None,
 ):
     # Load the discharge data
     discharge = pd.read_csv(path_discharge, parse_dates=True)
@@ -159,12 +282,27 @@ def load_data(
     discharge["date"] = pd.to_datetime(discharge["date"], format="mixed")
 
     # Load the forcing data
-    forcing = pd.read_csv(path_forcing, parse_dates=True)
-    forcing = forcing[["date", "code", "T", "P"]]
-    forcing["date"] = pd.to_datetime(forcing["date"])
+    if (
+        path_to_operational_forcing is not None
+        and path_to_hindcast_forcing is not None
+        and HRU_forcing is not None
+    ):
+        forcing = load_forcing_data(
+            path_to_hindcast_forcing, path_to_operational_forcing, HRU_forcing
+        )
+    elif path_forcing is not None:
+        forcing = pd.read_csv(path_forcing, parse_dates=True)
+        forcing = forcing[["date", "code", "T", "P"]]
+        forcing["date"] = pd.to_datetime(forcing["date"])
+    else:
+        raise ValueError(
+            "Either path_forcing or both path_to_operational_forcing and path_to_hindcast_forcing must be provided."
+        )
 
     hydro_ca = pd.merge(discharge, forcing, on=["date", "code"], how="left")
 
+    # drop duplicates on date and code
+    hydro_ca = hydro_ca.drop_duplicates(subset=["date", "code"], keep="last")
     # Load the static data
     static = pd.read_csv(path_static_data)
     static.rename(columns={"CODE": "code"}, inplace=True)
@@ -256,12 +394,29 @@ def load_data(
 
         try:
             sla_df = pd.read_csv(path_to_sla)
-            sla_df["date"] = pd.to_datetime(sla_df["date"], format="%d.%m.%Y")
-            sla_df = time_shift_sla_data(sla_df)
+
+            columns_of_interest = [
+                "SLA_East",
+                "SLA_West",
+                "SLA_North",
+                "SLA_South",
+                "gla_area_below_sl50",
+                "gla_fsc_total",
+                "gla_fsc_below_sl50",
+                "fsc_basin",
+            ]
+
+            try:
+                sla_df = append_nir_to_sla(sla_df, path_to_nir)
+                columns_of_interest.append("NIR")
+            except Exception as e:
+                print(f"Error appending NIR data to SLA data: {str(e)}")
 
             sla_df = sla_df.rename(
-                columns={"Code": "code", "gla_fsc": "gla_fsc_total", "fsc": "fsc_basin"}
+                columns={"gla_fsc": "gla_fsc_total", "fsc": "fsc_basin"}
             )
+
+            sla_df = time_shift_sla_data(sla_df)
 
             # With this code that will work in all pandas versions:
             def safe_convert_to_int(value):
@@ -275,19 +430,9 @@ def load_data(
 
             # Then drop rows with NaN codes if needed
             sla_df = sla_df.dropna(subset=["code"])
+
             # Convert remaining codes to int
             sla_df["code"] = sla_df["code"].astype(int)
-
-            columns_of_interest = [
-                "SLA_East",
-                "SLA_West",
-                "SLA_North",
-                "SLA_South",
-                "gla_area_below_sl50",
-                "gla_fsc_total",
-                "gla_fsc_below_sl50",
-                "fsc_basin",
-            ]
 
             sla_df = sla_df[["date", "code"] + columns_of_interest]
 

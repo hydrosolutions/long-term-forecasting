@@ -128,6 +128,8 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         self.target_col = "Q_obs"
         self.loss_fn = self.model_config.get("loss_fn", "ALDLoss")
 
+        self.rivers_to_remove = self.general_config.get("rivers_to_exclude", [])
+
     def __preprocess_data__(self):
         """
         Preprocess data for deep meta-learning models.
@@ -179,6 +181,11 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         merged_data = target_data.merge(
             base_predictors, on=["date", "code"], how="left"
         )
+
+        # remove rivers which are not in static data
+        if self.rivers_to_remove:
+            logger.info(f"Removing rivers: {self.rivers_to_remove}")
+            merged_data = merged_data[~merged_data["code"].isin(self.rivers_to_remove)]
 
         ensemble_mean = merged_data[model_names].mean(axis=1)
         merged_data["Q_pred"] = ensemble_mean
@@ -279,6 +286,12 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
     def _m3_to_mm(self, data: pd.DataFrame, col: str = "discharge") -> pd.DataFrame:
         for code in data.code.unique():
+            if code not in self.static_data["code"].values:
+                logger.warning(
+                    f"Code {code} not found in static data. Skipping this code."
+                )
+                self.rivers_to_remove.append(code)
+                continue
             area = self.static_data[self.static_data["code"] == code][
                 "area_km2"
             ].values[0]
@@ -290,6 +303,12 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
     def _mm_to_m3(self, data: pd.DataFrame, col: Union[List[str], str]) -> pd.DataFrame:
         for code in data.code.unique():
+            if code not in self.static_data["code"].values:
+                logger.warning(
+                    f"Code {code} not found in static data. Skipping this code."
+                )
+                self.rivers_to_remove.append(code)
+                continue
             area = self.static_data[self.static_data["code"] == code][
                 "area_km2"
             ].values[0]
@@ -952,18 +971,15 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             self.data["day"] = self.data["date"].dt.day
 
         # Get configuration parameters
-        num_test_years = self.general_config.get("num_test_years", 2)
+        test_years = self.test_years
+        if test_years is None:
+            test_years = []
 
         self.__filter_forecast_days__()
 
         all_years = sorted(self.data["year"].unique())
 
-        if num_test_years > 0:
-            loocv_years = all_years[:-num_test_years]
-            test_years = all_years[-num_test_years:]
-        else:
-            loocv_years = all_years
-            test_years = None
+        loocv_years = [year for year in all_years if year not in test_years]
 
         hindcast_df = None
 
@@ -1167,14 +1183,14 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # Apply the same preprocessing as other methods
         self.__preprocess_data__()
 
-        num_hparam_tuning_years = self.hparam_tuning_years
+        hparam_tuning_years = self.hparam_tuning_years
 
-        if num_hparam_tuning_years <= 0:
+        if len(hparam_tuning_years) <= 0:
             return False, "UncertaintyMixtureMLP: num_hparam_tuning_years must be > 0"
 
         all_years = sorted(self.data["year"].unique())
-        years_train = all_years[:-num_hparam_tuning_years]
-        years_val = all_years[-num_hparam_tuning_years:]
+        years_train = [year for year in all_years if year not in hparam_tuning_years]
+        years_val = hparam_tuning_years
         train_data = self.data[self.data["year"].isin(years_train)]
         val_data = self.data[self.data["year"].isin(years_val)]
 
