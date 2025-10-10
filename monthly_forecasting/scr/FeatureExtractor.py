@@ -108,6 +108,15 @@ def time_distance_from_peak(signal):
     return len(signal) - loc_peak
 
 
+def relativ_deviation_from_peak(signal):
+    peak = np.nanmax(signal)
+    if peak == 0:
+        return np.nan
+    last_value = signal[-1]
+
+    return (peak - last_value) / peak
+
+
 def time_of_occurrence_last_value(signal):
     """
     Computes how many time steps ago the last non-NaN value occurred,
@@ -286,6 +295,11 @@ class StreamflowFeatureExtractor:
                     basin_feature = basin_data.rolling(
                         window=window, min_periods=min_periods
                     ).apply(increasing_in_projection, raw=True)
+                elif config["operation"] == "relativ_deviation_from_peak":
+                    min_periods = 2
+                    basin_feature = basin_data.rolling(
+                        window=window, min_periods=min_periods
+                    ).apply(relativ_deviation_from_peak, raw=True)
                 else:
                     raise ValueError(f"Unsupported operation: {config['operation']}")
 

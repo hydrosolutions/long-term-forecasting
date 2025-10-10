@@ -164,9 +164,13 @@ class SciRegressor(BaseForecastModel):
         self.data = self.data[["date", "code"] + cols_to_keep]
 
         # -------------- 2. Preprocess Discharge ------------------------------
-        self.data = self.data[~self.data["code"].isin(self.rivers_to_exclude)].copy()
-
         for code in self.data.code.unique():
+            if code not in self.static_data["code"].values:
+                logger.warning(
+                    f"Code {code} not found in static data. Skipping this code."
+                )
+                self.rivers_to_exclude.append(code)
+                continue
             area = self.static_data[self.static_data["code"] == code][
                 "area_km2"
             ].values[0]
@@ -174,6 +178,9 @@ class SciRegressor(BaseForecastModel):
             self.data.loc[self.data["code"] == code, "discharge"] = (
                 self.data.loc[self.data["code"] == code, "discharge"] * 86.4 / area
             )
+
+        # Filter out rivers to exclude
+        self.data = self.data[~self.data["code"].isin(self.rivers_to_exclude)].copy()
 
         # -------------- 3. Snow Data to equal percentage area ------------------------------
         if self.path_config["path_to_hru_shp"] is not None:
@@ -345,6 +352,11 @@ class SciRegressor(BaseForecastModel):
                 )
 
         for code in all_predictions["code"].unique():
+            if code not in self.static_data["code"].values:
+                logger.warning(
+                    f"Code {code} not found in static data. Skipping this code."
+                )
+                continue
             area = self.static_data[self.static_data["code"] == code][
                 "area_km2"
             ].values[0]
@@ -1079,7 +1091,9 @@ class SciRegressor(BaseForecastModel):
         df_train = self.data[self.data["year"].isin(train_years)].copy()
         df_val = self.data[self.data["year"].isin(val_years)].copy()
 
-        logger.info(f"Training years: {train_years}, Validation years: {val_years}")
+        logger.info(
+            f"Hyperparameter Tuning on: Training years: {train_years}, Validation years: {val_years}"
+        )
 
         # Dropna based on target
         df_train = df_train.dropna(subset=[self.target]).copy()
@@ -1258,18 +1272,33 @@ class SciRegressor(BaseForecastModel):
                     )
                     feature_importance.to_csv(feature_importance_path, index=False)
 
+        def convert_numpy_types(obj):
+            """Recursively convert numpy types to native Python types for JSON serialization."""
+            if isinstance(obj, (np.integer, np.int64, np.int32)):
+                return int(obj)
+            elif isinstance(obj, (np.floating, np.float64, np.float32)):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, dict):
+                return {key: convert_numpy_types(value) for key, value in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy_types(item) for item in obj]
+            else:
+                return obj
+
         # Save general model configuration
         model_config_path = os.path.join(save_path, "model_config.json")
         with open(model_config_path, "w") as f:
-            json.dump(self.model_config, f, indent=4)
+            json.dump(convert_numpy_types(self.model_config), f, indent=4)
         # Save general feature configuration
         feature_config_path = os.path.join(save_path, "feature_config.json")
         with open(feature_config_path, "w") as f:
-            json.dump(self.feature_config, f, indent=4)
+            json.dump(convert_numpy_types(self.feature_config), f, indent=4)
         # Save general experiment configuration
         experiment_config_path = os.path.join(save_path, "experiment_config.json")
         with open(experiment_config_path, "w") as f:
-            json.dump(self.general_config, f, indent=4)
+            json.dump(convert_numpy_types(self.general_config), f, indent=4)
 
         logger.info(f"Models and artifacts saved to {save_path}")
 

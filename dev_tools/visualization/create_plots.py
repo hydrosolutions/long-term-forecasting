@@ -286,7 +286,10 @@ def plot_time_series_with_uncertainty(
     )"""
 
     ax.set_xlabel("Date")
-    ax.set_ylabel("Scaled Discharge [-]")
+    if normalize:
+        ax.set_ylabel("Scaled Discharge [-]")
+    else:
+        ax.set_ylabel("Discharge [m³/s]")
     ax.legend()
     ax.margins(x=0)
     plt.tight_layout()
@@ -398,9 +401,54 @@ def plot_uncertainty_exceedance(
     return ax
 
 
-if __name__ == "__main__":
-    save_dir = "../monthly_forecasting_results/figures"
+def plot_metric_per_month_basin(
+    df: pd.DataFrame,
+    metric: str,
+    code: int,
+    models: List[str],
+    save_dir: str,
+):
+    """
+    Plots the metric per month and basin.
+    for the models in models_to_plot.
+    - uses a line plot with markers for each month.
+    """
 
+    df = df[df["model"].isin(models)]
+    df = df[df["code"] == code]
+
+    # sort so that months are in calendar order
+    df["month"] = pd.Categorical(
+        df["month"], categories=list(month_mapping.values()), ordered=True
+    )
+
+    df = df.sort_values("month")
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.lineplot(
+        data=df,
+        x="month",
+        y=metric,
+        hue="model",
+        marker="o",
+        ax=ax,
+        palette=model_colors,
+    )
+
+    ax.set_xlabel("Month")
+    plt.setp(ax.get_xticklabels(), rotation=45)
+    ax.set_ylabel(metric_renamer.get(metric, metric))
+    ax.set_ylim(0, 1)  # Adjust y-limits as needed
+    ax.legend(title="Model", loc="lower right")
+    plt.tight_layout()
+    out = Path(save_dir) / f"line_{metric}_code_{code}.png"
+    fig.savefig(out)
+    plt.show()
+
+
+if __name__ == "__main__":
+    save_dir = "../monthly_forecasting_results/figures/KGZ"
+    os.makedirs(save_dir, exist_ok=True)
     config_plotting()
 
     models_to_plot = [
@@ -425,13 +473,24 @@ if __name__ == "__main__":
 
     metric_to_plot = "r2"
 
-    """create_monthly_and_overall_performance_plots(
+    create_monthly_and_overall_performance_plots(
         df_metrics=df_metrics,
         metric_to_plot=metric_to_plot,
         models_to_plot=models_to_plot,
         rename_dict=rename_dict,
         save_dir=save_dir,
-    )"""
+    )
+
+    # plot per month and basin for selected basins
+    possible_codes = ["15149", "15283", "16936", "16510"]
+    for code in possible_codes:
+        plot_metric_per_month_basin(
+            df=df_metrics,
+            metric=metric_to_plot,
+            code=int(code),
+            models=list(rename_dict.values()),
+            save_dir=save_dir,
+        )
 
     prediction_handler._load_all_predictions()
 
@@ -453,15 +512,14 @@ if __name__ == "__main__":
     fig.savefig(out)
     plt.show()
 
-    possible_codes = ["15149", "15194", "16936", "16510"]
-    possible_codes = []
+    possible_codes = ["15149", "15283", "16936", "16510"]
     for code in possible_codes:
         fig, ax = plot_time_series_with_uncertainty(
             df=df_predictions,
             code=code,
-            start_date="2019-01-01",
-            end_date="2022-12-31",
-            normalize=True,
+            start_date="2023-01-01",
+            end_date="2025-09-30",
+            normalize=False,
         )
 
         out = Path(save_dir) / f"time_series_with_uncertainty_code_{code}.png"
