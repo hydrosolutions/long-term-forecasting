@@ -109,22 +109,18 @@ def glacier_mapper_features(
     static = static.copy()
 
     for code in df["code"].unique():
+        if code not in static["code"].values:
+            logger.warning(f"Code {code} not found in static data. Skipping.")
+            continue
         area = static.loc[static["code"] == code, AREA_KM2_COL].values[0]
         gl_fr = static.loc[static["code"] == code, GLACIER_FRACTION_COL].values[0]
         glacier_area = area * gl_fr
         h_min = static.loc[static["code"] == code, H_MIN_COL].values[0]
         h_max = static.loc[static["code"] == code, H_MAX_COL].values[0]
 
-        df.loc[df["code"] == code, "gla_area_below_sl50"] /= glacier_area
-        df.loc[df["code"] == code, "gla_area_below_sl50"] *= 100
         df.loc[df["code"] == code, "gla_fsc_total"] *= 100
         df.loc[df["code"] == code, "gla_fsc_below_sl50"] *= 100
         df.loc[df["code"] == code, "fsc_basin"] *= 100
-
-        # glacier_melt_potential =(100 - gla_fsc_total) * gl_fr
-        df.loc[df["code"] == code, "glacier_melt_potential"] = (
-            100 - df.loc[df["code"] == code, "gla_fsc_total"]
-        ) * gl_fr
 
         # Normalize the SLA values   with SLA_norm = (SLA - h_min) / (h_max - h_min)
         df.loc[df["code"] == code, "SLA_East"] = (

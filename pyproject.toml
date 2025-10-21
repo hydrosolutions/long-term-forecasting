@@ -36,6 +36,7 @@ dev = [
     "dash>=2.14.0",
     "dash-bootstrap-components>=1.7.1",
     "ipykernel>=6.29.5",
+    "pingouin>=0.5.5",
 ]
 
 [tool.setuptools.packages.find]

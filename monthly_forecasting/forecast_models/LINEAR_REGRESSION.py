@@ -18,7 +18,11 @@ logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logg
 
 
 from monthly_forecasting.forecast_models.base_class import BaseForecastModel
-from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.linear_model import LinearRegression, RidgeCV, LassoCV, ElasticNetCV
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.pipeline import make_pipeline
+from sklearn.pipeline import Pipeline
 from sklearn.metrics import mean_squared_error, r2_score
 import pickle
 import json
@@ -57,6 +61,9 @@ class LinearRegressionModel(BaseForecastModel):
             feature_config=feature_config,
             path_config=path_config,
         )
+
+        self.model_type = self.model_config.get("lr_type", "linear")
+        logger.info(f"Initialized Linear Regression model of type: {self.model_type}")
 
         logger.debug("Extracting features for Linear Regression model")
         self.__extract_features__()
@@ -148,26 +155,29 @@ class LinearRegressionModel(BaseForecastModel):
         threshold = self.general_config.get("corr_threshold", 0.3)
         num_low_corr_features = self.general_config.get("num_low_corr_features", 2)
 
+        # Filter features above threshold (from original best_features)
         best_features_above_threshold = [
             feat for feat in best_features if abs_corr[feat] >= threshold
         ]
 
-        if len(best_features) > num_features:
-            best_features = best_features[:num_features]
-
+        # Select features based on correlation threshold
         if len(best_features_above_threshold) == 0:
+            # No features above threshold - use top features regardless
             logger.warning(
-                f"No features with a correlation greater than {threshold} for {this_period}. Selecting top {num_low_corr_features} features regardless of correlation."
+                f"No features with a correlation greater than {threshold} for {this_period}. "
+                f"Selecting top {num_low_corr_features} features regardless of correlation."
             )
-
-            # Select top features up to num_features
+            features_week = best_features[:num_low_corr_features]
+        elif len(best_features_above_threshold) < num_low_corr_features:
+            # Some features above threshold but fewer than minimum - backfill with top features
+            logger.info(
+                f"Only {len(best_features_above_threshold)} features above threshold {threshold} for {this_period}. "
+                f"Backfilling to {num_low_corr_features} features with top-correlated features."
+            )
             features_week = best_features[:num_low_corr_features]
         else:
-            # Select top features above threshold, up to num_features
-            features_week = best_features_above_threshold
-            if len(features_week) < num_low_corr_features:
-                # Select top features up to num_features
-                features_week = best_features[:num_low_corr_features]
+            # Enough features above threshold - use them up to num_features limit
+            features_week = best_features_above_threshold[:num_features]
 
         # Convert to Index to maintain compatibility with the rest of the code
         features_week = pd.Index(features_week)
@@ -212,13 +222,37 @@ class LinearRegressionModel(BaseForecastModel):
         X_prediction = prediction_data[features]
 
         # Fit the model
-        lr_type = self.model_config["lr_type"]
+        lr_type = self.model_type
         if lr_type == "linear":
             model = LinearRegression()
         elif lr_type == "ridge":
-            model = Ridge(alpha=self.model_config["alpha"])
+            model = Pipeline([
+                ('scaler', StandardScaler()),
+                ('ridge', RidgeCV())
+            ])
         elif lr_type == "lasso":
-            model = Lasso(alpha=self.model_config["alpha"])
+            model = Pipeline([
+                ('scaler', StandardScaler()),
+                ('lasso', LassoCV(alphas=np.logspace(-4, 0, 30),
+                                  cv= len(X_calibration),
+                                  max_iter=100))  # Leave-One-Out CV
+            ])
+        elif lr_type == "elasticnet":
+            model = Pipeline([
+                ('scaler', StandardScaler()),
+                ('elasticnet', ElasticNetCV())
+            ])
+        elif lr_type == "pca_lr":
+            n_components = min(
+                self.model_config.get("pca_n_components", 2), 
+                len(features), 
+                len(X_calibration)-1
+                )
+            model = make_pipeline(
+                StandardScaler(),
+                PCA(n_components=n_components),
+                LinearRegression()
+            )
         else:
             raise ValueError(f"Unknown model type: {lr_type}")
 
@@ -501,6 +535,12 @@ class LinearRegressionModel(BaseForecastModel):
 
                     # Store predictions
                     for i, (idx, row) in enumerate(test_data.iterrows()):
+                        if i >= len(predictions):
+                            logger.debug(
+                                f"Year: {test_year}, Code: {code}, More test than predictions"
+                            )
+                            continue
+
                         if not np.isnan(predictions[i]):
                             all_predictions.append(
                                 {
