@@ -97,6 +97,26 @@ class BaseMetaLearner(BaseForecastModel):
             pred_df["date"] = pd.to_datetime(pred_df["date"])
             pred_df["code"] = pred_df["code"].astype(int)
 
+            # Check for and handle duplicate (date, code) pairs
+            n_duplicates = pred_df[["date", "code"]].duplicated().sum()
+            if n_duplicates > 0:
+                logger.warning(
+                    f"Found {n_duplicates} duplicate (date, code) pairs in {model_name}. "
+                    f"Averaging prediction values for duplicates."
+                )
+                # Get all Q_ columns for averaging
+                q_cols = [col for col in pred_df.columns if "Q_" in col and col != "Q_obs"]
+
+                # Create aggregation dictionary
+                agg_dict = {col: "mean" for col in q_cols}
+
+                # Average predictions for duplicate (date, code) combinations
+                pred_df = pred_df.groupby(["date", "code"], as_index=False).agg(agg_dict)
+
+                logger.debug(
+                    f"After deduplication: {len(pred_df)} unique (date, code) pairs"
+                )
+
             pred_cols = [
                 col for col in pred_df.columns if "Q_" in col and col != "Q_obs"
             ]
@@ -122,6 +142,16 @@ class BaseMetaLearner(BaseForecastModel):
 
                 sub_df = pred_df[["date", "code", col]].copy()
                 sub_df.rename(columns={col: member_name}, inplace=True)
+
+                logger.debug(
+                    f"Merging base predictor '{member_name}' into main DataFrame"
+                )
+
+                #check if member_name already exists in df_to_merge_on
+                if member_name in df_to_merge_on.columns:
+                    logger.warning(
+                        f"Column '{member_name}' already exists in the DataFrame. It will be overwritten."
+                    )
 
                 df_to_merge_on = df_to_merge_on.merge(
                     sub_df, on=["date", "code"], how="left"
