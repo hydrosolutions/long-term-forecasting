@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Setup script for monthly-forecasting package."""
+"""Setup script for lt-forecasting package."""
 
 from setuptools import setup, find_packages
 import os
@@ -9,7 +9,7 @@ import re
 # Read version from __init__.py
 def get_version():
     """Extract version from __init__.py"""
-    init_file = os.path.join("monthly_forecasting", "__init__.py")
+    init_file = os.path.join("lt_forecasting", "__init__.py")
     with open(init_file, "r") as f:
         content = f.read()
         match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
@@ -49,14 +49,14 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="monthly-forecasting",
+    name="lt-forecasting",
     version=get_version(),
     author="Sandro Hunziker",
     author_email="hunziker@hydrosolutions.ch",
-    description="A machine learning package for monthly hydrological forecasting",
+    description="A machine learning package for long-term hydrological forecasting",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/sandrohuni/monthly_forecasting",
+    url="https://github.com/hydrosolutions/lt_forecasting",
     packages=find_packages(
         exclude=[
             "dev_tools",
