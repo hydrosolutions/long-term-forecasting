@@ -24,19 +24,30 @@ MODEL_FAMILIES = {
     "SnowMapper_Based": [
         "LR_Snowmapper",
         "LR_Snowmapper_DT",
-        "LR_Snowmapper_ROF",
+        # "LR_Snowmapper_ROF",
         "Snow_GBT",
         # "Snow_GBT_old",
         "Snow_GBT_LR",
         "Snow_GBT_Norm",
         # "Snow_HistMeta",
     ],
-    # "GlacierMapper_Based": ["Gla_GBT", "Gla_GBT_NormFeat"],
     "Uncertainty": [  # "UncertaintyMixtureMLP",
-        "MC_ALD"
+        "MC_ALD",
+        "Gla_MC_ALD",
+        "Sel_MC_ALD",
+    ],
+    "GlacierMapper_Based": [
+        #    #"LR_Gla_PCA",
+        "LR_Gla_SLA",
+        "LR_Gla_NIR",
+        "LR_Gla_FSC",  # "LR_Gla_Combined",
+        "Gla_GBT",
+        "Gla_GBT_Snow",
+        "Gla_GBT_Norm",
+        # "Gla_GBT_Corr" #
+        # "Gla_GBT_SnowNorm","Gla_GBT_Extended"
     ],
 }
-
 # Configuration
 EVALUATION_DAY_OF_MONTH = (
     "end"  # 'end' for last day of month, or integer for specific day
@@ -177,6 +188,27 @@ def _standardize_prediction_columns(df: pd.DataFrame, model_name: str) -> pd.Dat
     if missing_cols:
         raise ValueError(f"Missing required columns {missing_cols} for {model_name}")
 
+    # date column to datetime
+    if not pd.api.types.is_datetime64_any_dtype(df["date"]):
+        df["date"] = pd.to_datetime(df["date"], format="mixed")
+
+    # make same format yyyy-mm-dd
+    df["date"] = df["date"].dt.strftime("%Y-%m-%d")
+    df["date"] = pd.to_datetime(df["date"], format="%Y-%m-%d")
+
+    # Check for and handle duplicates
+    duplicates = df.duplicated(subset=["date", "code"], keep=False)
+    if duplicates.any():
+        n_duplicates = duplicates.sum()
+        logger.warning(
+            f"Found {n_duplicates} duplicate (date, code) entries in {model_name}. "
+            f"Averaging predictions and observations for duplicates."
+        )
+        # Average Q_pred and Q_obs for duplicate (date, code) combinations
+        df = df.groupby(["date", "code"], as_index=False).agg(
+            {"Q_obs": "mean", "Q_pred": "mean"}
+        )
+
     return df
 
 
@@ -283,6 +315,24 @@ def _create_ensemble_dataframes(
             )
             continue
 
+        # Check for and handle duplicates
+        duplicates = ensemble_df.duplicated(subset=["date", "code"], keep=False)
+        if duplicates.any():
+            n_duplicates = duplicates.sum()
+            logger.warning(
+                f"Found {n_duplicates} duplicate (date, code) entries in {ensemble_model_id}. "
+                f"Averaging predictions and observations for duplicates."
+            )
+            # Average Q_pred and Q_obs for duplicate (date, code) combinations
+            # Keep other metadata columns by taking first value
+            agg_dict = {"Q_obs": "mean", "Q_pred": "mean"}
+            for col in ["model_id", "family", "model_name", "ensemble_member"]:
+                if col in ensemble_df.columns:
+                    agg_dict[col] = "first"
+            ensemble_df = ensemble_df.groupby(["date", "code"], as_index=False).agg(
+                agg_dict
+            )
+
         ensemble_dataframes[ensemble_model_id] = ensemble_df
         logger.info(
             f"Created ensemble member {ensemble_model_id} with {len(ensemble_df)} records"
@@ -388,6 +438,20 @@ def load_predictions(
         filtered_predictions = {}
         for model_id, df in loaded_predictions.items():
             filtered_df = df[df["code"].isin(common_codes)].copy()
+            filtered_predictions[model_id] = filtered_df
+            logger.info(f"Filtered {model_id} to {len(filtered_df)} records")
+
+        loaded_predictions = filtered_predictions
+
+    # Filter only common dates across all models
+    if loaded_predictions:
+        all_dates = [set(df["date"].unique()) for df in loaded_predictions.values()]
+        common_dates = set.intersection(*all_dates)
+        logger.info(f"Filtering to {len(common_dates)} common dates across models")
+
+        filtered_predictions = {}
+        for model_id, df in loaded_predictions.items():
+            filtered_df = df[df["date"].isin(common_dates)].copy()
             filtered_predictions[model_id] = filtered_df
             logger.info(f"Filtered {model_id} to {len(filtered_df)} records")
 

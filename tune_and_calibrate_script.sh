@@ -10,8 +10,8 @@ set -e  # Exit on any error
 #INPUT_FAMILY="GlacierMapper_Based"  # Input family for the model
 #LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
 
-CONFIG_DIR="../monthly_forecasting_models/Uncertainty/MC_ALD"  # Path to model configuration directory
-MODEL_NAME="MC_ALD"  # Model name
+CONFIG_DIR="../monthly_forecasting_models/Uncertainty/Sel_MC_ALD"  # Path to model configuration directory
+MODEL_NAME="Sel_MC_ALD"  # Model name
 INPUT_FAMILY="Uncertainty"  # Input family for the model
 LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
 

@@ -421,6 +421,7 @@ class EvaluationPipeline:
                 "n_global_ensembles": len(self.global_ensembles),
                 "total_models_evaluated": len(self.all_predictions),
                 "n_evaluation_records": len(self.evaluation_results),
+                "n_basin_codes": len(self.evaluation_results["code"].unique()),
             },
             "validation_summary": {
                 "total_warnings": sum(
