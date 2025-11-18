@@ -65,7 +65,7 @@ MODELS_OPERATIONAL = {
         ("SciRegressor", "Snow_GBT"),
         ("SciRegressor", "Snow_GBT_LR"),
         # ("SciRegressor", "Snow_GBT_Norm"),
-    ]
+    ],
 }
 
 MODELS_DIR = "../monthly_forecasting_models"

@@ -364,9 +364,7 @@ class TestOptimizeHyperparams:
         mock_study.best_trial = mock_trial
         mock_create_study.return_value = mock_study
 
-        with patch(
-            "lt_forecasting.scr.sci_utils.optuna.visualization"
-        ) as mock_viz:
+        with patch("lt_forecasting.scr.sci_utils.optuna.visualization") as mock_viz:
             mock_fig = Mock()
             mock_viz.plot_optimization_history.return_value = mock_fig
             mock_viz.plot_param_importances.return_value = mock_fig
