@@ -458,12 +458,12 @@ def load_data(
             no_gla_codes = static[static["gl_fr"] <= 0]["code"].unique()
             # set the NIR values to 0 for those codes
             sla_df.loc[sla_df["code"].isin(no_gla_codes), "NIR"] = 0
-            
+
             hydro_ca["code"] = hydro_ca["code"].astype(int)
 
             hydro_ca = pd.merge(hydro_ca, sla_df, on=["date", "code"], how="left")
             hydro_ca = hydro_ca.drop_duplicates(subset=["date", "code"], keep="last")
-            
+
             # sort by date and code
             hydro_ca = hydro_ca.sort_values(by=["code", "date"]).reset_index(drop=True)
             for code in hydro_ca["code"].unique():
@@ -471,7 +471,6 @@ def load_data(
                 hydro_ca.loc[mask_code, columns_of_interest] = hydro_ca.loc[
                     mask_code, columns_of_interest
                 ].ffill(limit=15)
-            
 
         except Exception as e:
             print(f"Error loading SLA data: {str(e)}")

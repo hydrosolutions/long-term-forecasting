@@ -44,7 +44,7 @@ model_colors = {
     "SnowMapper Ensemble": "#1F77B4",  # orange
     "MC ALD": "#2CA02C",  # green,
     "Glacier Mapper Ensemble": "#0ECFFF",  # red
-    "Gla MC ALD" : "#7BDBAB",  # red
+    "Gla MC ALD": "#7BDBAB",  # red
 }
 
 metric_renamer = {
@@ -67,6 +67,7 @@ def config_plotting():
     print("Available metrics:", available_metrics)
 
     return available_models, available_codes, available_metrics
+
 
 def plot_monthly_overall(
     df: pd.DataFrame,
@@ -150,6 +151,7 @@ def plot_monthly_overall(
     plt.tight_layout()
     return ax
 
+
 def create_monthly_and_overall_performance_plots(
     df_metrics: pd.DataFrame,
     metric_to_plot: str,
@@ -196,18 +198,18 @@ def create_monthly_and_overall_performance_plots(
     fig.savefig(out)
     plt.show()
 
+
 def read_feature_importance_gl_fr(
-    folders: List[str], 
-    feature_name: str = "gl_fr"
+    folders: List[str], feature_name: str = "gl_fr"
 ) -> pd.DataFrame:
     """
-    Read feature importance files from multiple model folders and extract 
+    Read feature importance files from multiple model folders and extract
     the relative importance (position) of a specific feature.
-    
+
     Args:
         folders: List of folder paths containing feature importance CSV files
         feature_name: Name of the feature to analyze (default: 'gl_fr')
-        
+
     Returns:
         DataFrame with columns:
             - folder: Folder path
@@ -220,14 +222,14 @@ def read_feature_importance_gl_fr(
             - importance_value: Actual importance value from the model
     """
     results = []
-    
+
     for folder in folders:
         folder_path = Path(folder)
-        
+
         if not folder_path.exists():
             print(f"Warning: Folder does not exist: {folder}")
             continue
-            
+
         # Determine model class based on folder structure
         if "GlacierMapper" in str(folder):
             model_class = "Glacier Mapper"
@@ -237,59 +239,72 @@ def read_feature_importance_gl_fr(
             model_class = "Base case"
         else:
             model_class = "Unknown"
-            
+
         # Extract short model name from folder path
         model_name = folder_path.name
-        
+
         # Check for each model type's feature importance file
         for model_type in ["catboost", "lgbm", "xgb"]:
-            feature_importance_file = folder_path / f"{model_type}_feature_importance.csv"
-            
+            feature_importance_file = (
+                folder_path / f"{model_type}_feature_importance.csv"
+            )
+
             if not feature_importance_file.exists():
                 continue
-                
+
             try:
                 # Read feature importance CSV
                 df_importance = pd.read_csv(feature_importance_file)
-                
+
                 # Check if required columns exist
-                if "feature" not in df_importance.columns or "importance" not in df_importance.columns:
-                    print(f"Warning: Missing required columns in {feature_importance_file}")
+                if (
+                    "feature" not in df_importance.columns
+                    or "importance" not in df_importance.columns
+                ):
+                    print(
+                        f"Warning: Missing required columns in {feature_importance_file}"
+                    )
                     continue
-                
+
                 # Sort by importance (descending) to get proper ranking
-                df_importance = df_importance.sort_values("importance", ascending=False).reset_index(drop=True)
-                
+                df_importance = df_importance.sort_values(
+                    "importance", ascending=False
+                ).reset_index(drop=True)
+
                 # Find the feature
                 feature_rows = df_importance[df_importance["feature"] == feature_name]
-                
+
                 if len(feature_rows) == 0:
-                    print(f"Info: Feature '{feature_name}' not found in {feature_importance_file}")
+                    print(
+                        f"Info: Feature '{feature_name}' not found in {feature_importance_file}"
+                    )
                     continue
-                
+
                 # Get position (1-indexed for interpretability)
                 feature_position = feature_rows.index[0] + 1
                 total_features = len(df_importance)
                 importance_value = feature_rows["importance"].values[0]
-                
+
                 # Calculate relative importance as percentage
                 relative_importance = (feature_position / total_features) * 100
-                
-                results.append({
-                    "folder": str(folder),
-                    "model_class": model_class,
-                    "model_name": model_name,
-                    "model_type": model_type,
-                    "feature_position": feature_position,
-                    "total_features": total_features,
-                    "relative_importance": relative_importance,
-                    "importance_value": importance_value,
-                })
-                
+
+                results.append(
+                    {
+                        "folder": str(folder),
+                        "model_class": model_class,
+                        "model_name": model_name,
+                        "model_type": model_type,
+                        "feature_position": feature_position,
+                        "total_features": total_features,
+                        "relative_importance": relative_importance,
+                        "importance_value": importance_value,
+                    }
+                )
+
             except Exception as e:
                 print(f"Error reading {feature_importance_file}: {e}")
                 continue
-    
+
     return pd.DataFrame(results)
 
 
@@ -320,8 +335,8 @@ def plot_gl_fr_importance(
 
     # Define markers for model types
     model_markers = {
-        "xgb": "o",       # circle
-        "lgbm": "X",      # X
+        "xgb": "o",  # circle
+        "lgbm": "X",  # X
         "catboost": "^",  # triangle
     }
 
@@ -334,9 +349,7 @@ def plot_gl_fr_importance(
     # Sort by model class for grouped display
     class_order = ["Base case", "SnowMapper", "Glacier Mapper"]
     df_plot["model_class"] = pd.Categorical(
-        df_plot["model_class"],
-        categories=class_order,
-        ordered=True
+        df_plot["model_class"], categories=class_order, ordered=True
     )
     df_plot = df_plot.sort_values(["model_class", "model_name"])
 
@@ -346,7 +359,9 @@ def plot_gl_fr_importance(
     x_labels = []
     current_pos = 0
 
-    for (model_class, model_name), group in df_plot.groupby(["model_class", "model_name"], sort=False):
+    for (model_class, model_name), group in df_plot.groupby(
+        ["model_class", "model_name"], sort=False
+    ):
         x_positions.extend([current_pos] * len(group))
         x_labels.append(model_name)
         current_pos += 1
@@ -368,7 +383,9 @@ def plot_gl_fr_importance(
                         s=150,
                         edgecolors="black",
                         linewidth=1.0,
-                        label=f"{model_class} - {model_type}" if model_class == class_order[0] else "",
+                        label=f"{model_class} - {model_type}"
+                        if model_class == class_order[0]
+                        else "",
                         alpha=0.8,
                     )
 
@@ -391,24 +408,35 @@ def plot_gl_fr_importance(
     # Legend for model classes (colors)
     class_legend = [
         Patch(facecolor=class_colors[cls], edgecolor="black", label=cls)
-        for cls in class_order if cls in df_plot["model_class"].values
+        for cls in class_order
+        if cls in df_plot["model_class"].values
     ]
 
     # Legend for model types (markers)
     marker_legend = [
-        Line2D([0], [0], marker=model_markers[mtype], color="gray",
-               linestyle="", markersize=8, markeredgecolor="black",
-               label=mtype.upper(), markeredgewidth=1.0)
+        Line2D(
+            [0],
+            [0],
+            marker=model_markers[mtype],
+            color="gray",
+            linestyle="",
+            markersize=8,
+            markeredgecolor="black",
+            label=mtype.upper(),
+            markeredgewidth=1.0,
+        )
         for mtype in ["xgb", "lgbm", "catboost"]
         if mtype in df_plot["model_type"].values
     ]
 
     # Combine legends
-    first_legend = ax.legend(handles=class_legend, title="Model Class",
-                            loc="upper left", frameon=True)
+    first_legend = ax.legend(
+        handles=class_legend, title="Model Class", loc="upper left", frameon=True
+    )
     ax.add_artist(first_legend)
-    ax.legend(handles=marker_legend, title="Model Type",
-             loc="upper right", frameon=True)
+    ax.legend(
+        handles=marker_legend, title="Model Type", loc="upper right", frameon=True
+    )
 
     plt.tight_layout()
 
@@ -448,35 +476,41 @@ def plot_model_difference_per_month(
         fig, ax = plt.subplots(figsize=(12, 6))
 
     # Filter data for the two models at per_code_month level
-    df_model1 = metrics[(metrics["model"] == model_1) & (metrics["level"] == "per_code_month")].copy()
-    df_model2 = metrics[(metrics["model"] == model_2) & (metrics["level"] == "per_code_month")].copy()
+    df_model1 = metrics[
+        (metrics["model"] == model_1) & (metrics["level"] == "per_code_month")
+    ].copy()
+    df_model2 = metrics[
+        (metrics["model"] == model_2) & (metrics["level"] == "per_code_month")
+    ].copy()
 
     # Merge on code and month to align the data
     df_merged = df_model1[["code", "month", metric]].merge(
         df_model2[["code", "month", metric]],
         on=["code", "month"],
-        suffixes=("_model1", "_model2")
+        suffixes=("_model1", "_model2"),
     )
 
     # Calculate difference (model_1 - model_2)
-    df_merged["difference"] = df_merged[f"{metric}_model1"] - df_merged[f"{metric}_model2"]
+    df_merged["difference"] = (
+        df_merged[f"{metric}_model1"] - df_merged[f"{metric}_model2"]
+    )
 
     # Sort months in calendar order
     df_merged["month"] = pd.Categorical(
-        df_merged["month"],
-        categories=list(month_mapping.values()),
-        ordered=True
+        df_merged["month"], categories=list(month_mapping.values()), ordered=True
     )
     df_merged = df_merged.sort_values("month")
 
     # Get unique months that actually exist in the data
-    unique_months = [m for m in df_merged["month"].cat.categories if m in df_merged["month"].values]
+    unique_months = [
+        m for m in df_merged["month"].cat.categories if m in df_merged["month"].values
+    ]
 
     # Categorize performance changes
     df_merged["performance_change"] = pd.cut(
         df_merged["difference"],
         bins=[-np.inf, -threshold, threshold, np.inf],
-        labels=["Decreased", "No Change", "Improved"]
+        labels=["Decreased", "No Change", "Improved"],
     )
 
     # Calculate statistics per month
@@ -484,86 +518,128 @@ def plot_model_difference_per_month(
     for month in unique_months:
         month_data = df_merged[df_merged["month"] == month]
         total_basins = len(month_data)
-        
+
         n_improved = (month_data["difference"] > threshold).sum()
-        n_no_change = ((month_data["difference"] >= -threshold) & (month_data["difference"] <= threshold)).sum()
+        n_no_change = (
+            (month_data["difference"] >= -threshold)
+            & (month_data["difference"] <= threshold)
+        ).sum()
         n_decreased = (month_data["difference"] < -threshold).sum()
-        
-        monthly_stats.append({
-            "month": month,
-            "total_basins": total_basins,
-            "improved": n_improved,
-            "no_change": n_no_change,
-            "decreased": n_decreased,
-            "pct_improved": (n_improved / total_basins * 100) if total_basins > 0 else 0,
-            "pct_no_change": (n_no_change / total_basins * 100) if total_basins > 0 else 0,
-            "pct_decreased": (n_decreased / total_basins * 100) if total_basins > 0 else 0,
-            "mean_difference": month_data["difference"].mean(),
-            "median_difference": month_data["difference"].median(),
-        })
-    
+
+        monthly_stats.append(
+            {
+                "month": month,
+                "total_basins": total_basins,
+                "improved": n_improved,
+                "no_change": n_no_change,
+                "decreased": n_decreased,
+                "pct_improved": (n_improved / total_basins * 100)
+                if total_basins > 0
+                else 0,
+                "pct_no_change": (n_no_change / total_basins * 100)
+                if total_basins > 0
+                else 0,
+                "pct_decreased": (n_decreased / total_basins * 100)
+                if total_basins > 0
+                else 0,
+                "mean_difference": month_data["difference"].mean(),
+                "median_difference": month_data["difference"].median(),
+            }
+        )
+
     stats_df = pd.DataFrame(monthly_stats)
 
     # Print statistics
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print(f"Performance Comparison: {model_1} vs {model_2}")
     print(f"Metric: {metric_renamer.get(metric, metric)}")
     print(f"Threshold: ±{threshold}")
-    print("="*80)
-    print(f"\n{'Month':<12} {'Total':>7} {'Improved':>10} {'No Change':>11} {'Decreased':>11} {'Mean Δ':>10}")
-    print("-"*80)
-    
+    print("=" * 80)
+    print(
+        f"\n{'Month':<12} {'Total':>7} {'Improved':>10} {'No Change':>11} {'Decreased':>11} {'Mean Δ':>10}"
+    )
+    print("-" * 80)
+
     for _, row in stats_df.iterrows():
-        print(f"{row['month']:<12} {row['total_basins']:>7} "
-              f"{row['improved']:>6} ({row['pct_improved']:>5.1f}%) "
-              f"{row['no_change']:>6} ({row['pct_no_change']:>5.1f}%) "
-              f"{row['decreased']:>6} ({row['pct_decreased']:>5.1f}%) "
-              f"{row['mean_difference']:>9.3f}")
-    
+        print(
+            f"{row['month']:<12} {row['total_basins']:>7} "
+            f"{row['improved']:>6} ({row['pct_improved']:>5.1f}%) "
+            f"{row['no_change']:>6} ({row['pct_no_change']:>5.1f}%) "
+            f"{row['decreased']:>6} ({row['pct_decreased']:>5.1f}%) "
+            f"{row['mean_difference']:>9.3f}"
+        )
+
     # Overall statistics
     total_comparisons = len(df_merged)
     overall_improved = (df_merged["difference"] > threshold).sum()
-    overall_no_change = ((df_merged["difference"] >= -threshold) & (df_merged["difference"] <= threshold)).sum()
+    overall_no_change = (
+        (df_merged["difference"] >= -threshold) & (df_merged["difference"] <= threshold)
+    ).sum()
     overall_decreased = (df_merged["difference"] < -threshold).sum()
-    
-    print("-"*80)
-    print(f"{'OVERALL':<12} {total_comparisons:>7} "
-          f"{overall_improved:>6} ({overall_improved/total_comparisons*100:>5.1f}%) "
-          f"{overall_no_change:>6} ({overall_no_change/total_comparisons*100:>5.1f}%) "
-          f"{overall_decreased:>6} ({overall_decreased/total_comparisons*100:>5.1f}%) "
-          f"{df_merged['difference'].mean():>9.3f}")
-    print("="*80 + "\n")
+
+    print("-" * 80)
+    print(
+        f"{'OVERALL':<12} {total_comparisons:>7} "
+        f"{overall_improved:>6} ({overall_improved / total_comparisons * 100:>5.1f}%) "
+        f"{overall_no_change:>6} ({overall_no_change / total_comparisons * 100:>5.1f}%) "
+        f"{overall_decreased:>6} ({overall_decreased / total_comparisons * 100:>5.1f}%) "
+        f"{df_merged['difference'].mean():>9.3f}"
+    )
+    print("=" * 80 + "\n")
 
     # Create bar plot showing percentage of improved and decreased basins
     x_positions = np.arange(len(unique_months))
     width = 0.35
-    
-    improved_pcts = stats_df['pct_improved'].values
-    decreased_pcts = stats_df['pct_decreased'].values
-    
+
+    improved_pcts = stats_df["pct_improved"].values
+    decreased_pcts = stats_df["pct_decreased"].values
+
     # Plot bars
-    bars1 = ax.bar(x_positions - width/2, improved_pcts, width, 
-                   label='Improved (>+0.1)', color='#2CA02C', alpha=0.8, edgecolor='black', linewidth=1)
-    bars2 = ax.bar(x_positions + width/2, decreased_pcts, width,
-                   label='Decreased (<-0.1)', color='#D62728', alpha=0.8, edgecolor='black', linewidth=1)
-    
+    bars1 = ax.bar(
+        x_positions - width / 2,
+        improved_pcts,
+        width,
+        label="Improved (>+0.1)",
+        color="#2CA02C",
+        alpha=0.8,
+        edgecolor="black",
+        linewidth=1,
+    )
+    bars2 = ax.bar(
+        x_positions + width / 2,
+        decreased_pcts,
+        width,
+        label="Decreased (<-0.1)",
+        color="#D62728",
+        alpha=0.8,
+        edgecolor="black",
+        linewidth=1,
+    )
+
     # Add value labels on bars
     for bars in [bars1, bars2]:
         for bar in bars:
             height = bar.get_height()
             if height > 0:  # Only show label if there's a value
-                ax.text(bar.get_x() + bar.get_width()/2., height,
-                       f'{height:.1f}%',
-                       ha='center', va='bottom', fontsize=8, fontweight='bold')
-    
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2.0,
+                    height,
+                    f"{height:.1f}%",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                    fontweight="bold",
+                )
+
     # Customize plot
     ax.set_xlabel("Month", fontsize=12)
     ax.set_ylabel(f"Percentage of Basins [%]", fontsize=12)
     ax.set_title(
         f"Basin Performance Changes by Month\n{model_1} vs {model_2} (threshold = ±{threshold})",
-        fontsize=13, fontweight='bold',
+        fontsize=13,
+        fontweight="bold",
     )
-    
+
     ax.set_xticks(x_positions)
     ax.set_xticklabels(unique_months, rotation=45, ha="right")
     ax.set_ylim(0, 100)
@@ -606,35 +682,41 @@ def plot_model_difference_magnitude(
         fig, ax = plt.subplots(figsize=(12, 6))
 
     # Filter data for the two models at per_code_month level
-    df_model1 = metrics[(metrics["model"] == model_1) & (metrics["level"] == "per_code_month")].copy()
-    df_model2 = metrics[(metrics["model"] == model_2) & (metrics["level"] == "per_code_month")].copy()
+    df_model1 = metrics[
+        (metrics["model"] == model_1) & (metrics["level"] == "per_code_month")
+    ].copy()
+    df_model2 = metrics[
+        (metrics["model"] == model_2) & (metrics["level"] == "per_code_month")
+    ].copy()
 
     # Merge on code and month to align the data
     df_merged = df_model1[["code", "month", metric]].merge(
         df_model2[["code", "month", metric]],
         on=["code", "month"],
-        suffixes=("_model1", "_model2")
+        suffixes=("_model1", "_model2"),
     )
 
     # Calculate difference (model_1 - model_2)
-    df_merged["difference"] = df_merged[f"{metric}_model1"] - df_merged[f"{metric}_model2"]
+    df_merged["difference"] = (
+        df_merged[f"{metric}_model1"] - df_merged[f"{metric}_model2"]
+    )
 
     # Sort months in calendar order
     df_merged["month"] = pd.Categorical(
-        df_merged["month"],
-        categories=list(month_mapping.values()),
-        ordered=True
+        df_merged["month"], categories=list(month_mapping.values()), ordered=True
     )
     df_merged = df_merged.sort_values("month")
 
     # Get unique months that actually exist in the data
-    unique_months = [m for m in df_merged["month"].cat.categories if m in df_merged["month"].values]
+    unique_months = [
+        m for m in df_merged["month"].cat.categories if m in df_merged["month"].values
+    ]
 
     # Calculate statistics per month for improved and decreased basins
     monthly_magnitude_stats = []
     for month in unique_months:
         month_data = df_merged[df_merged["month"] == month]
-        
+
         # Improved basins (difference > threshold)
         improved_data = month_data[month_data["difference"] > threshold]["difference"]
         if len(improved_data) > 0:
@@ -645,91 +727,146 @@ def plot_model_difference_magnitude(
             improved_mean = 0
             improved_min = 0
             improved_max = 0
-        
+
         # Decreased basins (difference < -threshold)
         decreased_data = month_data[month_data["difference"] < -threshold]["difference"]
         if len(decreased_data) > 0:
-            decreased_mean = abs(decreased_data.mean())  # Take absolute value for plotting
-            decreased_min = abs(decreased_data.max())  # Note: max of negative values (closest to 0)
-            decreased_max = abs(decreased_data.min())  # Note: min of negative values (furthest from 0)
+            decreased_mean = abs(
+                decreased_data.mean()
+            )  # Take absolute value for plotting
+            decreased_min = abs(
+                decreased_data.max()
+            )  # Note: max of negative values (closest to 0)
+            decreased_max = abs(
+                decreased_data.min()
+            )  # Note: min of negative values (furthest from 0)
         else:
             decreased_mean = 0
             decreased_min = 0
             decreased_max = 0
-        
-        monthly_magnitude_stats.append({
-            "month": month,
-            "improved_mean": improved_mean,
-            "improved_min": improved_min,
-            "improved_max": improved_max,
-            "improved_error_lower": improved_mean - improved_min,
-            "improved_error_upper": improved_max - improved_mean,
-            "decreased_mean": decreased_mean,
-            "decreased_min": decreased_min,
-            "decreased_max": decreased_max,
-            "decreased_error_lower": decreased_mean - decreased_min,
-            "decreased_error_upper": decreased_max - decreased_mean,
-        })
-    
+
+        monthly_magnitude_stats.append(
+            {
+                "month": month,
+                "improved_mean": improved_mean,
+                "improved_min": improved_min,
+                "improved_max": improved_max,
+                "improved_error_lower": improved_mean - improved_min,
+                "improved_error_upper": improved_max - improved_mean,
+                "decreased_mean": decreased_mean,
+                "decreased_min": decreased_min,
+                "decreased_max": decreased_max,
+                "decreased_error_lower": decreased_mean - decreased_min,
+                "decreased_error_upper": decreased_max - decreased_mean,
+            }
+        )
+
     stats_df = pd.DataFrame(monthly_magnitude_stats)
 
     # Print statistics
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print(f"Performance Change Magnitude: {model_1} vs {model_2}")
     print(f"Metric: {metric_renamer.get(metric, metric)}")
     print(f"Threshold: ±{threshold}")
-    print("="*80)
-    print(f"\n{'Month':<12} {'Improved Δ':>12} {'Min-Max':>20} {'Decreased Δ':>12} {'Min-Max':>20}")
-    print("-"*80)
-    
+    print("=" * 80)
+    print(
+        f"\n{'Month':<12} {'Improved Δ':>12} {'Min-Max':>20} {'Decreased Δ':>12} {'Min-Max':>20}"
+    )
+    print("-" * 80)
+
     for _, row in stats_df.iterrows():
-        improved_str = f"{row['improved_mean']:.3f}" if row['improved_mean'] > 0 else "-"
-        improved_range = f"[{row['improved_min']:.3f}, {row['improved_max']:.3f}]" if row['improved_mean'] > 0 else "-"
-        decreased_str = f"{row['decreased_mean']:.3f}" if row['decreased_mean'] > 0 else "-"
-        decreased_range = f"[{row['decreased_min']:.3f}, {row['decreased_max']:.3f}]" if row['decreased_mean'] > 0 else "-"
-        
-        print(f"{row['month']:<12} {improved_str:>12} {improved_range:>20} {decreased_str:>12} {decreased_range:>20}")
-    print("="*80 + "\n")
+        improved_str = (
+            f"{row['improved_mean']:.3f}" if row["improved_mean"] > 0 else "-"
+        )
+        improved_range = (
+            f"[{row['improved_min']:.3f}, {row['improved_max']:.3f}]"
+            if row["improved_mean"] > 0
+            else "-"
+        )
+        decreased_str = (
+            f"{row['decreased_mean']:.3f}" if row["decreased_mean"] > 0 else "-"
+        )
+        decreased_range = (
+            f"[{row['decreased_min']:.3f}, {row['decreased_max']:.3f}]"
+            if row["decreased_mean"] > 0
+            else "-"
+        )
+
+        print(
+            f"{row['month']:<12} {improved_str:>12} {improved_range:>20} {decreased_str:>12} {decreased_range:>20}"
+        )
+    print("=" * 80 + "\n")
 
     # Create bar plot with error bars
     x_positions = np.arange(len(unique_months))
     width = 0.35
-    
-    improved_means = stats_df['improved_mean'].values
-    decreased_means = stats_df['decreased_mean'].values
-    
+
+    improved_means = stats_df["improved_mean"].values
+    decreased_means = stats_df["decreased_mean"].values
+
     # Error bars (asymmetric)
-    improved_errors = [stats_df['improved_error_lower'].values, stats_df['improved_error_upper'].values]
-    decreased_errors = [stats_df['decreased_error_lower'].values, stats_df['decreased_error_upper'].values]
-    
+    improved_errors = [
+        stats_df["improved_error_lower"].values,
+        stats_df["improved_error_upper"].values,
+    ]
+    decreased_errors = [
+        stats_df["decreased_error_lower"].values,
+        stats_df["decreased_error_upper"].values,
+    ]
+
     # Plot bars with error bars
-    bars1 = ax.bar(x_positions - width/2, improved_means, width, 
-                   label='Avg Improvement (>+0.1)', color='#2CA02C', alpha=0.8, 
-                   edgecolor='black', linewidth=1,
-                   yerr=improved_errors, capsize=4, error_kw={'linewidth': 1.5, 'ecolor': 'black'})
-    
-    bars2 = ax.bar(x_positions + width/2, decreased_means, width,
-                   label='Avg Decrease (<-0.1)', color='#D62728', alpha=0.8, 
-                   edgecolor='black', linewidth=1,
-                   yerr=decreased_errors, capsize=4, error_kw={'linewidth': 1.5, 'ecolor': 'black'})
-    
+    bars1 = ax.bar(
+        x_positions - width / 2,
+        improved_means,
+        width,
+        label="Avg Improvement (>+0.1)",
+        color="#2CA02C",
+        alpha=0.8,
+        edgecolor="black",
+        linewidth=1,
+        yerr=improved_errors,
+        capsize=4,
+        error_kw={"linewidth": 1.5, "ecolor": "black"},
+    )
+
+    bars2 = ax.bar(
+        x_positions + width / 2,
+        decreased_means,
+        width,
+        label="Avg Decrease (<-0.1)",
+        color="#D62728",
+        alpha=0.8,
+        edgecolor="black",
+        linewidth=1,
+        yerr=decreased_errors,
+        capsize=4,
+        error_kw={"linewidth": 1.5, "ecolor": "black"},
+    )
+
     # Add value labels on bars
     for bars, values in [(bars1, improved_means), (bars2, decreased_means)]:
         for bar, val in zip(bars, values):
             height = bar.get_height()
             if height > 0.01:  # Only show label if there's a meaningful value
-                ax.text(bar.get_x() + bar.get_width()/2., height,
-                       f'{val:.2f}',
-                       ha='center', va='bottom', fontsize=8, fontweight='bold')
-    
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2.0,
+                    height,
+                    f"{val:.2f}",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                    fontweight="bold",
+                )
+
     # Customize plot
     ax.set_xlabel("Month", fontsize=12)
     ax.set_ylabel(f"Average Δ {metric_renamer.get(metric, metric)}", fontsize=12)
     ax.set_title(
         f"Average Performance Change Magnitude by Month\n{model_1} vs {model_2} (error bars: Min-Max)",
-        fontsize=13, fontweight='bold',
+        fontsize=13,
+        fontweight="bold",
     )
-    
+
     ax.set_xticks(x_positions)
     ax.set_xticklabels(unique_months, rotation=45, ha="right")
     ax.set_ylim(0, 1)
@@ -752,25 +889,25 @@ def collect_and_plot_top_features(
 ) -> tuple[pd.DataFrame, plt.Figure]:
     """
     Collect top N features from each GBT model and plot them in a 2-column layout.
-    
+
     Args:
         folders: List of folder paths containing feature importance CSV files
         top_n: Number of top features to collect per model (default: 20)
         save_path: Optional path to save the figure
-        
+
     Returns:
         Tuple of (DataFrame with all top features, Matplotlib Figure)
     """
     all_top_features = []
-    
+
     # Collect top features from each model
     for folder in folders:
         folder_path = Path(folder)
-        
+
         if not folder_path.exists():
             print(f"Warning: Folder does not exist: {folder}")
             continue
-        
+
         # Determine model class and name
         if "GlacierMapper" in str(folder):
             model_class = "Glacier Mapper"
@@ -783,76 +920,83 @@ def collect_and_plot_top_features(
         else:
             model_class = "Unknown"
             continue
-        
+
         model_name = folder_path.name
-        
+
         # Check each model type
         for model_type in ["catboost", "lgbm", "xgb"]:
-            feature_importance_file = folder_path / f"{model_type}_feature_importance.csv"
-            
+            feature_importance_file = (
+                folder_path / f"{model_type}_feature_importance.csv"
+            )
+
             if not feature_importance_file.exists():
                 continue
-            
+
             try:
                 # Read and sort feature importance
                 df_importance = pd.read_csv(feature_importance_file)
-                
-                if "feature" not in df_importance.columns or "importance" not in df_importance.columns:
+
+                if (
+                    "feature" not in df_importance.columns
+                    or "importance" not in df_importance.columns
+                ):
                     print(f"Warning: Missing columns in {feature_importance_file}")
                     continue
-                
+
                 # Sort by importance and get top N
-                df_sorted = df_importance.sort_values("importance", ascending=False).head(top_n)
-                
+                df_sorted = df_importance.sort_values(
+                    "importance", ascending=False
+                ).head(top_n)
+
                 # Add model information
                 df_sorted["model_class"] = model_class
                 df_sorted["model_name"] = model_name
                 df_sorted["model_type"] = model_type
                 df_sorted["full_model_name"] = f"{model_name}_{model_type}"
                 df_sorted["rank"] = range(1, len(df_sorted) + 1)
-                
+
                 all_top_features.append(df_sorted)
-                
+
             except Exception as e:
                 print(f"Error reading {feature_importance_file}: {e}")
                 continue
-    
+
     if not all_top_features:
         print("No feature importance data found!")
         return pd.DataFrame(), None
-    
+
     # Combine all data
     df_all = pd.concat(all_top_features, ignore_index=True)
-    
+
     # Create plot with 2 columns
     unique_models = df_all["full_model_name"].unique()
     n_models = len(unique_models)
     n_cols = 2
     n_rows = (n_models + 1) // 2  # Ceiling division
-    
+
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, 5 * n_rows))
-    
+
     # Flatten axes array for easier iteration
     if n_rows == 1:
         axes = axes.reshape(1, -1)
     axes = axes.flatten()
-    
+
     # Color mapping for model classes
     class_colors = {
         "Base case": "#787878",
         "SnowMapper": "#1F77B4",
         "Glacier Mapper": "#0ECFFF",
     }
-    
+
     # Plot each model
     for idx, model_name in enumerate(unique_models):
         ax = axes[idx]
         df_model = df_all[df_all["full_model_name"] == model_name].sort_values("rank")
-        
+
         # Get model class for coloring
         model_class = df_model["model_class"].iloc[0]
         color = class_colors.get(model_class, "gray")
-        
+
         # Create horizontal bar plot
         bars = ax.barh(
             range(len(df_model)),
@@ -862,12 +1006,12 @@ def collect_and_plot_top_features(
             edgecolor="black",
             linewidth=1.0,
         )
-        
+
         # Set y-tick labels to feature names
         ax.set_yticks(range(len(df_model)))
         ax.set_yticklabels(df_model["feature"], fontsize=9)
         ax.invert_yaxis()  # Highest importance at top
-        
+
         # Formatting
         ax.set_xlabel("Feature Importance", fontsize=10)
         ax.set_title(
@@ -877,7 +1021,7 @@ def collect_and_plot_top_features(
             color=color,
         )
         ax.grid(axis="x", alpha=0.3, linestyle="--")
-        
+
         # Add value labels on bars
         for i, (bar, importance) in enumerate(zip(bars, df_model["importance"])):
             ax.text(
@@ -889,11 +1033,11 @@ def collect_and_plot_top_features(
                 fontsize=8,
                 fontweight="bold",
             )
-    
+
     # Hide unused subplots
     for idx in range(n_models, len(axes)):
         axes[idx].set_visible(False)
-    
+
     # Add overall title
     fig.suptitle(
         f"Top {top_n} Feature Importance Across GBT Models",
@@ -901,79 +1045,87 @@ def collect_and_plot_top_features(
         fontweight="bold",
         y=0.995,
     )
-    
+
     plt.tight_layout(rect=[0, 0, 1, 0.99])
-    
+
     if save_path:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
         print(f"Figure saved to: {save_path}")
-    
+
     return df_all, fig
 
 
 def draw_feature_importance(folders_to_check):
     """Main function to analyze and visualize gl_fr feature importance."""
-    
-    
-    print("="*60)
+
+    print("=" * 60)
     print("Analyzing gl_fr feature importance across models")
-    print("="*60)
-    
+    print("=" * 60)
+
     # Read feature importance data
     df_results = read_feature_importance_gl_fr(folders_to_check, feature_name="gl_fr")
-    
+
     if df_results.empty:
         print("\nNo feature importance data found!")
         return None
-    
+
     # Display summary statistics
     print(f"\nFound feature importance data for {len(df_results)} model configurations")
     print(f"\nSummary by model class:")
-    summary = df_results.groupby("model_class").agg({
-        "relative_importance": ["mean", "std", "min", "max"],
-        "feature_position": ["mean", "min", "max"],
-    }).round(2)
+    summary = (
+        df_results.groupby("model_class")
+        .agg(
+            {
+                "relative_importance": ["mean", "std", "min", "max"],
+                "feature_position": ["mean", "min", "max"],
+            }
+        )
+        .round(2)
+    )
     print(summary)
-    
+
     # Display detailed results
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Detailed results:")
-    print("="*60)
-    display_df = df_results[[
-        "model_class", "model_name", "model_type", 
-        "feature_position", "total_features", "relative_importance"
-    ]].copy()
+    print("=" * 60)
+    display_df = df_results[
+        [
+            "model_class",
+            "model_name",
+            "model_type",
+            "feature_position",
+            "total_features",
+            "relative_importance",
+        ]
+    ].copy()
     display_df["relative_importance"] = display_df["relative_importance"].round(1)
     display_df = display_df.sort_values(["model_class", "relative_importance"])
     print(display_df.to_string(index=False))
-    
+
     # Save results to CSV
     save_dir = Path("../monthly_forecasting_results/figures/KGZ_Glacier_Eval")
     save_dir.mkdir(parents=True, exist_ok=True)
-    
+
     csv_path = save_dir / "gl_fr_feature_importance_analysis.csv"
     df_results.to_csv(csv_path, index=False)
     print(f"\n✓ Results saved to: {csv_path}")
-    
+
     # Create visualization
     fig_path = save_dir / "gl_fr_feature_importance.png"
     fig = plot_gl_fr_importance(df_results, save_path=str(fig_path))
-    
-    print(f"✓ Visualization saved to: {fig_path}")
-    print("="*60)
-    
-    return df_results
 
+    print(f"✓ Visualization saved to: {fig_path}")
+    print("=" * 60)
+
+    return df_results
 
 
 # run with uv run python dev_tools/visualization/gla_eval.py
 def main():
-
     save_dir = "../monthly_forecasting_results/figures/KGZ_Glacier_Eval"
     os.makedirs(save_dir, exist_ok=True)
     config_plotting()
 
-    
     folders_to_check = [
         "../monthly_forecasting_models/GlacierMapper_Based/Gla_GBT",
         "../monthly_forecasting_models/GlacierMapper_Based/Gla_GBT_Snow",
@@ -981,46 +1133,46 @@ def main():
         "../monthly_forecasting_models/SnowMapper_Based/Snow_GBT",
         "../monthly_forecasting_models/SnowMapper_Based/Snow_GBT_Norm",
         "../monthly_forecasting_models/SnowMapper_Based/Snow_GBT_LR",
-        "../monthly_forecasting_models/BaseCase/GBT"
+        "../monthly_forecasting_models/BaseCase/GBT",
     ]
     # Analyze gl_fr feature importance across models
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("FEATURE IMPORTANCE ANALYSIS")
-    print("="*60)
+    print("=" * 60)
     draw_feature_importance(folders_to_check=folders_to_check)
-    
+
     # Plot top 20 features for all GBT models
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("TOP 20 FEATURES ACROSS GBT MODELS")
-    print("="*60)
-    
+    print("=" * 60)
+
     top_features_save_path = Path(save_dir) / "top_20_features_all_models.png"
     df_top_features, fig_top_features = collect_and_plot_top_features(
-        folders=folders_to_check,
-        top_n=20,
-        save_path=str(top_features_save_path)
+        folders=folders_to_check, top_n=20, save_path=str(top_features_save_path)
     )
-    
+
     if not df_top_features.empty:
         # Save detailed feature importance data
         csv_save_path = Path(save_dir) / "top_20_features_all_models.csv"
         df_top_features.to_csv(csv_save_path, index=False)
         print(f"✓ Top features data saved to: {csv_save_path}")
-        
+
         # Display summary statistics
-        print(f"\nTotal models analyzed: {df_top_features['full_model_name'].nunique()}")
+        print(
+            f"\nTotal models analyzed: {df_top_features['full_model_name'].nunique()}"
+        )
         print(f"\nMost common features across all models:")
-        feature_counts = df_top_features['feature'].value_counts().head(15)
+        feature_counts = df_top_features["feature"].value_counts().head(15)
         print(feature_counts)
-    
+
     plt.show()
     plt.close("all")
-    
+
     # Continue with existing analysis
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("PERFORMANCE METRICS ANALYSIS")
-    print("="*60)
-    
+    print("=" * 60)
+
     static_data = "/Users/sandrohunziker/hydrosolutions Dropbox/Sandro Hunziker/SAPPHIRE_Central_Asia_Technical_Work/data/kyg_data_forecast_tools/config/models_and_scalers/static_features/ML_basin_attributes_v2.csv"
     static_df = pd.read_csv(static_data)
 
@@ -1030,9 +1182,8 @@ def main():
         # to int
         static_df["code"] = static_df["code"].astype(int)
 
-
     models_to_plot = [
-        #"BaseCase_Ensemble",
+        # "BaseCase_Ensemble",
         "SnowMapper_Based_Ensemble",
         "Uncertainty_MC_ALD",
         "GlacierMapper_Based_Ensemble",
@@ -1040,7 +1191,7 @@ def main():
     ]
 
     rename_dict = {
-        #"BaseCase_LR_Base": "Linear Regression Base",
+        # "BaseCase_LR_Base": "Linear Regression Base",
         "BaseCase_Ensemble": "Base Case Ensemble",
         "SnowMapper_Based_Ensemble": "SnowMapper Ensemble",
         "Uncertainty_MC_ALD": "MC ALD",
@@ -1076,7 +1227,6 @@ def main():
     ]
 
     for model_1, model_2, combo_name in combinations:
-
         # Model difference per month plot
         fig, ax = plt.subplots()
         ax, stats_df = plot_model_difference_per_month(
@@ -1091,12 +1241,12 @@ def main():
         # Save figure
         out = Path(save_dir) / f"{combo_name}_model_difference_per_month.png"
         fig.savefig(out, dpi=300, bbox_inches="tight")
-        
+
         # Save statistics to CSV
         stats_out = Path(save_dir) / f"{combo_name}_model_difference_statistics.csv"
         stats_df.to_csv(stats_out, index=False)
         print(f"✓ Model difference statistics saved to: {stats_out}")
-        
+
         plt.show()
         plt.close("all")
 
@@ -1110,19 +1260,24 @@ def main():
             threshold=0.1,
         )
         fig = ax.get_figure()
-        
+
         # Save figure
         out = Path(save_dir) / f"{combo_name}_model_difference_magnitude.png"
         fig.savefig(out, dpi=300, bbox_inches="tight")
-        
+
         # Save statistics to CSV
-        magnitude_stats_out = Path(save_dir) / f"{combo_name}_model_difference_magnitude_statistics.csv"
+        magnitude_stats_out = (
+            Path(save_dir) / f"{combo_name}_model_difference_magnitude_statistics.csv"
+        )
         magnitude_stats_df.to_csv(magnitude_stats_out, index=False)
-        print(f"✓ Model difference magnitude statistics saved to: {magnitude_stats_out}")
-    
+        print(
+            f"✓ Model difference magnitude statistics saved to: {magnitude_stats_out}"
+        )
+
         plt.show()
-    
+
     plt.close("all")
+
 
 if __name__ == "__main__":
     main()

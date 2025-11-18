@@ -226,32 +226,33 @@ class LinearRegressionModel(BaseForecastModel):
         if lr_type == "linear":
             model = LinearRegression()
         elif lr_type == "ridge":
-            model = Pipeline([
-                ('scaler', StandardScaler()),
-                ('ridge', RidgeCV())
-            ])
+            model = Pipeline([("scaler", StandardScaler()), ("ridge", RidgeCV())])
         elif lr_type == "lasso":
-            model = Pipeline([
-                ('scaler', StandardScaler()),
-                ('lasso', LassoCV(alphas=np.logspace(-4, 0, 30),
-                                  cv= len(X_calibration),
-                                  max_iter=100))  # Leave-One-Out CV
-            ])
+            model = Pipeline(
+                [
+                    ("scaler", StandardScaler()),
+                    (
+                        "lasso",
+                        LassoCV(
+                            alphas=np.logspace(-4, 0, 30),
+                            cv=len(X_calibration),
+                            max_iter=100,
+                        ),
+                    ),  # Leave-One-Out CV
+                ]
+            )
         elif lr_type == "elasticnet":
-            model = Pipeline([
-                ('scaler', StandardScaler()),
-                ('elasticnet', ElasticNetCV())
-            ])
+            model = Pipeline(
+                [("scaler", StandardScaler()), ("elasticnet", ElasticNetCV())]
+            )
         elif lr_type == "pca_lr":
             n_components = min(
-                self.model_config.get("pca_n_components", 2), 
-                len(features), 
-                len(X_calibration)-1
-                )
+                self.model_config.get("pca_n_components", 2),
+                len(features),
+                len(X_calibration) - 1,
+            )
             model = make_pipeline(
-                StandardScaler(),
-                PCA(n_components=n_components),
-                LinearRegression()
+                StandardScaler(), PCA(n_components=n_components), LinearRegression()
             )
         else:
             raise ValueError(f"Unknown model type: {lr_type}")

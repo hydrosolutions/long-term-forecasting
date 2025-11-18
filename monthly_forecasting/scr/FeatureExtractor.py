@@ -346,7 +346,7 @@ class StreamflowFeatureExtractor:
             min_periods = min(int(self.prediction_horizon * 0.75), 15)
         else:
             min_periods = int(self.prediction_horizon * 0.9)
-        
+
         target = pd.Series(index=df.index, dtype=float)
 
         # Calculate target for each basin separately

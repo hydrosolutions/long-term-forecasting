@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
 # Model family mappings
 MODEL_FAMILIES = {
     "BaseCase": ["LR_Base", "GBT"],
-    #"SCA_Based": ["LR_Q_SCA", "LR_Q_T_SCA"],
+    # "SCA_Based": ["LR_Q_SCA", "LR_Q_T_SCA"],
     "SnowMapper_Based": [
         "LR_Snowmapper",
         "LR_Snowmapper_DT",
-        #"LR_Snowmapper_ROF",
+        # "LR_Snowmapper_ROF",
         "Snow_GBT",
         # "Snow_GBT_old",
         "Snow_GBT_LR",
@@ -37,12 +37,16 @@ MODEL_FAMILIES = {
         "Sel_MC_ALD",
     ],
     "GlacierMapper_Based": [
-    #    #"LR_Gla_PCA",
-       "LR_Gla_SLA", "LR_Gla_NIR", "LR_Gla_FSC", #"LR_Gla_Combined",
-           "Gla_GBT",   "Gla_GBT_Snow",  "Gla_GBT_Norm",
-        #"Gla_GBT_Corr" #
+        #    #"LR_Gla_PCA",
+        "LR_Gla_SLA",
+        "LR_Gla_NIR",
+        "LR_Gla_FSC",  # "LR_Gla_Combined",
+        "Gla_GBT",
+        "Gla_GBT_Snow",
+        "Gla_GBT_Norm",
+        # "Gla_GBT_Corr" #
         # "Gla_GBT_SnowNorm","Gla_GBT_Extended"
-       ]
+    ],
 }
 # Configuration
 EVALUATION_DAY_OF_MONTH = (
@@ -201,10 +205,9 @@ def _standardize_prediction_columns(df: pd.DataFrame, model_name: str) -> pd.Dat
             f"Averaging predictions and observations for duplicates."
         )
         # Average Q_pred and Q_obs for duplicate (date, code) combinations
-        df = df.groupby(["date", "code"], as_index=False).agg({
-            "Q_obs": "mean",
-            "Q_pred": "mean"
-        })
+        df = df.groupby(["date", "code"], as_index=False).agg(
+            {"Q_obs": "mean", "Q_pred": "mean"}
+        )
 
     return df
 
@@ -326,7 +329,9 @@ def _create_ensemble_dataframes(
             for col in ["model_id", "family", "model_name", "ensemble_member"]:
                 if col in ensemble_df.columns:
                     agg_dict[col] = "first"
-            ensemble_df = ensemble_df.groupby(["date", "code"], as_index=False).agg(agg_dict)
+            ensemble_df = ensemble_df.groupby(["date", "code"], as_index=False).agg(
+                agg_dict
+            )
 
         ensemble_dataframes[ensemble_model_id] = ensemble_df
         logger.info(
