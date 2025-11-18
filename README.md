@@ -1,12 +1,12 @@
-# Monthly Discharge Forecasting
+# Long Term Discharge Forecasting
 
-A comprehensive machine learning system for predicting river discharge at monthly timescales using ensemble methods and advanced feature engineering.
+A comprehensive machine learning system for predicting river discharge at long term (monthly to seasonal) timescales using ensemble methods and advanced feature engineering.
 
 **Author**: Sandro Hunziker
 
 ## Overview
 
-The Monthly Discharge Forecasting System implements a modular pipeline that integrates multiple data sources, employs various machine learning algorithms, and uses ensemble techniques to produce robust discharge predictions. The system is designed for operational forecasting in Central Asian basins with complex hydrology influenced by snow and glacier dynamics.
+The Long Term Discharge Forecasting System implements a modular pipeline that integrates multiple data sources, employs various machine learning algorithms, and uses ensemble techniques to produce robust discharge predictions. The system is designed for operational forecasting in Central Asian basins with complex hydrology influenced by snow and glacier dynamics.
 
 ### Key Features
 
