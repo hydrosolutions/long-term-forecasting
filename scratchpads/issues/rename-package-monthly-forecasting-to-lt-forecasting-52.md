@@ -1,12 +1,12 @@
-# Rename Package: monthly_forecasting → lt_forecasting (Issue #52)
+# Rename Package: lt_forecasting → lt_forecasting (Issue #52)
 
-**Issue**: https://github.com/hydrosolutions/monthly_forecasting/issues/52
+**Issue**: https://github.com/hydrosolutions/lt_forecasting/issues/52
 **Status**: In Progress
 **Branch**: rename-package-to-lt-forecasting
 
 ## Objective
 
-Rename the package from `monthly_forecasting` to `lt_forecasting` (Long-Term Forecasting) before v0.1.0 release to better reflect its general-purpose nature for long-term hydrological forecasting.
+Rename the package from `lt_forecasting` to `lt_forecasting` (Long-Term Forecasting) before v0.1.0 release to better reflect its general-purpose nature for long-term hydrological forecasting.
 
 ## Context
 
@@ -63,7 +63,7 @@ python -c "from lt_forecasting.forecast_models import SciRegressor"
 uv run python scripts/calibrate_hindcast.py --config_path example_config/DUMMY_MODEL
 
 # Search for lingering references
-grep -r "monthly_forecasting" --include="*.py" --include="*.md" . | grep -v ".git" | grep -v "__pycache__"
+grep -r "lt_forecasting" --include="*.py" --include="*.md" . | grep -v ".git" | grep -v "__pycache__"
 ```
 
 ## Risk Mitigation

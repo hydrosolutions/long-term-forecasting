@@ -4,7 +4,7 @@
 Improve test suite efficiency and coverage for monthly forecasting models with comprehensive preprocessing tests, reducing execution time from 15-30 minutes to <2 minutes while maintaining comprehensive coverage.
 
 ## Context
-- **Issue**: https://github.com/hydrosolutions/monthly_forecasting/issues/12
+- **Issue**: https://github.com/hydrosolutions/lt_forecasting/issues/12
 - **Current Status**: 146 test functions exist, but execution time and data generation efficiency need improvement
 - **Key Problems**: 
   - Excessive data generation (20+ years, 100,000+ records)

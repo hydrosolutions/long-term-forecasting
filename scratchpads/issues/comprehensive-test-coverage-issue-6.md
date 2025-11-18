@@ -4,7 +4,7 @@
 Write comprehensive test coverage for the core utility modules and regression classes to ensure reliability and maintainability.
 
 ## Context
-- **Issue**: https://github.com/hydrosolutions/monthly_forecasting/issues/6
+- **Issue**: https://github.com/hydrosolutions/lt_forecasting/issues/6
 - **Current Status**: Some tests exist but coverage is incomplete
 - **Target**: Achieve at least 80% code coverage for sci_utils, data_utils, and regression classes
 

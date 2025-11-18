@@ -4,7 +4,7 @@
 Fix the performance degradation when scaling is enabled in SciRegressor. The issue is that R2 is calculated on scaled values during hyperparameter tuning, which can give misleading results when the scaling significantly changes the variance structure.
 
 ## Context
-- Issue: https://github.com/hydrosolutions/monthly_forecasting/issues/4
+- Issue: https://github.com/hydrosolutions/lt_forecasting/issues/4
 - When scaling is enabled, both features and targets are scaled together (which is correct for discharge forecasting)
 - The problem is that R2 is calculated on scaled values, not original values
 - This leads to poor R2 scores during hyperparameter tuning, causing suboptimal model selection

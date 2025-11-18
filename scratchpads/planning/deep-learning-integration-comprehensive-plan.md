@@ -12,7 +12,7 @@ The current codebase has legacy deep learning code in `deep_scr/` that needs to 
 
 #### A. Move and restructure deep learning components:
 ```
-monthly_forecasting/
+lt_forecasting/
 ├── forecast_models/
 │   ├── deep_models/                    # NEW: Deep learning models directory
 │   │   ├── __init__.py

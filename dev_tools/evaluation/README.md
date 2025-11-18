@@ -123,7 +123,7 @@ Main orchestration script that runs the complete evaluation workflow.
   - Ensures consistency with other evaluation scripts
 
 ### Input Data
-- Expects prediction files in: `../monthly_forecasting_results/{family}/{model}/predictions.csv`
+- Expects prediction files in: `../lt_forecasting_results/{family}/{model}/predictions.csv`
 - Prediction files must contain columns: date, code, Q_obs, Q_pred (or Q_*)
 
 ## Usage
@@ -135,8 +135,8 @@ from evaluation import run_evaluation_pipeline
 
 # Run complete evaluation pipeline
 success = run_evaluation_pipeline(
-    results_dir="../monthly_forecasting_results",
-    output_dir="../monthly_forecasting_results/evaluation",
+    results_dir="../lt_forecasting_results",
+    output_dir="../lt_forecasting_results/evaluation",
     evaluation_day="end",  # or specific day number
     common_codes_only=True,
     ensemble_method="mean"
@@ -147,8 +147,8 @@ success = run_evaluation_pipeline(
 
 ```bash
 python evaluate_pipeline.py \
-    --results_dir ../monthly_forecasting_results \
-    --output_dir ../monthly_forecasting_results/evaluation \
+    --results_dir ../lt_forecasting_results \
+    --output_dir ../lt_forecasting_results/evaluation \
     --evaluation_day end \
     --ensemble_method mean \
     --include_code_month

@@ -8,8 +8,8 @@ This document outlines the development workflow for integrating the ML package i
 
 ### ML Package Repository (Development)
 ```
-monthly_forecasting/
-├── monthly_forecasting/                 # Core package (production code)
+lt_forecasting/
+├── lt_forecasting/                 # Core package (production code)
 │   ├── __init__.py            # Version info
 │   ├── forecast_models/                # Model classes
 │   ├── scr/                    # Utilities
@@ -32,8 +32,8 @@ monthly_forecasting/
 machine_learning_monthly/
 ├── forecasting/               # Main forecasting system
 ├── libs/
-│   └── monthly_forecasting/            # ML package as submodule
-│       ├── monthly_forecasting/        # Only core code (no dev_tools)
+│   └── lt_forecasting/            # ML package as submodule
+│       ├── lt_forecasting/        # Only core code (no dev_tools)
 │       └── setup.py
 ├── tests/
 │   └── test_ml_integration.py # Integration tests

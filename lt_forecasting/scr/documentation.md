@@ -24,7 +24,7 @@ Handles all data loading operations for the forecasting system.
 
 **Usage Example:**
 ```python
-from monthly_forecasting.scr import data_loading as dl
+from lt_forecasting.scr import data_loading as dl
 
 hydro_ca, static = dl.load_data(
     path_discharge="discharge.csv",
@@ -87,7 +87,7 @@ Creates time series features for machine learning models.
 
 **Usage Example:**
 ```python
-from monthly_forecasting.scr.FeatureExtractor import StreamflowFeatureExtractor
+from lt_forecasting.scr.FeatureExtractor import StreamflowFeatureExtractor
 
 feature_configs = {
     "discharge": [
@@ -149,7 +149,7 @@ Machine learning utilities for model training and optimization.
 
 **Usage Example:**
 ```python
-from monthly_forecasting.scr import sci_utils
+from lt_forecasting.scr import sci_utils
 
 # Create and train model
 model = sci_utils.get_model('xgb', params={'n_estimators': 100})

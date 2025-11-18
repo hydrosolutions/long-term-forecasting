@@ -4,7 +4,7 @@
 Fix the length mismatch error in the `apply_long_term_mean_scaling` function that occurs when trying to assign column names to the long-term mean DataFrame.
 
 ## Context
-- Issue: https://github.com/hydrosolutions/monthly_forecasting/issues/8
+- Issue: https://github.com/hydrosolutions/lt_forecasting/issues/8
 - Error: `ValueError: Length mismatch: Expected axis has 42 elements, new values have 35 elements`
 - Location: `scr/data_utils.py:529`
 - This error blocks the entire hyperparameter tuning process

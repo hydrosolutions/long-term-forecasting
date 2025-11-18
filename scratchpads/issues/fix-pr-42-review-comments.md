@@ -4,7 +4,7 @@
 Address the review comments for PR #42 (Historical Performance-Weighted Meta-Learning Framework) to ensure the implementation meets production standards.
 
 ## Context
-**PR**: [GitHub PR #42](https://github.com/hydrosolutions/monthly_forecasting/pull/42)  
+**PR**: [GitHub PR #42](https://github.com/hydrosolutions/lt_forecasting/pull/42)  
 **Review Comments**: 
 1. No unit / functionality / integration tests written for the new code
 2. Add meta learner to the calibration and fine tune script  

@@ -4,15 +4,15 @@
 Complete the meta-learning framework that weights base model predictions by historical performance. The system should calculate performance metrics for each basin-period combination and use global performance as fallback when insufficient data is available.
 
 ## Context
-**Issue**: [GitHub Issue #41](https://github.com/hydrosolutions/monthly_forecasting/issues/41)  
+**Issue**: [GitHub Issue #41](https://github.com/hydrosolutions/lt_forecasting/issues/41)  
 **Previous Work**: PR #40 implemented basic meta-learning framework structure but left implementations incomplete  
 **Current State**: Skeleton implementation exists but has critical bugs and missing functionality
 
 ## Current Implementation Analysis
 
 ### Existing Files
-- `monthly_forecasting/forecast_models/meta_learners/base_meta_learner.py` - Complete abstract base class
-- `monthly_forecasting/forecast_models/meta_learners/historical_meta_learner.py` - Incomplete implementation with bugs
+- `lt_forecasting/forecast_models/meta_learners/base_meta_learner.py` - Complete abstract base class
+- `lt_forecasting/forecast_models/meta_learners/historical_meta_learner.py` - Incomplete implementation with bugs
 - Evaluation infrastructure in `dev_tools/eval_scr/metric_functions.py` and `dev_tools/evaluation/`
 
 ### Critical Issues Found
@@ -28,7 +28,7 @@ Complete the meta-learning framework that weights base model predictions by hist
 - [ ] Fix class declaration bug in `HistoricalMetaLearner` (rename from `BaseMetaLearner`)
 - [ ] Create `__init__.py` files in meta_learners directory
 - [ ] Create `meta_utils.py` with utility functions
-- [ ] Move metric functions from `dev_tools/eval_scr/metric_functions.py` to `monthly_forecasting/scr/`
+- [ ] Move metric functions from `dev_tools/eval_scr/metric_functions.py` to `lt_forecasting/scr/`
 - [ ] Add normalized MSE metric to evaluation suite
 - [ ] Ensure `get_periods()` utility is accessible in meta-learner
 
@@ -90,7 +90,7 @@ Complete the meta-learning framework that weights base model predictions by hist
 
 ### Architecture Considerations
 - Maintain compatibility with existing `BaseForecastModel` interface
-- Follow established logging patterns using `monthly_forecasting.log_config`
+- Follow established logging patterns using `lt_forecasting.log_config`
 - Use configuration-driven approach consistent with other models
 - Preserve evaluation pipeline integration
 

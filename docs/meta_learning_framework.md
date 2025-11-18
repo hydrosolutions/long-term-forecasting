@@ -253,7 +253,7 @@ def __calculate_historical_performance__(self, data, model_names):
 ### Basic Usage
 
 ```python
-from monthly_forecasting.forecast_models.meta_learners.historical_meta_learner import HistoricalMetaLearner
+from lt_forecasting.forecast_models.meta_learners.historical_meta_learner import HistoricalMetaLearner
 
 # Initialize meta-learner
 meta_learner = HistoricalMetaLearner(

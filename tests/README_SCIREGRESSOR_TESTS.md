@@ -175,7 +175,7 @@ python test_sciregressor.py --comprehensive --verbose
 # From the tests directory
 python test_sciregressor.py
 
-# From the monthly_forecasting directory
+# From the lt_forecasting directory
 python run_sciregressor_tests.py
 ```
 
@@ -183,7 +183,7 @@ python run_sciregressor_tests.py
 
 #### Run All Comprehensive Tests (64 tests)
 ```bash
-# From the monthly_forecasting directory
+# From the lt_forecasting directory
 pytest tests/test_sciregressor.py -v
 
 # Run specific comprehensive test
