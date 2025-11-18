@@ -463,7 +463,7 @@ class SciRegressorTester:
             # Mock external dependencies that might not be available
             with patch.object(SciRegressor, "__preprocess_data__") as mock_preprocess:
                 with patch(
-                    "monthly_forecasting.scr.data_utils.glacier_mapper_features"
+                    "lt_forecasting.scr.data_utils.glacier_mapper_features"
                 ) as mock_glacier:
                     mock_glacier.return_value = self.data
                     mock_preprocess.return_value = None
@@ -555,7 +555,7 @@ class SciRegressorTester:
             # Mock external dependencies
             with patch.object(SciRegressor, "__preprocess_data__") as mock_preprocess:
                 with patch(
-                    "monthly_forecasting.scr.data_utils.glacier_mapper_features"
+                    "lt_forecasting.scr.data_utils.glacier_mapper_features"
                 ) as mock_glacier:
                     with patch.object(SciRegressor, "load_model") as mock_load:
                         with patch.object(
@@ -642,7 +642,7 @@ class SciRegressorTester:
             # Mock external dependencies
             with patch.object(SciRegressor, "__preprocess_data__") as mock_preprocess:
                 with patch(
-                    "monthly_forecasting.scr.data_utils.glacier_mapper_features"
+                    "lt_forecasting.scr.data_utils.glacier_mapper_features"
                 ) as mock_glacier:
                     with patch.object(
                         SciRegressor, "tune_hyperparameters"
@@ -692,7 +692,7 @@ class SciRegressorTester:
             # Mock external dependencies
             with patch.object(SciRegressor, "__preprocess_data__") as mock_preprocess:
                 with patch(
-                    "monthly_forecasting.scr.data_utils.glacier_mapper_features"
+                    "lt_forecasting.scr.data_utils.glacier_mapper_features"
                 ) as mock_glacier:
                     with patch.object(SciRegressor, "save_model") as mock_save:
                         with patch.object(SciRegressor, "load_model") as mock_load:
@@ -885,7 +885,7 @@ class ComprehensiveSciRegressorTester:
             # Create model with mocked dependencies
             with patch.object(SciRegressor, "__preprocess_data__") as mock_preprocess:
                 with patch(
-                    "monthly_forecasting.scr.data_utils.glacier_mapper_features"
+                    "lt_forecasting.scr.data_utils.glacier_mapper_features"
                 ) as mock_glacier:
                     mock_glacier.return_value = env.data
                     mock_preprocess.return_value = None
@@ -1326,7 +1326,7 @@ class ComprehensiveSciRegressorTester:
             # Mock external dependencies that might not be available
             with patch.object(SciRegressor, "__preprocess_data__") as mock_preprocess:
                 with patch(
-                    "monthly_forecasting.scr.data_utils.glacier_mapper_features"
+                    "lt_forecasting.scr.data_utils.glacier_mapper_features"
                 ) as mock_glacier:
                     mock_glacier.return_value = self.data
                     mock_preprocess.return_value = None
@@ -1418,7 +1418,7 @@ class ComprehensiveSciRegressorTester:
             # Mock external dependencies
             with patch.object(SciRegressor, "__preprocess_data__") as mock_preprocess:
                 with patch(
-                    "monthly_forecasting.scr.data_utils.glacier_mapper_features"
+                    "lt_forecasting.scr.data_utils.glacier_mapper_features"
                 ) as mock_glacier:
                     with patch.object(SciRegressor, "load_model") as mock_load:
                         with patch.object(
@@ -1505,7 +1505,7 @@ class ComprehensiveSciRegressorTester:
             # Mock external dependencies
             with patch.object(SciRegressor, "__preprocess_data__") as mock_preprocess:
                 with patch(
-                    "monthly_forecasting.scr.data_utils.glacier_mapper_features"
+                    "lt_forecasting.scr.data_utils.glacier_mapper_features"
                 ) as mock_glacier:
                     with patch.object(
                         SciRegressor, "tune_hyperparameters"
@@ -1554,7 +1554,7 @@ class ComprehensiveSciRegressorTester:
             # Mock external dependencies
             with patch.object(SciRegressor, "__preprocess_data__") as mock_preprocess:
                 with patch(
-                    "monthly_forecasting.scr.data_utils.glacier_mapper_features"
+                    "lt_forecasting.scr.data_utils.glacier_mapper_features"
                 ) as mock_glacier:
                     with patch.object(SciRegressor, "save_model") as mock_save:
                         with patch.object(SciRegressor, "load_model") as mock_load:

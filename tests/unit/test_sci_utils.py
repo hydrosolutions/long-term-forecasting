@@ -126,7 +126,7 @@ class TestFitModel:
         predictions = fitted_model.predict(X)
         assert len(predictions) == len(y)
 
-    @patch("monthly_forecasting.scr.sci_utils.logger")
+    @patch("lt_forecasting.scr.sci_utils.logger")
     def test_fit_model_logs_performance(self, mock_logger):
         """Test that model fitting logs performance metrics."""
         X, y = self.create_sample_data()
@@ -258,7 +258,7 @@ class TestOptimizeHyperparams:
         y_val = pd.Series(np.random.randn(50))
         return X_train, y_train, X_val, y_val
 
-    @patch("monthly_forecasting.scr.sci_utils.optuna.create_study")
+    @patch("lt_forecasting.scr.sci_utils.optuna.create_study")
     def test_optimize_hyperparams_xgb(self, mock_create_study):
         """Test hyperparameter optimization for XGBoost."""
         X_train, y_train, X_val, y_val = self.create_sample_data()
@@ -278,7 +278,7 @@ class TestOptimizeHyperparams:
         mock_create_study.assert_called_once_with(direction="maximize")
         mock_study.optimize.assert_called_once()
 
-    @patch("monthly_forecasting.scr.sci_utils.optuna.create_study")
+    @patch("lt_forecasting.scr.sci_utils.optuna.create_study")
     def test_optimize_hyperparams_lgbm(self, mock_create_study):
         """Test hyperparameter optimization for LightGBM."""
         X_train, y_train, X_val, y_val = self.create_sample_data()
@@ -296,7 +296,7 @@ class TestOptimizeHyperparams:
 
         assert result == {"n_estimators": 200, "num_leaves": 31}
 
-    @patch("monthly_forecasting.scr.sci_utils.optuna.create_study")
+    @patch("lt_forecasting.scr.sci_utils.optuna.create_study")
     def test_optimize_hyperparams_catboost(self, mock_create_study):
         """Test hyperparameter optimization for CatBoost."""
         X_train, y_train, X_val, y_val = self.create_sample_data()
@@ -320,7 +320,7 @@ class TestOptimizeHyperparams:
 
         assert result == {"iterations": 100, "depth": 6}
 
-    @patch("monthly_forecasting.scr.sci_utils.optuna.create_study")
+    @patch("lt_forecasting.scr.sci_utils.optuna.create_study")
     def test_optimize_hyperparams_mlp(self, mock_create_study):
         """Test hyperparameter optimization for MLP."""
         X_train, y_train, X_val, y_val = self.create_sample_data()
@@ -349,8 +349,8 @@ class TestOptimizeHyperparams:
                 X_train, y_train, X_val, y_val, model_type="invalid_model"
             )
 
-    @patch("monthly_forecasting.scr.sci_utils.optuna.create_study")
-    @patch("monthly_forecasting.scr.sci_utils.os.makedirs")
+    @patch("lt_forecasting.scr.sci_utils.optuna.create_study")
+    @patch("lt_forecasting.scr.sci_utils.os.makedirs")
     def test_optimize_hyperparams_with_save_path(
         self, mock_makedirs, mock_create_study
     ):
@@ -365,7 +365,7 @@ class TestOptimizeHyperparams:
         mock_create_study.return_value = mock_study
 
         with patch(
-            "monthly_forecasting.scr.sci_utils.optuna.visualization"
+            "lt_forecasting.scr.sci_utils.optuna.visualization"
         ) as mock_viz:
             mock_fig = Mock()
             mock_viz.plot_optimization_history.return_value = mock_fig
@@ -519,7 +519,7 @@ class TestObjectiveFunctions:
         mock_trial.suggest_float.side_effect = [0.1, 0.8, 0.8, 0.1, 0.1, 0.1]
 
         with patch(
-            "monthly_forecasting.scr.FeatureProcessingArtifacts.post_process_predictions"
+            "lt_forecasting.scr.FeatureProcessingArtifacts.post_process_predictions"
         ) as mock_post_process:
             # Mock post_process_predictions to return a DataFrame
             mock_post_process.return_value = pd.DataFrame(
