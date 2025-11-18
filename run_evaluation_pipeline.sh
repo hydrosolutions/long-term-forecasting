@@ -14,8 +14,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default configuration
-RESULTS_DIR="../lt_forecasting_results"
-OUTPUT_DIR="../lt_forecasting_results/evaluation"
+RESULTS_DIR="../monthly_forecasting_results"
+OUTPUT_DIR="../monthly_forecasting_results/evaluation"
 EVALUATION_DAY="end"
 ENSEMBLE_METHOD="mean"
 COMMON_CODES_ONLY="true"
