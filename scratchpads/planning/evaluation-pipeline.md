@@ -9,7 +9,7 @@ Create an automated evaluation pipeline that:
 5. Enhances dashboard to show predictions vs observations
 
 ## Context
-- Current predictions are stored in: `../monthly_forecasting_results/model_type*/class_*/predictions.csv`
+- Current predictions are stored in: `../lt_forecasting_results/model_type*/class_*/predictions.csv`
 - Existing evaluation logic in `old_files/evaluate_hindcast.py` needs refactoring
 - Metric functions should use `eval_scr.metric_functions` module
 - Dashboard (`model_dashboard.py`) needs enhancement for prediction visualization
@@ -17,7 +17,7 @@ Create an automated evaluation pipeline that:
 ## Architecture Overview
 
 ```
-monthly_forecasting_results/
+lt_forecasting_results/
 ├── BaseCase/
 │   ├── LR_Q_T_P/predictions.csv
 │   ├── DeviationLR/predictions.csv

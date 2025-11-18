@@ -6,7 +6,7 @@ Implement a comprehensive interactive dashboard for visualizing model performanc
 ## Context
 - GitHub Issue: #18
 - Existing dashboard skeleton: `old_files/model_dashboard.py`
-- Metrics data: `../monthly_forecasting_results/evaluation/metrics.csv`
+- Metrics data: `../lt_forecasting_results/evaluation/metrics.csv`
 - Prediction loader: `evaluation/prediction_loader.py`
 
 ## Plan

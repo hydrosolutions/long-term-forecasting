@@ -19,16 +19,16 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # Import forecast models
-from monthly_forecasting.forecast_models.LINEAR_REGRESSION import LinearRegressionModel
-from monthly_forecasting.forecast_models.SciRegressor import SciRegressor
-from monthly_forecasting.forecast_models.deep_models.uncertainty_mixture import (
+from lt_forecasting.forecast_models.LINEAR_REGRESSION import LinearRegressionModel
+from lt_forecasting.forecast_models.SciRegressor import SciRegressor
+from lt_forecasting.forecast_models.deep_models.uncertainty_mixture import (
     UncertaintyMixtureModel,
 )
-from monthly_forecasting.scr import data_loading as dl
+from lt_forecasting.scr import data_loading as dl
 
 
 # Setup logging
-from monthly_forecasting.log_config import setup_logging
+from lt_forecasting.log_config import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -65,9 +65,6 @@ MODELS_OPERATIONAL = {
         ("SciRegressor", "Snow_GBT"),
         ("SciRegressor", "Snow_GBT_LR"),
         # ("SciRegressor", "Snow_GBT_Norm"),
-    ],
-    "Uncertainty": [
-        ("UncertaintyMixtureMLP", "UncertaintyMixtureMLP"),
     ],
 }
 

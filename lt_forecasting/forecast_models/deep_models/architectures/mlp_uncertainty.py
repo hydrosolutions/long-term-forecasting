@@ -14,7 +14,7 @@ from ..losses.asymmetric_laplace_loss import predict_ALD_quantile
 
 # Shared logging
 import logging
-from monthly_forecasting.log_config import setup_logging
+from lt_forecasting.log_config import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)

@@ -4,7 +4,7 @@
 Implement extensive testing for the SciRegressor models (XGBoost, LightGBM, CatBoost) with comprehensive coverage of hyperparameter tuning, different preprocessing steps, calibration, hindcast, and operational prediction workflows.
 
 ## Context
-- **Issue**: https://github.com/hydrosolutions/monthly_forecasting/issues/10
+- **Issue**: https://github.com/hydrosolutions/lt_forecasting/issues/10
 - **Current Status**: Basic tests exist (6 pytest functions) but comprehensive coverage is missing
 - **Target**: 64 total test functions covering all combinations of models, preprocessing methods, and workflow components
 

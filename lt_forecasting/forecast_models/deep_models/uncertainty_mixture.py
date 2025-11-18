@@ -24,22 +24,22 @@ from torch.utils.data import DataLoader
 
 import optuna
 
-from monthly_forecasting.forecast_models.meta_learners.base_meta_learner import (
+from lt_forecasting.forecast_models.meta_learners.base_meta_learner import (
     BaseMetaLearner,
 )
-from monthly_forecasting.scr import FeatureExtractor as FE
-from monthly_forecasting.scr import data_utils as du
-from monthly_forecasting.scr import mixture
+from lt_forecasting.scr import FeatureExtractor as FE
+from lt_forecasting.scr import data_utils as du
+from lt_forecasting.scr import mixture
 
 # Import deep learning components
-from monthly_forecasting.forecast_models.deep_models.architectures.mlp_uncertainty import (
+from lt_forecasting.forecast_models.deep_models.architectures.mlp_uncertainty import (
     MLPUncertaintyModel,
 )
-from monthly_forecasting.deep_scr.data_class import TabularDataset
+from lt_forecasting.deep_scr.data_class import TabularDataset
 
 # Shared logging
 import logging
-from monthly_forecasting.log_config import setup_logging
+from lt_forecasting.log_config import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)

@@ -9,8 +9,8 @@ Create an automated evaluation pipeline that:
 5. Enhances dashboard to show predictions vs observations
 
 ## Context
-- **GitHub Issue**: https://github.com/hydrosolutions/monthly_forecasting/issues/16
-- **Current predictions stored in**: `../monthly_forecasting_results/model_type*/class_*/predictions.csv`
+- **GitHub Issue**: https://github.com/hydrosolutions/lt_forecasting/issues/16
+- **Current predictions stored in**: `../lt_forecasting_results/model_type*/class_*/predictions.csv`
 - **Model families identified**: BaseCase, SCA_Based, SnowMapper_Based
 - **Existing evaluation logic**: `old_files/evaluate_hindcast.py` (needs refactoring)
 - **Metrics module**: `eval_scr/metric_functions.py` (comprehensive metric functions available)
@@ -26,7 +26,7 @@ Create an automated evaluation pipeline that:
 
 ### Current Data Structure:
 ```
-monthly_forecasting_results/
+lt_forecasting_results/
 ├── BaseCase/
 │   ├── DeviationLR/
 │   ├── LR_Q_T_P/
@@ -108,7 +108,7 @@ monthly_forecasting_results/
 
 ### Output Structure:
 ```
-monthly_forecasting_results/evaluation/
+lt_forecasting_results/evaluation/
 ├── metrics.csv              # Comprehensive metrics by model/code/month
 ├── metrics_summary.json     # Aggregated statistics
 ├── ensemble_predictions.csv # All ensemble predictions

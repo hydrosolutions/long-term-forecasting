@@ -7,8 +7,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-from monthly_forecasting.scr import data_utils as du
-from monthly_forecasting.scr.FeatureProcessingArtifacts import (
+from lt_forecasting.scr import data_utils as du
+from lt_forecasting.scr.FeatureProcessingArtifacts import (
     FeatureProcessingArtifacts,
     _normalization_training,
     post_process_predictions,

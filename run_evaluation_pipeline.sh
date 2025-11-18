@@ -96,7 +96,7 @@ OUTPUTS:
 
 REQUIREMENTS:
     - Python environment with uv package manager
-    - Access to monthly_forecasting_results directory
+    - Access to lt_forecasting_results directory
     - All required Python dependencies installed
 
 EOF
@@ -181,7 +181,7 @@ fi
 # Check if results directory exists
 if [[ ! -d "$RESULTS_DIR" ]]; then
     print_error "Results directory not found: $RESULTS_DIR"
-    print_error "Please ensure the monthly_forecasting_results directory exists"
+    print_error "Please ensure the lt_forecasting_results directory exists"
     exit 1
 fi
 

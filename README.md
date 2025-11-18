@@ -32,7 +32,7 @@ For detailed technical documentation:
 ```bash
 # Clone the repository
 git clone [repository-url]
-cd monthly_forecasting
+cd lt_forecasting
 
 # Install uv if not already installed
 pip install uv
@@ -82,8 +82,8 @@ Example ensemble strategy:
 ## Project Structure
 
 ```
-monthly_forecasting/
-├── monthly_forecasting/        # Core production package
+lt_forecasting/
+├── lt_forecasting/        # Core production package
 │   ├── __init__.py            # Package initialization
 │   ├── scr/                   # Data processing and feature engineering
 │   │   ├── data_loading.py    # Data ingestion and merging
@@ -91,13 +91,13 @@ monthly_forecasting/
 │   │   ├── FeatureExtractor.py # Time-series feature engineering
 │   │   ├── FeatureProcessingArtifacts.py  # Preprocessing state management
 │   │   ├── sci_utils.py       # ML utilities
-│   │   └── [documentation.md](monthly_forecasting/scr/documentation.md)  # Component documentation
+│   │   └── [documentation.md](lt_forecasting/scr/documentation.md)  # Component documentation
 │   │
 │   ├── forecast_models/       # Model implementations
 │   │   ├── base_class.py      # Abstract base class for all models
 │   │   ├── LINEAR_REGRESSION.py # Period-specific linear regression
 │   │   ├── SciRegressor.py    # Tree-based models (XGB, LGBM, CatBoost)
-│   │   └── [documentation.md](monthly_forecasting/forecast_models/documentation.md)  # Model details
+│   │   └── [documentation.md](lt_forecasting/forecast_models/documentation.md)  # Model details
 │   │
 │   └── log_config.py          # Logging configuration
 │

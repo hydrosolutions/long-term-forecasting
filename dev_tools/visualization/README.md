@@ -60,7 +60,7 @@ Empty initialization file for Python package structure.
 ## Integration with Evaluation Module
 
 The visualization module integrates tightly with the evaluation outputs:
-- Reads metrics from `../monthly_forecasting_results/evaluation/metrics.csv`
+- Reads metrics from `../lt_forecasting_results/evaluation/metrics.csv`
 - Loads predictions from the structured directory hierarchy
 - Uses the evaluation module's `prediction_loader` for consistent data access
 - Respects the same model family classifications defined in the evaluation module
@@ -68,8 +68,8 @@ The visualization module integrates tightly with the evaluation outputs:
 ## Prerequisites
 
 The dashboard requires:
-- Metrics data at `../monthly_forecasting_results/evaluation/metrics.csv`
-- Prediction files in `../monthly_forecasting_results/` directory structure
+- Metrics data at `../lt_forecasting_results/evaluation/metrics.csv`
+- Prediction files in `../lt_forecasting_results/` directory structure
 - Python 3.11+ with uv installed
 
 ## Installation
@@ -83,7 +83,7 @@ uv sync
 
 ## Running the Dashboard
 
-From the project root directory (`monthly_forecasting/`), run:
+From the project root directory (`lt_forecasting/`), run:
 
 ```bash
 uv run python dev_tools/visualization/dashboard.py
@@ -111,7 +111,7 @@ The dashboard will start and be available at: http://127.0.0.1:8050/
 ## Troubleshooting
 
 If the dashboard fails to start:
-1. Ensure you're in the correct directory (`monthly_forecasting/`)
+1. Ensure you're in the correct directory (`lt_forecasting/`)
 2. Check that the metrics.csv file exists at the expected location
 3. Verify all dependencies are installed: `uv pip list | grep -E "(dash|plotly)"`
 4. Check for any error messages in the terminal
@@ -134,7 +134,7 @@ Example usage:
 
 ```bash
 uv run python dev_tools/visualization/create_plots.py \
-  --metrics-path ../monthly_forecasting_results/evaluation/metrics.csv \
+  --metrics-path ../lt_forecasting_results/evaluation/metrics.csv \
   --models LR_Q_SWE LR_Q_T_SWE DeviationLR \
   --metric nse \
   --outdir figures \

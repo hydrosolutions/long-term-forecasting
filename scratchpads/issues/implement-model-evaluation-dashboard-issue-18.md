@@ -4,11 +4,11 @@
 Implement a comprehensive interactive dashboard for visualizing model performance metrics and predictions based on the specifications in GitHub issue #18.
 
 ## Context
-- **GitHub Issue**: [#18](https://github.com/hydrosolutions/monthly_forecasting/issues/18)
+- **GitHub Issue**: [#18](https://github.com/hydrosolutions/lt_forecasting/issues/18)
 - **Planning Document**: [enhanced-model-evaluation-dashboard.md](../planning/enhanced-model-evaluation-dashboard.md)
 - **Existing Code**: `old_files/model_dashboard.py` (basic 3-tab dashboard)
 - **Data Sources**: 
-  - Metrics: `../monthly_forecasting_results/evaluation/metrics.csv`
+  - Metrics: `../lt_forecasting_results/evaluation/metrics.csv`
   - Predictions: via `evaluation/prediction_loader.py`
 
 ## Implementation Plan
@@ -61,7 +61,7 @@ FAMILY_COLORS = {
 ```
 
 ### Current Status:
-✅ Implementation completed and PR created: https://github.com/hydrosolutions/monthly_forecasting/pull/19
+✅ Implementation completed and PR created: https://github.com/hydrosolutions/lt_forecasting/pull/19
 
 ### Key Changes Made:
 1. Added Dash, Plotly, and dash-bootstrap-components dependencies

@@ -18,8 +18,8 @@ Static Basin features (area, lat., lon, aridity, glacier fraction...)
 The project has been restructured for production deployment:
 
 ```
-monthly_forecasting/
-├── monthly_forecasting/     # Core production package
+lt_forecasting/
+├── lt_forecasting/     # Core production package
 │   ├── forecast_models/     # Model implementations
 │   ├── scr/                 # Data processing utilities
 │   └── log_config.py        # Logging configuration

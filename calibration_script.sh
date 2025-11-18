@@ -6,7 +6,7 @@
 set -e  # Exit on any error
 
 # Configuration
-CONFIG_DIR="../monthly_forecasting_models/Uncertainty/UncertaintyMixtureMLP"
+CONFIG_DIR="../lt_forecasting_models/Uncertainty/UncertaintyMixtureMLP"
 MODEL_NAME="UncertaintyMixtureMLP"  # Model name
 INPUT_FAMILY="Uncertainty"  # Input family for the model
 LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed

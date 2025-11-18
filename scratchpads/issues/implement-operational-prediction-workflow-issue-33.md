@@ -4,7 +4,7 @@
 Enhance the existing `scripts/run_operational_prediction.py` script to implement a complete operational prediction workflow for monthly discharge forecasting. The script currently has data loading functionality but needs the core prediction workflow.
 
 ## Context
-- **GitHub Issue**: https://github.com/hydrosolutions/monthly_forecasting/issues/33
+- **GitHub Issue**: https://github.com/hydrosolutions/lt_forecasting/issues/33
 - **Current State**: Data loading functions implemented (`load_discharge()`, `load_forcing()`, `load_snowmapper()`, `load_static_data()`, `create_data_frame()`)
 - **Missing**: Core prediction workflow, configuration loading, model initialization, performance evaluation
 - **Reference Implementation**: `scripts/calibrate_hindcast.py` for patterns and structure

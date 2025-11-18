@@ -1,10 +1,10 @@
 # Restructure Codebase for Production Deployment - Issue 31
 
 ## Objective
-Restructure the monthly_forecasting codebase to align with the development production plan outlined in `docs/development_production_plan.md`. Separate development tools from production code and create a proper package structure for integration into ForecastTools.
+Restructure the lt_forecasting codebase to align with the development production plan outlined in `docs/development_production_plan.md`. Separate development tools from production code and create a proper package structure for integration into ForecastTools.
 
 ## Context
-- [GitHub Issue #31](https://github.com/sandrohuni/monthly_forecasting/issues/31)
+- [GitHub Issue #31](https://github.com/sandrohuni/lt_forecasting/issues/31)
 - Development plan: `docs/development_production_plan.md`
 - Current structure is flat with mixed production and development code
 - Need clean separation for git submodule integration
@@ -12,14 +12,14 @@ Restructure the monthly_forecasting codebase to align with the development produ
 ## Plan
 
 ### Phase 1: Create New Package Structure
-- [ ] Create `monthly_forecasting/monthly_forecasting/` directory
-- [ ] Add `monthly_forecasting/__init__.py` with version info (`__version__ = "0.1.0"`)
+- [ ] Create `lt_forecasting/lt_forecasting/` directory
+- [ ] Add `lt_forecasting/__init__.py` with version info (`__version__ = "0.1.0"`)
 - [ ] Create `scripts/` directory for development scripts
 
 ### Phase 2: Move Production Code
-- [ ] Move `forecast_models/` to `monthly_forecasting/monthly_forecasting/forecast_models/`
-- [ ] Move `scr/` to `monthly_forecasting/monthly_forecasting/scr/`
-- [ ] Move `log_config.py` to `monthly_forecasting/monthly_forecasting/log_config.py`
+- [ ] Move `forecast_models/` to `lt_forecasting/lt_forecasting/forecast_models/`
+- [ ] Move `scr/` to `lt_forecasting/lt_forecasting/scr/`
+- [ ] Move `log_config.py` to `lt_forecasting/lt_forecasting/log_config.py`
 - [ ] Update imports in all moved modules
 
 ### Phase 3: Separate Development Tools
@@ -67,8 +67,8 @@ from evaluation.evaluate_models import evaluate
 
 After:
 ```python
-from monthly_forecasting.forecast_models.base_class import BaseModel
-from monthly_forecasting.scr.data_utils import load_data
+from lt_forecasting.forecast_models.base_class import BaseModel
+from lt_forecasting.scr.data_utils import load_data
 from dev_tools.evaluation.evaluate_models import evaluate  # for dev scripts
 ```
 
@@ -77,7 +77,7 @@ from dev_tools.evaluation.evaluate_models import evaluate  # for dev scripts
 from setuptools import setup, find_packages
 
 setup(
-    name="monthly-forecasting",
+    name="lt-forecasting",
     version="0.1.0",
     packages=find_packages(exclude=[
         "dev_tools", 

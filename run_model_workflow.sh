@@ -9,7 +9,7 @@
 # Usage: ./run_model_workflow.sh [OPTIONS]
 #
 # Example:
-#   ./run_model_workflow.sh --config_dir monthly_forecasting_models/XGBoost_AllFeatures --model_name XGBoost_AllFeatures --tune_hyperparams
+#   ./run_model_workflow.sh --config_dir lt_forecasting_models/XGBoost_AllFeatures --model_name XGBoost_AllFeatures --tune_hyperparams
 
 set -e  # Exit on any error
 
@@ -61,7 +61,7 @@ REQUIRED ARGUMENTS:
     --model_name NAME         Name of the model to run
 
 OPTIONAL ARGUMENTS:
-    --output_dir DIR          Output directory for results (default: monthly_forecasting_results/MODEL_NAME)
+    --output_dir DIR          Output directory for results (default: lt_forecasting_results/MODEL_NAME)
     --tune_hyperparams        Run hyperparameter tuning before calibration
     --skip_calibration        Skip model calibration (only run hyperparameter tuning)
     --skip_metrics            Skip metrics calculation during calibration
@@ -72,13 +72,13 @@ OPTIONAL ARGUMENTS:
 
 EXAMPLES:
     # Complete workflow with hyperparameter tuning
-    $0 --config_dir monthly_forecasting_models/XGBoost_AllFeatures --model_name XGBoost_AllFeatures --tune_hyperparams
+    $0 --config_dir lt_forecasting_models/XGBoost_AllFeatures --model_name XGBoost_AllFeatures --tune_hyperparams
 
     # Calibration only (no hyperparameter tuning)
-    $0 --config_dir monthly_forecasting_models/LinearRegression_BasicFeatures --model_name LinearRegression_BasicFeatures
+    $0 --config_dir lt_forecasting_models/LinearRegression_BasicFeatures --model_name LinearRegression_BasicFeatures
 
     # Hyperparameter tuning only
-    $0 --config_dir monthly_forecasting_models/LightGBM_AdvancedFeatures --model_name LightGBM_AdvancedFeatures --tune_hyperparams --skip_calibration
+    $0 --config_dir lt_forecasting_models/LightGBM_AdvancedFeatures --model_name LightGBM_AdvancedFeatures --tune_hyperparams --skip_calibration
 
     # Quick run with fewer trials
     $0 --config_dir models/test_model --model_name test_model --tune_hyperparams --trials 20
@@ -175,7 +175,7 @@ fi
 
 # Set default output directory
 if [[ -z "$OUTPUT_DIR" ]]; then
-    OUTPUT_DIR="monthly_forecasting_results/${MODEL_NAME}"
+    OUTPUT_DIR="lt_forecasting_results/${MODEL_NAME}"
 fi
 
 # Validate inputs

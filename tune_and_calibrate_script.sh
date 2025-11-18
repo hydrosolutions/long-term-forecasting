@@ -5,12 +5,12 @@
 set -e  # Exit on any error
 
 # Configuration
-#CONFIG_DIR="../monthly_forecasting_models/GlacierMapper_Based/Gla_GBT_simple"  # Path to model configuration directory
+#CONFIG_DIR="../lt_forecasting_models/GlacierMapper_Based/Gla_GBT_simple"  # Path to model configuration directory
 #MODEL_NAME="Gla_GBT_simple"  # Model name
 #INPUT_FAMILY="GlacierMapper_Based"  # Input family for the model
 #LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
 
-CONFIG_DIR="../monthly_forecasting_models/Uncertainty/Sel_MC_ALD"  # Path to model configuration directory
+CONFIG_DIR="../lt_forecasting_models/Uncertainty/Sel_MC_ALD"  # Path to model configuration directory
 MODEL_NAME="Sel_MC_ALD"  # Model name
 INPUT_FAMILY="Uncertainty"  # Input family for the model
 LOG_LEVEL="DEBUG"  # Set to INFO or DEBUG as needed
