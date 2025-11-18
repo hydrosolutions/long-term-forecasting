@@ -6,7 +6,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from monthly_forecasting.scr import data_utils as du
+from lt_forecasting.scr import data_utils as du
 
 
 class TestNormalizationFunctions:

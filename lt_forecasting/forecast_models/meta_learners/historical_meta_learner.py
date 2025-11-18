@@ -13,32 +13,32 @@ import json
 
 # Shared logging
 import logging
-from monthly_forecasting import __version__
-from monthly_forecasting.log_config import setup_logging
+from lt_forecasting import __version__
+from lt_forecasting.log_config import setup_logging
 
 setup_logging()
 
 logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logger
 
-from monthly_forecasting.forecast_models.meta_learners.base_meta_learner import (
+from lt_forecasting.forecast_models.meta_learners.base_meta_learner import (
     BaseMetaLearner,
 )
 
-from monthly_forecasting.scr import FeatureExtractor as FE
-from monthly_forecasting.scr import data_utils as du
-from monthly_forecasting.scr.metrics import (
+from lt_forecasting.scr import FeatureExtractor as FE
+from lt_forecasting.scr import data_utils as du
+from lt_forecasting.scr.metrics import (
     calculate_NRMSE,
     calculate_NMSE,
     calculate_NMAE,
     calculate_R2,
 )
 
-from monthly_forecasting.scr.meta_utils import (
+from lt_forecasting.scr.meta_utils import (
     calculate_weights_softmax,
     weights_hybrid,
     top_n_uniform_weights,
 )
-from monthly_forecasting.scr.meta_utils import create_weighted_ensemble
+from lt_forecasting.scr.meta_utils import create_weighted_ensemble
 
 
 class HistoricalMetaLearner(BaseMetaLearner):

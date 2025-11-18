@@ -9,7 +9,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from unittest.mock import Mock, patch, MagicMock
-from monthly_forecasting.scr import sci_utils
+from lt_forecasting.scr import sci_utils
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.neural_network import MLPRegressor
 from xgboost import XGBRegressor

@@ -12,14 +12,14 @@ from sklearn.model_selection import train_test_split
 import xgboost as xgb
 
 
-# Add the parent directory to sys.path to allow imports from monthly_forecasting
+# Add the parent directory to sys.path to allow imports from lt_forecasting
 from pathlib import Path
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from monthly_forecasting.scr import FeatureExtractor as FE
-from monthly_forecasting.scr import data_loading as dl
+from lt_forecasting.scr import FeatureExtractor as FE
+from lt_forecasting.scr import data_loading as dl
 
 # supress logging from matplotlib
 import logging

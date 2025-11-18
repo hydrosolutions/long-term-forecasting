@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 # Shared logging
 import logging
-from monthly_forecasting.log_config import setup_logging
+from lt_forecasting.log_config import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)

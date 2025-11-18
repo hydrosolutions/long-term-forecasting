@@ -47,7 +47,7 @@ except ImportError:
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 # Import the modules to test
-from monthly_forecasting.forecast_models.meta_learners.historical_meta_learner import (
+from lt_forecasting.forecast_models.meta_learners.historical_meta_learner import (
     HistoricalMetaLearner,
 )
 

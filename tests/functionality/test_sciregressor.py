@@ -103,8 +103,8 @@ except ImportError:
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 # Import the modules to test
-from monthly_forecasting.forecast_models.SciRegressor import SciRegressor
-from monthly_forecasting.scr import FeatureExtractor as FE
+from lt_forecasting.forecast_models.SciRegressor import SciRegressor
+from lt_forecasting.scr import FeatureExtractor as FE
 from dev_tools.eval_scr import metric_functions
 from scripts import calibrate_hindcast
 

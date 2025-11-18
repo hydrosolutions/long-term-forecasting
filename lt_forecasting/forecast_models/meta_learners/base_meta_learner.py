@@ -10,21 +10,21 @@ import datetime
 
 # Shared logging
 import logging
-from monthly_forecasting.log_config import setup_logging
+from lt_forecasting.log_config import setup_logging
 
 setup_logging()
 
 logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logger
 
 
-from monthly_forecasting.forecast_models.base_class import BaseForecastModel
+from lt_forecasting.forecast_models.base_class import BaseForecastModel
 from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.metrics import mean_squared_error, r2_score
 import pickle
 import json
 from tqdm import tqdm
 
-from monthly_forecasting.scr import FeatureExtractor as FE
+from lt_forecasting.scr import FeatureExtractor as FE
 
 
 class BaseMetaLearner(BaseForecastModel):
@@ -201,7 +201,7 @@ class BaseMetaLearner(BaseForecastModel):
         """
         Calculate historical performance metrics for the given base predictors.
         """
-        from monthly_forecasting.scr.metrics import get_metric_function
+        from lt_forecasting.scr.metrics import get_metric_function
 
         logger.info(f"Calculating historical performance using metric: {self.metric}")
         metric_func = get_metric_function(self.metric)

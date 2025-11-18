@@ -12,7 +12,7 @@ import datetime
 import tempfile
 import os
 
-from monthly_forecasting.forecast_models.meta_learners.historical_meta_learner import (
+from lt_forecasting.forecast_models.meta_learners.historical_meta_learner import (
     HistoricalMetaLearner,
 )
 
