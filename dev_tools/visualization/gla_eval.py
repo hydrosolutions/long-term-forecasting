@@ -579,6 +579,172 @@ def plot_model_difference_per_month(
     return ax, stats_df
 
 
+def plot_model_difference_magnitude(
+    metrics: pd.DataFrame,
+    model_1: str,
+    model_2: str,
+    metric: str,
+    ax: plt.Axes | None = None,
+    threshold: float = 0.1,
+) -> tuple[plt.Axes, pd.DataFrame]:
+    """
+    Plot the average magnitude of improvement/decrease between two models per month.
+    Shows average with error bars representing minimum and maximum values.
+
+    Args:
+        metrics: DataFrame with columns ['model', 'code', 'month', metric]
+        model_1: Name of first model
+        model_2: Name of second model
+        metric: Metric to compare (e.g., 'nse', 'r2')
+        ax: Matplotlib Axes to plot on. If None, creates a new figure and axes.
+        threshold: Threshold for considering improvement/decrease (default: 0.1)
+
+    Returns:
+        Tuple of (Matplotlib Axes with the plot, DataFrame with monthly magnitude statistics)
+    """
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(12, 6))
+
+    # Filter data for the two models at per_code_month level
+    df_model1 = metrics[(metrics["model"] == model_1) & (metrics["level"] == "per_code_month")].copy()
+    df_model2 = metrics[(metrics["model"] == model_2) & (metrics["level"] == "per_code_month")].copy()
+
+    # Merge on code and month to align the data
+    df_merged = df_model1[["code", "month", metric]].merge(
+        df_model2[["code", "month", metric]],
+        on=["code", "month"],
+        suffixes=("_model1", "_model2")
+    )
+
+    # Calculate difference (model_1 - model_2)
+    df_merged["difference"] = df_merged[f"{metric}_model1"] - df_merged[f"{metric}_model2"]
+
+    # Sort months in calendar order
+    df_merged["month"] = pd.Categorical(
+        df_merged["month"],
+        categories=list(month_mapping.values()),
+        ordered=True
+    )
+    df_merged = df_merged.sort_values("month")
+
+    # Get unique months that actually exist in the data
+    unique_months = [m for m in df_merged["month"].cat.categories if m in df_merged["month"].values]
+
+    # Calculate statistics per month for improved and decreased basins
+    monthly_magnitude_stats = []
+    for month in unique_months:
+        month_data = df_merged[df_merged["month"] == month]
+        
+        # Improved basins (difference > threshold)
+        improved_data = month_data[month_data["difference"] > threshold]["difference"]
+        if len(improved_data) > 0:
+            improved_mean = improved_data.mean()
+            improved_min = improved_data.min()
+            improved_max = improved_data.max()
+        else:
+            improved_mean = 0
+            improved_min = 0
+            improved_max = 0
+        
+        # Decreased basins (difference < -threshold)
+        decreased_data = month_data[month_data["difference"] < -threshold]["difference"]
+        if len(decreased_data) > 0:
+            decreased_mean = abs(decreased_data.mean())  # Take absolute value for plotting
+            decreased_min = abs(decreased_data.max())  # Note: max of negative values (closest to 0)
+            decreased_max = abs(decreased_data.min())  # Note: min of negative values (furthest from 0)
+        else:
+            decreased_mean = 0
+            decreased_min = 0
+            decreased_max = 0
+        
+        monthly_magnitude_stats.append({
+            "month": month,
+            "improved_mean": improved_mean,
+            "improved_min": improved_min,
+            "improved_max": improved_max,
+            "improved_error_lower": improved_mean - improved_min,
+            "improved_error_upper": improved_max - improved_mean,
+            "decreased_mean": decreased_mean,
+            "decreased_min": decreased_min,
+            "decreased_max": decreased_max,
+            "decreased_error_lower": decreased_mean - decreased_min,
+            "decreased_error_upper": decreased_max - decreased_mean,
+        })
+    
+    stats_df = pd.DataFrame(monthly_magnitude_stats)
+
+    # Print statistics
+    print("\n" + "="*80)
+    print(f"Performance Change Magnitude: {model_1} vs {model_2}")
+    print(f"Metric: {metric_renamer.get(metric, metric)}")
+    print(f"Threshold: ±{threshold}")
+    print("="*80)
+    print(f"\n{'Month':<12} {'Improved Δ':>12} {'Min-Max':>20} {'Decreased Δ':>12} {'Min-Max':>20}")
+    print("-"*80)
+    
+    for _, row in stats_df.iterrows():
+        improved_str = f"{row['improved_mean']:.3f}" if row['improved_mean'] > 0 else "-"
+        improved_range = f"[{row['improved_min']:.3f}, {row['improved_max']:.3f}]" if row['improved_mean'] > 0 else "-"
+        decreased_str = f"{row['decreased_mean']:.3f}" if row['decreased_mean'] > 0 else "-"
+        decreased_range = f"[{row['decreased_min']:.3f}, {row['decreased_max']:.3f}]" if row['decreased_mean'] > 0 else "-"
+        
+        print(f"{row['month']:<12} {improved_str:>12} {improved_range:>20} {decreased_str:>12} {decreased_range:>20}")
+    print("="*80 + "\n")
+
+    # Create bar plot with error bars
+    x_positions = np.arange(len(unique_months))
+    width = 0.35
+    
+    improved_means = stats_df['improved_mean'].values
+    decreased_means = stats_df['decreased_mean'].values
+    
+    # Error bars (asymmetric)
+    improved_errors = [stats_df['improved_error_lower'].values, stats_df['improved_error_upper'].values]
+    decreased_errors = [stats_df['decreased_error_lower'].values, stats_df['decreased_error_upper'].values]
+    
+    # Plot bars with error bars
+    bars1 = ax.bar(x_positions - width/2, improved_means, width, 
+                   label='Avg Improvement (>+0.1)', color='#2CA02C', alpha=0.8, 
+                   edgecolor='black', linewidth=1,
+                   yerr=improved_errors, capsize=4, error_kw={'linewidth': 1.5, 'ecolor': 'black'})
+    
+    bars2 = ax.bar(x_positions + width/2, decreased_means, width,
+                   label='Avg Decrease (<-0.1)', color='#D62728', alpha=0.8, 
+                   edgecolor='black', linewidth=1,
+                   yerr=decreased_errors, capsize=4, error_kw={'linewidth': 1.5, 'ecolor': 'black'})
+    
+    # Add value labels on bars
+    for bars, values in [(bars1, improved_means), (bars2, decreased_means)]:
+        for bar, val in zip(bars, values):
+            height = bar.get_height()
+            if height > 0.01:  # Only show label if there's a meaningful value
+                ax.text(bar.get_x() + bar.get_width()/2., height,
+                       f'{val:.2f}',
+                       ha='center', va='bottom', fontsize=8, fontweight='bold')
+    
+    # Customize plot
+    ax.set_xlabel("Month", fontsize=12)
+    ax.set_ylabel(f"Average Δ {metric_renamer.get(metric, metric)}", fontsize=12)
+    ax.set_title(
+        f"Average Performance Change Magnitude by Month\n{model_1} vs {model_2} (error bars: Min-Max)",
+        fontsize=13, fontweight='bold',
+    )
+    
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(unique_months, rotation=45, ha="right")
+    ax.set_ylim(0, 1)
+    ax.grid(axis="y", alpha=0.3, linestyle="--")
+    ax.legend(loc="upper right", frameon=True, fontsize=10)
+
+    # Add border around the plot
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_color("black")
+        spine.set_linewidth(1.5)
+
+    return ax, stats_df
+
+
 def collect_and_plot_top_features(
     folders: List[str],
     top_n: int = 20,
@@ -745,17 +911,9 @@ def collect_and_plot_top_features(
     return df_all, fig
 
 
-def draw_feature_importance():
+def draw_feature_importance(folders_to_check):
     """Main function to analyze and visualize gl_fr feature importance."""
-    folders_to_check = [
-        "../monthly_forecasting_models/GlacierMapper_Based/Gla_GBT",
-        "../monthly_forecasting_models/GlacierMapper_Based/Gla_GBT_Snow",
-        "../monthly_forecasting_models/GlacierMapper_Based/Gla_GBT_LR",
-        "../monthly_forecasting_models/SnowMapper_Based/Snow_GBT",
-        "../monthly_forecasting_models/SnowMapper_Based/Snow_GBT_Norm",
-        "../monthly_forecasting_models/SnowMapper_Based/Snow_GBT_LR",
-        "../monthly_forecasting_models/BaseCase/GBT"
-    ]
+    
     
     print("="*60)
     print("Analyzing gl_fr feature importance across models")
@@ -815,26 +973,26 @@ def main():
     os.makedirs(save_dir, exist_ok=True)
     config_plotting()
 
-    # Analyze gl_fr feature importance across models
-    print("\n" + "="*60)
-    print("FEATURE IMPORTANCE ANALYSIS")
-    print("="*60)
-    draw_feature_importance()
-    
-    # Plot top 20 features for all GBT models
-    print("\n" + "="*60)
-    print("TOP 20 FEATURES ACROSS GBT MODELS")
-    print("="*60)
     
     folders_to_check = [
         "../monthly_forecasting_models/GlacierMapper_Based/Gla_GBT",
         "../monthly_forecasting_models/GlacierMapper_Based/Gla_GBT_Snow",
-        "../monthly_forecasting_models/GlacierMapper_Based/Gla_GBT_LR",
+        "../monthly_forecasting_models/GlacierMapper_Based/Gla_GBT_Norm",
         "../monthly_forecasting_models/SnowMapper_Based/Snow_GBT",
         "../monthly_forecasting_models/SnowMapper_Based/Snow_GBT_Norm",
         "../monthly_forecasting_models/SnowMapper_Based/Snow_GBT_LR",
         "../monthly_forecasting_models/BaseCase/GBT"
     ]
+    # Analyze gl_fr feature importance across models
+    print("\n" + "="*60)
+    print("FEATURE IMPORTANCE ANALYSIS")
+    print("="*60)
+    draw_feature_importance(folders_to_check=folders_to_check)
+    
+    # Plot top 20 features for all GBT models
+    print("\n" + "="*60)
+    print("TOP 20 FEATURES ACROSS GBT MODELS")
+    print("="*60)
     
     top_features_save_path = Path(save_dir) / "top_20_features_all_models.png"
     df_top_features, fig_top_features = collect_and_plot_top_features(
@@ -909,31 +1067,61 @@ def main():
     )
 
     plt.close("all")
-    ## Feature importance analysis
-    draw_feature_importance()
-    plt.close("all")
 
-    # Model difference per month plot
-    fig, ax = plt.subplots()
-    ax, stats_df = plot_model_difference_per_month(
-        metrics=df_metrics,
-        model_1="MC ALD",
-        model_2="Gla MC ALD",
-        static_df=static_df,
-        metric="r2",
-        threshold=0.1,
-    )
-    fig = ax.get_figure()
-    # Save figure
-    out = Path(save_dir) / "MC_Gla_MC_model_difference_per_month.png"
-    fig.savefig(out, dpi=300, bbox_inches="tight")
+    combinations = [
+        ("Glacier Mapper Ensemble", "SnowMapper Ensemble", "Gla_Snow"),
+        ("Glacier Mapper Ensemble", "Base Case Ensemble", "Gla_Base"),
+        ("SnowMapper Ensemble", "Base Case Ensemble", "Snow_Base"),
+        ("Gla MC ALD", "MC ALD", "Gla_MC"),
+    ]
+
+    for model_1, model_2, combo_name in combinations:
+
+        # Model difference per month plot
+        fig, ax = plt.subplots()
+        ax, stats_df = plot_model_difference_per_month(
+            metrics=df_metrics,
+            model_1=model_1,
+            model_2=model_2,
+            static_df=static_df,
+            metric="r2",
+            threshold=0.1,
+        )
+        fig = ax.get_figure()
+        # Save figure
+        out = Path(save_dir) / f"{combo_name}_model_difference_per_month.png"
+        fig.savefig(out, dpi=300, bbox_inches="tight")
+        
+        # Save statistics to CSV
+        stats_out = Path(save_dir) / f"{combo_name}_model_difference_statistics.csv"
+        stats_df.to_csv(stats_out, index=False)
+        print(f"✓ Model difference statistics saved to: {stats_out}")
+        
+        plt.show()
+        plt.close("all")
+
+        # Model difference magnitude plot
+        fig, ax = plt.subplots()
+        ax, magnitude_stats_df = plot_model_difference_magnitude(
+            metrics=df_metrics,
+            model_1=model_1,
+            model_2=model_2,
+            metric="r2",
+            threshold=0.1,
+        )
+        fig = ax.get_figure()
+        
+        # Save figure
+        out = Path(save_dir) / f"{combo_name}_model_difference_magnitude.png"
+        fig.savefig(out, dpi=300, bbox_inches="tight")
+        
+        # Save statistics to CSV
+        magnitude_stats_out = Path(save_dir) / f"{combo_name}_model_difference_magnitude_statistics.csv"
+        magnitude_stats_df.to_csv(magnitude_stats_out, index=False)
+        print(f"✓ Model difference magnitude statistics saved to: {magnitude_stats_out}")
     
-    # Save statistics to CSV
-    stats_out = Path(save_dir) / "model_difference_statistics.csv"
-    stats_df.to_csv(stats_out, index=False)
-    print(f"✓ Model difference statistics saved to: {stats_out}")
+        plt.show()
     
-    plt.show()
     plt.close("all")
 
 if __name__ == "__main__":
