@@ -712,7 +712,7 @@ class SciRegressor(BaseForecastModel):
         forecast_base = pd.DataFrame(
             {
                 "code": basin_codes,
-                "forecast_date": today.strftime("%Y-%m-%d"),
+                "date": today.strftime("%Y-%m-%d"),
                 "valid_from": valid_from_str,
                 "valid_to": valid_to_str,
                 "prediction_horizon_days": self.general_config["prediction_horizon"],
@@ -866,7 +866,7 @@ class SciRegressor(BaseForecastModel):
         # Reorder columns for better readability
         base_cols = [
             "code",
-            "forecast_date",
+            "date",
             "valid_from",
             "valid_to",
             "prediction_horizon_days",
@@ -888,7 +888,7 @@ class SciRegressor(BaseForecastModel):
             for code in missing_basin_codes:
                 empty_row = {
                     "code": code,
-                    "forecast_date": today.strftime("%Y-%m-%d"),
+                    "date": today.strftime("%Y-%m-%d"),
                     "valid_from": valid_from_str,
                     "valid_to": valid_to_str,
                     "prediction_horizon_days": self.general_config[

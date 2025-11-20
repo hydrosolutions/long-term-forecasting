@@ -213,8 +213,16 @@ class LinearRegressionModel(BaseForecastModel):
 
         prediction_data = prediction_data.dropna(subset=features, how="any").copy()
         if len(prediction_data) == 0:
+            logger.warning("No prediction data available after dropping NaNs.")
+            # get the columns with nan in features
+            nan_columns = prediction_data[features].isna().any()
+            missing_features = nan_columns[nan_columns].index.tolist()
+            logger.warning(
+                f"Features with NaN values in prediction data: {missing_features}"
+            )
             return [np.nan], [np.nan], np.nan, None
         if len(calibration_data) < self.general_config["num_features"] * 2:
+            logger.warning("Not enough calibration data available after dropping NaNs.")
             return [np.nan], [np.nan], np.nan, None
 
         X_calibration = calibration_data[features]
@@ -346,10 +354,7 @@ class LinearRegressionModel(BaseForecastModel):
             logger.debug(
                 f"Latest date of data for code {code}: {code_data['date'].max().strftime('%Y-%m-%d')}"
             )
-            logger.debug(f"Today is {today_pd.strftime('%Y-%m-%d')}")
-            logger.debug(
-                f"Type of date and today: {type(code_data['date'].max())}, {type(today_pd)}"
-            )
+
             calibration_data = code_data[code_data["date"] < today_pd].copy()
             prediction_data = code_data[code_data["date"] == today_pd].copy()
 
@@ -389,7 +394,7 @@ class LinearRegressionModel(BaseForecastModel):
             pred_col = f"Q_{self.name}"
             pred_df = pd.DataFrame(
                 {
-                    "forecast_date": [today_for_df],
+                    "date": [today_for_df],
                     "code": [code],
                     "valid_from": [valid_from],
                     "valid_to": [valid_to],
