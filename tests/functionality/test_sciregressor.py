@@ -566,7 +566,7 @@ class SciRegressorTester:
                             for code in [16936, 16940, 16942]:
                                 mock_forecast_data.append(
                                     {
-                                        "forecast_date": datetime.datetime.now(),
+                                        "date": datetime.datetime.now(),
                                         "code": code,
                                         "valid_from": "2025-07-04",
                                         "valid_to": "2025-08-03",
@@ -602,7 +602,7 @@ class SciRegressorTester:
             if len(forecast_df) > 0:
                 # Check required columns
                 required_cols = [
-                    "forecast_date",
+                    "date",
                     "code",
                     "valid_from",
                     "valid_to",
@@ -1017,7 +1017,7 @@ class ComprehensiveSciRegressorTester:
                         mock_forecast_data.append(
                             {
                                 "code": code,
-                                "forecast_date": today.strftime("%Y-%m-%d"),
+                                "date": today.strftime("%Y-%m-%d"),
                                 "valid_from": "2025-07-04",
                                 "valid_to": "2025-08-03",
                                 f"Q_{model.name}": np.random.uniform(10, 100),
@@ -1073,7 +1073,7 @@ class ComprehensiveSciRegressorTester:
                                 mock_forecast_data.append(
                                     {
                                         "code": code,
-                                        "forecast_date": today.strftime("%Y-%m-%d"),
+                                        "date": today.strftime("%Y-%m-%d"),
                                         "valid_from": "2025-07-04",
                                         "valid_to": "2025-08-03",
                                         f"Q_{model.name}": np.random.uniform(10, 100),
@@ -1429,7 +1429,7 @@ class ComprehensiveSciRegressorTester:
                             for code in [16936, 16940, 16942]:
                                 mock_forecast_data.append(
                                     {
-                                        "forecast_date": datetime.datetime.now(),
+                                        "date": datetime.datetime.now(),
                                         "code": code,
                                         "valid_from": "2025-07-04",
                                         "valid_to": "2025-08-03",
@@ -1465,7 +1465,7 @@ class ComprehensiveSciRegressorTester:
             if len(forecast_df) > 0:
                 # Check required columns
                 required_cols = [
-                    "forecast_date",
+                    "date",
                     "code",
                     "valid_from",
                     "valid_to",

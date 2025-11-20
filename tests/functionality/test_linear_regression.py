@@ -468,7 +468,7 @@ class LinearRegressionTester:
             ):  # Forecast might be empty if no data for current period
                 # Check required columns
                 required_cols = [
-                    "forecast_date",
+                    "date",
                     "code",
                     "valid_from",
                     "valid_to",
