@@ -8,6 +8,12 @@ A comprehensive machine learning system for predicting river discharge at long t
 
 The Long Term Discharge Forecasting System implements a modular pipeline that integrates multiple data sources, employs various machine learning algorithms, and uses ensemble techniques to produce robust discharge predictions. The system is designed for operational forecasting in Central Asian basins with complex hydrology influenced by snow and glacier dynamics.
 
+### System Architecture
+
+![Monthly Forecasting Workflow](docs/Monthly_Workflow_updated.png)
+
+The diagram above illustrates the complete workflow from data ingestion to operational forecasts, including feature engineering, model training, and ensemble generation.
+
 ### Key Features
 
 - **Multiple Model Families**: Linear regression baselines and advanced tree-based models (XGBoost, LightGBM, CatBoost)
@@ -16,9 +22,20 @@ The Long Term Discharge Forecasting System implements a modular pipeline that in
 - **Comprehensive Evaluation**: Interactive dashboards and extensive metrics
 - **Modular Architecture**: Easy to extend with new models and data sources
 
-For detailed technical documentation:
-- [docs/Overview.md](docs/Overview.md) - Complete system architecture with workflow diagrams
-- [docs/model_description.md](docs/model_description.md) - Detailed model descriptions and guidelines
+## Documentation
+
+### Core Documentation
+- **[Model Descriptions](docs/model_description.md)** - Detailed model specifications and ensemble strategies
+- **[Feature Engineering](docs/feature_engineering.md)** - Feature extraction and preprocessing pipelines
+- **[Adding New Models](docs/how_to_add_model.md)** - Guide for implementing custom forecast models
+- **[Development & Production Plan](docs/development_production_plan.md)** - Workflow for package integration
+
+### Component Documentation
+- [Data Processing](lt_forecasting/scr/documentation.md) - Data loading and feature engineering utilities
+- [Model Implementations](lt_forecasting/forecast_models/documentation.md) - Individual model class details
+- [Evaluation Pipeline](dev_tools/evaluation/README.md) - Metrics and evaluation workflows
+- [Visualization Dashboard](dev_tools/visualization/README.md) - Interactive dashboard guide
+- [Testing Guide](tests/README.md) - Test suite organization and best practices
 
 ## Quick Start
 
@@ -62,7 +79,7 @@ uv run python -m dev_tools.visualization.dashboard
 The system follows a modular approach where different forecasting classes implement similar interfaces but handle different model types:
 
 1. **LINEAR_REGRESSION**: Statistical baseline with period-specific models
-2. **SciRegressor**: Advanced ML models (XGBoost, LightGBM, CatBoost)
+2. **SciRegressor**: ML models (XGBoost, LightGBM, CatBoost)
 
 This modular design enables:
 - Efficient ensemble creation (process data once, train multiple models)
@@ -354,24 +371,7 @@ We welcome contributions! Please:
 5. Update documentation as needed
 6. Submit a pull request
 
-See [CLAUDE.md](CLAUDE.md) for detailed development guidelines.
-
-## Documentation
-
-### Core Documentation
-- [docs/Overview.md](docs/Overview.md) - System architecture and data flow
-- [docs/model_description.md](docs/model_description.md) - Detailed model specifications
-
-### Component Documentation
-- [scr/documentation.md](scr/documentation.md) - Data processing components
-- [forecast_models/documentation.md](forecast_models/documentation.md) - Model implementations
-- [evaluation/README.md](evaluation/README.md) - Evaluation pipeline
-- [visualization/README.md](visualization/README.md) - Dashboard guide
-- [tests/README.md](tests/README.md) - Testing guidelines
-
-### Development Documentation
-- [scratchpads/README.md](scratchpads/README.md) - Development workflow
-- [CLAUDE.md](CLAUDE.md) - Project-specific development instructions
+See [CLAUDE.md](CLAUDE.md) for detailed development guidelines and [scratchpads/README.md](scratchpads/README.md) for the development workflow.
 
 ## License
 

@@ -20,8 +20,12 @@ from style_config import set_global_plot_style
 set_global_plot_style()
 
 # get data handlers
-metric_handler = MetricsDataHandler()
-prediction_handler = PredictionDataHandler()
+metric_handler = MetricsDataHandler(
+    metrics_path="../monthly_forecasting_results/evaluation/TJK/metrics.csv"
+)
+prediction_handler = PredictionDataHandler(
+    results_dir="/Users/sandrohunziker/hydrosolutions Dropbox/Sandro Hunziker/SAPPHIRE_Central_Asia_Technical_Work/data/taj_data_forecast_tools/intermediate_data/long_term_predictions/monthly"
+)
 
 month_mapping = {
     12: "January",
@@ -40,7 +44,7 @@ month_mapping = {
 
 model_colors = {
     "Linear Regression Base": "#787878",  # blue
-    "SnowMapper Ensemble": "#1F77B4",  # orange
+    "SM GBT LR": "#1F77B4",  # orange
     "MC ALD": "#2CA02C",  # green
 }
 
@@ -447,20 +451,20 @@ def plot_metric_per_month_basin(
 
 
 if __name__ == "__main__":
-    save_dir = "../monthly_forecasting_results/figures/KGZ"
+    save_dir = "../monthly_forecasting_results/figures/TJK"
     os.makedirs(save_dir, exist_ok=True)
     config_plotting()
 
     models_to_plot = [
-        "BaseCase_LR_Base",
-        "SnowMapper_Based_Ensemble",
+        "all_models_LR_Base",
+        "all_models_SM_GBT_LR",
         "Uncertainty_MC_ALD",
     ]
 
     rename_dict = {
-        "BaseCase_LR_Base": "Linear Regression Base",
-        "SnowMapper_Based_Ensemble": "SnowMapper Ensemble",
-        "Uncertainty_MC_ALD": "MC ALD",
+        "all_models_LR_Base": "Linear Regression Base",
+        "all_models_SM_GBT_LR": "SM GBT LR",
+        "all_models_MC_ALD": "MC ALD",
     }
 
     df_metrics = metric_handler.get_filtered_data()
@@ -482,7 +486,7 @@ if __name__ == "__main__":
     )
 
     # plot per month and basin for selected basins
-    possible_codes = ["15149", "15283", "16936", "16510"]
+    possible_codes = ["17084", "17288", "17050"]
     for code in possible_codes:
         plot_metric_per_month_basin(
             df=df_metrics,
@@ -498,7 +502,7 @@ if __name__ == "__main__":
 
     print(all_predictions.keys())
 
-    df_predictions = all_predictions["Uncertainty_MC_ALD"]
+    df_predictions = all_predictions["all_models_MC_ALD"]
 
     unique_codes = df_predictions["code"].unique()
     print(f"Unique codes in predictions: {unique_codes}")

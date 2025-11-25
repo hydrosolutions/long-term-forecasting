@@ -14,8 +14,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default configuration
-RESULTS_DIR="../monthly_forecasting_results"
-OUTPUT_DIR="../monthly_forecasting_results/evaluation"
+RESULTS_DIR="/Users/sandrohunziker/hydrosolutions Dropbox/Sandro Hunziker/SAPPHIRE_Central_Asia_Technical_Work/data/taj_data_forecast_tools/intermediate_data/long_term_predictions/monthly"
+OUTPUT_DIR="../monthly_forecasting_results/evaluation/TJK"
 EVALUATION_DAY="end"
 ENSEMBLE_METHOD="mean"
 COMMON_CODES_ONLY="true"
@@ -24,6 +24,8 @@ MIN_SAMPLES_OVERALL=10
 MIN_SAMPLES_CODE=5
 MIN_SAMPLES_MONTH=5
 MIN_SAMPLES_CODE_MONTH=5
+FLAT_STRUCTURE="true"
+PREDICTION_FILE_KEYWORD="hindcast"
 VERBOSE="false"
 DRY_RUN="false"
 
@@ -56,18 +58,21 @@ OPTIONS:
     -h, --help                  Show this help message
     -v, --verbose              Enable verbose output
     -n, --dry-run              Show command that would be executed without running it
-    
+
     --results-dir DIR          Directory containing model results (default: $RESULTS_DIR)
     --output-dir DIR           Directory to save evaluation outputs (default: $OUTPUT_DIR)
     --evaluation-day DAY       Day of month for evaluation: 'end' or integer (default: $EVALUATION_DAY)
     --ensemble-method METHOD   Ensemble method: mean, median, weighted_mean (default: $ENSEMBLE_METHOD)
     --all-codes               Use all basin codes (not just common ones)
     --include-code-month      Include per-code-month evaluation (slower)
-    
+
     --min-overall N           Minimum samples for overall evaluation (default: $MIN_SAMPLES_OVERALL)
     --min-code N              Minimum samples for per-code evaluation (default: $MIN_SAMPLES_CODE)
     --min-month N             Minimum samples for per-month evaluation (default: $MIN_SAMPLES_MONTH)
     --min-code-month N        Minimum samples for per-code-month evaluation (default: $MIN_SAMPLES_CODE_MONTH)
+
+    --flat-structure          Use flat directory structure (all models in same folder)
+    --prediction-keyword KEY  Keyword to match in CSV filename (default: $PREDICTION_FILE_KEYWORD)
 
 EXAMPLES:
     # Run with default settings
@@ -157,6 +162,14 @@ while [[ $# -gt 0 ]]; do
             MIN_SAMPLES_CODE_MONTH="$2"
             shift 2
             ;;
+        --flat-structure)
+            FLAT_STRUCTURE="true"
+            shift
+            ;;
+        --prediction-keyword)
+            PREDICTION_FILE_KEYWORD="$2"
+            shift 2
+            ;;
         *)
             print_error "Unknown option: $1"
             echo "Use --help for usage information."
@@ -204,6 +217,12 @@ if [[ "$INCLUDE_CODE_MONTH" == "true" ]]; then
     CMD="$CMD --include_code_month"
 fi
 
+if [[ "$FLAT_STRUCTURE" == "true" ]]; then
+    CMD="$CMD --flat_structure"
+fi
+
+CMD="$CMD --prediction_file_keyword \"$PREDICTION_FILE_KEYWORD\""
+
 # Display configuration
 print_info "Evaluation Pipeline Configuration:"
 echo "  Results directory: $RESULTS_DIR"
@@ -213,6 +232,8 @@ echo "  Ensemble method: $ENSEMBLE_METHOD"
 echo "  Common codes only: $COMMON_CODES_ONLY"
 echo "  Include code-month: $INCLUDE_CODE_MONTH"
 echo "  Min samples (overall/code/month/code-month): $MIN_SAMPLES_OVERALL/$MIN_SAMPLES_CODE/$MIN_SAMPLES_MONTH/$MIN_SAMPLES_CODE_MONTH"
+echo "  Flat structure: $FLAT_STRUCTURE"
+echo "  Prediction file keyword: $PREDICTION_FILE_KEYWORD"
 echo ""
 
 if [[ "$VERBOSE" == "true" ]]; then
