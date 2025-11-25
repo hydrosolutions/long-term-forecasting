@@ -152,7 +152,6 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         )
 
         self.data = self._m3_to_mm(self.data)
-
         # Get target variable
         target = extractor.create_target(self.data)
         dates = pd.to_datetime(self.data["date"])
@@ -184,8 +183,11 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
         # remove rivers which are not in static data
         if self.rivers_to_remove:
-            logger.info(f"Removing rivers: {self.rivers_to_remove}")
-            merged_data = merged_data[~merged_data["code"].isin(self.rivers_to_remove)]
+            unique_rivers_to_remove = set(self.rivers_to_remove)
+            logger.info(f"Removing rivers: {unique_rivers_to_remove}")
+            merged_data = merged_data[
+                ~merged_data["code"].isin(unique_rivers_to_remove)
+            ]
 
         ensemble_mean = merged_data[model_names].mean(axis=1)
         merged_data["Q_pred"] = ensemble_mean
@@ -838,9 +840,6 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # Step 1: Load models and artifacts
         self.load_model()
 
-        # Step 2: Data processing
-        self.__preprocess_data__()
-
         # Step 3: Calculate valid period
         if not self.general_config.get("offset"):
             self.general_config["offset"] = self.general_config["prediction_horizon"]
@@ -862,14 +861,46 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # how many days delayed can the prediction be made
         allowable_delay = self.general_config.get("allowable_delay", 3)
         cutoff_date = today - pd.Timedelta(days=allowable_delay)
+
         logger.info(
             f"Cutoff date for operational prediction: {cutoff_date.date()}. Considering all data after this date."
         )
 
-        operational_data = self.data[self.data["date"] >= cutoff_date].copy()
-        # drop rows with missing features
-        operational_data = operational_data.dropna(subset=self.features).reset_index(
-            drop=True
+        logger.info(f"Total number of unique codes: {len(all_codes)}")
+        logger.info("Data Tail before filtering:")
+        logger.info(self.data.tail())
+
+        ## Cutoff between cutoff day and today
+        operational_data = self.data[
+            (self.data["date"] >= cutoff_date) & (self.data["date"] <= today)
+        ].copy()
+        logger.info(f"Operational data shape after cutoff: {operational_data.shape}")
+
+        recent_operational_data = []
+        ## get the most recent date where data is available for each code
+        for code in all_codes:
+            code_data = operational_data[operational_data["code"] == code]
+            if code_data.empty:
+                logger.warning(
+                    f"No data available for code {code} in operational data."
+                )
+                continue
+            # sort by date descending
+            code_data = code_data.sort_values(by="date", ascending=False)
+
+            # take the most recent date where all features are available
+            code_data = code_data.dropna(subset=self.features)
+            if code_data.empty:
+                logger.warning(f"No complete feature data available for code {code}.")
+                continue
+            most_recent_date = code_data["date"].iloc[0]
+            recent_data = code_data[code_data["date"] == most_recent_date]
+            recent_operational_data.append(recent_data)
+
+        operational_data = pd.concat(recent_operational_data, ignore_index=True)
+
+        logger.info(
+            f"Operational data shape after dropping missing features: {operational_data.shape}"
         )
 
         # sort by date and take for each code the most recent date
@@ -894,19 +925,16 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             return pd.DataFrame()
 
         # Step 5: Make predictions
-        preds = self.predict(
+        forecast = self.predict(
             df=operational_data,
             model=self.model,
             scaler=self.scaler,
         )
 
-        if preds.empty:
+        if forecast.empty:
             logger.warning("No predictions were made. Exiting.")
             return pd.DataFrame()
 
-        forecast = self._mm_to_m3(
-            preds, col=[col for col in preds.columns if col.startswith("Q")]
-        )
         # Step 7: Rescale the predictions to original scale
         pred_cols = [col for col in forecast.columns if col.startswith("Q")]
         pred_cols.append("date")
@@ -917,8 +945,6 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         logger.info("Head of forecast DataFrame:")
         logger.info(forecast.head())
 
-        forecast_date = today.strftime("%Y-%m-%d")
-        forecast["forecast_date"] = forecast_date
         forecast["valid_from"] = valid_from_str
         forecast["valid_to"] = valid_to_str
 
@@ -938,16 +964,14 @@ class UncertaintyMixtureModel(BaseMetaLearner):
                 # Add the empty row to the forecast DataFrame
                 forecast = pd.concat([forecast, empty_row_df], ignore_index=True)
 
-        forecast_date = today.strftime("%Y-%m-%d")
-        forecast["forecast_date"] = forecast_date
-        forecast["valid_from"] = valid_from_str
-        forecast["valid_to"] = valid_to_str
-
         # round numeric columns to 2 decimals
         numeric_cols = forecast.select_dtypes(include=[np.number]).columns
         # exclude code column
         numeric_cols = [col for col in numeric_cols if col != "code"]
         forecast[numeric_cols] = forecast[numeric_cols].round(2)
+
+        # set limit of 0 for predictions
+        forecast[numeric_cols] = forecast[numeric_cols].clip(lower=0)
 
         return forecast
 

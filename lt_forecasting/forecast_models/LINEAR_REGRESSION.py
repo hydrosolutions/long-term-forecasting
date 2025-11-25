@@ -404,6 +404,10 @@ class LinearRegressionModel(BaseForecastModel):
 
             forecast = pd.concat([forecast, pred_df], ignore_index=True)
 
+        # clip predictions to be >= 0
+        pred_col = f"Q_{self.name}"
+        forecast[pred_col] = forecast[pred_col].clip(lower=0)
+
         return forecast
 
     def calibrate_model_and_hindcast(self) -> pd.DataFrame:
@@ -599,6 +603,9 @@ class LinearRegressionModel(BaseForecastModel):
 
         hindcast_df["valid_from"] = valid_from
         hindcast_df["valid_to"] = valid_to
+
+        pred_col = f"Q_{self.name}"
+        hindcast_df[pred_col] = hindcast_df[pred_col].clip(lower=0)
 
         return hindcast_df
 

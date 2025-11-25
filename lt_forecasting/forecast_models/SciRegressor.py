@@ -845,7 +845,14 @@ class SciRegressor(BaseForecastModel):
         forecast = forecast_base.copy()
 
         for model_type, model_forecast in forecast_predictions.items():
-            forecast = pd.merge(forecast, model_forecast, on="code", how="left")
+            pred_col = f"Q_{model_type}"
+            # Only merge the prediction column, not the date column (to avoid suffix issues)
+            forecast = pd.merge(
+                forecast,
+                model_forecast[["code", pred_col]],
+                on="code",
+                how="left",
+            )
 
         if not all_pred_cols:
             logger.error("No successful predictions made.")
@@ -906,6 +913,10 @@ class SciRegressor(BaseForecastModel):
         logger.info(
             f"Operational forecast completed for {len(forecast)} basins with {len(all_pred_cols)} predictions"
         )
+
+        # Clip predictions to be >= 0
+        for col in all_pred_cols:
+            forecast[col] = forecast[col].clip(lower=0)
 
         return forecast
 
@@ -1055,6 +1066,10 @@ class SciRegressor(BaseForecastModel):
 
         hindcast_df["valid_from"] = valid_from
         hindcast_df["valid_to"] = valid_to
+
+        # clip prediction columns to be >= 0
+        for col in all_pred_cols + [ensemble_name]:
+            hindcast_df[col] = hindcast_df[col].clip(lower=0)
 
         return hindcast_df
 

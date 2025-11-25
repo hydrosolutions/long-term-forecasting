@@ -12,6 +12,9 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -32,3 +35,18 @@ jobs:
     
     - name: Run tests
       run: uv run pytest tests/ -v --tb=short
+    
+    # Strip notebooks on push 
+    - name: Strip notebook outputs  
+      if: github.event_name == 'push'
+      run: |
+        uv run nbstripout **/*.ipynb
+        
+    - name: Commit stripped notebooks
+      if: github.event_name == 'push'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add -A
+        git diff --staged --quiet || git commit -m "Auto-strip notebook outputs [skip ci]"
+        git push
