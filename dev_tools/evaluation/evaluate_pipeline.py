@@ -65,6 +65,8 @@ class EvaluationPipeline:
         min_samples_code: int = 5,
         min_samples_month: int = 3,
         min_samples_code_month: int = 2,
+        flat_structure: bool = False,
+        prediction_file_keyword: str = "predictions",
     ):
         """
         Initialize the evaluation pipeline.
@@ -91,6 +93,11 @@ class EvaluationPipeline:
             Minimum samples for per-month evaluation
         min_samples_code_month : int
             Minimum samples for per-code-month evaluation
+        flat_structure : bool
+            If True, scan for models in flat structure (results_dir/model_name/*.csv)
+            If False, scan for models in family structure (results_dir/family_name/model_name/*.csv)
+        prediction_file_keyword : str
+            Keyword that must be present in the CSV filename (e.g., 'hindcast', 'predictions')
         """
         self.results_dir = results_dir
         self.output_dir = output_dir
@@ -102,6 +109,8 @@ class EvaluationPipeline:
         self.min_samples_code = min_samples_code
         self.min_samples_month = min_samples_month
         self.min_samples_code_month = min_samples_code_month
+        self.flat_structure = flat_structure
+        self.prediction_file_keyword = prediction_file_keyword
 
         # Create output directory
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
@@ -133,6 +142,8 @@ class EvaluationPipeline:
                 results_dir=self.results_dir,
                 evaluation_day=self.evaluation_day,
                 common_codes_only=self.common_codes_only,
+                flat_structure=self.flat_structure,
+                prediction_file_keyword=self.prediction_file_keyword,
             )
 
             if not self.loaded_predictions:
@@ -503,6 +514,8 @@ def run_evaluation_pipeline(
     min_samples_code: int = 10,
     min_samples_month: int = 10,
     min_samples_code_month: int = 10,
+    flat_structure: bool = False,
+    prediction_file_keyword: str = "predictions",
 ) -> bool:
     """
     Convenience function to run the evaluation pipeline.
@@ -529,6 +542,11 @@ def run_evaluation_pipeline(
         Minimum samples for per-month evaluation
     min_samples_code_month : int
         Minimum samples for per-code-month evaluation
+    flat_structure : bool
+        If True, scan for models in flat structure (results_dir/model_name/*.csv)
+        If False, scan for models in family structure (results_dir/family_name/model_name/*.csv)
+    prediction_file_keyword : str
+        Keyword that must be present in the CSV filename (e.g., 'hindcast', 'predictions')
 
     Returns:
     --------
@@ -546,6 +564,8 @@ def run_evaluation_pipeline(
         min_samples_code=min_samples_code,
         min_samples_month=min_samples_month,
         min_samples_code_month=min_samples_code_month,
+        flat_structure=flat_structure,
+        prediction_file_keyword=prediction_file_keyword,
     )
 
     return pipeline.run_pipeline()
@@ -626,6 +646,19 @@ def main():
         help="Minimum samples for per-code-month evaluation",
     )
 
+    parser.add_argument(
+        "--flat_structure",
+        action="store_true",
+        help="Use flat directory structure (all models in same folder)",
+    )
+
+    parser.add_argument(
+        "--prediction_file_keyword",
+        type=str,
+        default="predictions",
+        help="Keyword to match in CSV filename (e.g., 'hindcast', 'predictions')",
+    )
+
     args = parser.parse_args()
 
     # Convert evaluation_day to int if it's a number
@@ -649,6 +682,8 @@ def main():
         min_samples_code=args.min_samples_code,
         min_samples_month=args.min_samples_month,
         min_samples_code_month=args.min_samples_code_month,
+        flat_structure=args.flat_structure,
+        prediction_file_keyword=args.prediction_file_keyword,
     )
 
     if success:

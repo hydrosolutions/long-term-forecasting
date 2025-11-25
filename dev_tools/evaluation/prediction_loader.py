@@ -21,22 +21,22 @@ logger = logging.getLogger(__name__)
 MODEL_FAMILIES = {
     "BaseCase": ["LR_Base", "GBT"],
     # "SCA_Based": ["LR_Q_SCA", "LR_Q_T_SCA"],
-    "SnowMapper_Based": [
-        "LR_Snowmapper",
-        "LR_Snowmapper_DT",
-        # "LR_Snowmapper_ROF",
-        "Snow_GBT",
+    "SnowMapper": [
+        "LR_SM",
+        "LR_SM_DT",
+        "LR_SM_ROF",
+        "SM_GBT",
         # "Snow_GBT_old",
-        "Snow_GBT_LR",
-        "Snow_GBT_Norm",
+        "SM_GBT_LR",
+        "SM_GBT_Norm",
         # "Snow_HistMeta",
     ],
     "Uncertainty": [  # "UncertaintyMixtureMLP",
         "MC_ALD",
-        "Gla_MC_ALD",
-        "Sel_MC_ALD",
     ],
-    "GlacierMapper_Based": [
+}
+
+"""    "GlacierMapper_Based": [
         #    #"LR_Gla_PCA",
         "LR_Gla_SLA",
         "LR_Gla_NIR",
@@ -46,8 +46,7 @@ MODEL_FAMILIES = {
         "Gla_GBT_Norm",
         # "Gla_GBT_Corr" #
         # "Gla_GBT_SnowNorm","Gla_GBT_Extended"
-    ],
-}
+    ],"""
 # Configuration
 EVALUATION_DAY_OF_MONTH = (
     "end"  # 'end' for last day of month, or integer for specific day
@@ -57,6 +56,8 @@ PREDICTION_FILENAME = "predictions.csv"
 
 def scan_prediction_files(
     results_dir: str = "../monthly_forecasting_results",
+    flat_structure: bool = False,
+    prediction_file_keyword: str = "predictions",
 ) -> Dict[str, List[str]]:
     """
     Scan the results directory to discover all available prediction files.
@@ -65,6 +66,11 @@ def scan_prediction_files(
     -----------
     results_dir : str
         Path to the monthly forecasting results directory
+    flat_structure : bool
+        If True, scan for models in flat structure (results_dir/model_name/*.csv)
+        If False, scan for models in family structure (results_dir/family_name/model_name/*.csv)
+    prediction_file_keyword : str
+        Keyword that must be present in the CSV filename (e.g., 'hindcast', 'predictions')
 
     Returns:
     --------
@@ -79,25 +85,61 @@ def scan_prediction_files(
 
     discovered_models = {}
 
-    # Scan each model family
-    for family_name, expected_models in MODEL_FAMILIES.items():
-        family_path = results_path / family_name
-        discovered_models[family_name] = []
+    if flat_structure:
+        # Flat structure: all models in same directory
+        logger.info("Scanning for models in flat directory structure...")
+        discovered_models["all_models"] = []
 
-        if not family_path.exists():
-            logger.warning(f"Family directory not found: {family_path}")
-            continue
+        # Scan for model directories in results_dir
+        for item in results_path.iterdir():
+            if not item.is_dir():
+                continue
 
-        # Scan for model directories
-        for model_name in expected_models:
-            model_path = family_path / model_name
-            prediction_file = model_path / PREDICTION_FILENAME
+            # Look for CSV files containing the keyword
+            csv_files = list(item.glob(f"*{prediction_file_keyword}*.csv"))
 
-            if prediction_file.exists():
-                discovered_models[family_name].append(str(model_path))
-                logger.info(f"Found predictions for {family_name}/{model_name}")
+            if csv_files:
+                # Use the first matching file
+                discovered_models["all_models"].append(str(item))
+                logger.info(
+                    f"Found predictions for {item.name} (file: {csv_files[0].name})"
+                )
             else:
-                logger.warning(f"No predictions found for {family_name}/{model_name}")
+                logger.warning(
+                    f"No CSV files matching '*{prediction_file_keyword}*.csv' found in {item.name}"
+                )
+
+    else:
+        # Family structure: models organized by family
+        logger.info("Scanning for models in family directory structure...")
+        for family_name, expected_models in MODEL_FAMILIES.items():
+            family_path = results_path / family_name
+            discovered_models[family_name] = []
+
+            if not family_path.exists():
+                logger.warning(f"Family directory not found: {family_path}")
+                continue
+
+            # Scan for model directories
+            for model_name in expected_models:
+                model_path = family_path / model_name
+
+                if not model_path.exists():
+                    logger.warning(f"Model directory not found: {model_path}")
+                    continue
+
+                # Look for CSV files containing the keyword
+                csv_files = list(model_path.glob(f"*{prediction_file_keyword}*.csv"))
+
+                if csv_files:
+                    discovered_models[family_name].append(str(model_path))
+                    logger.info(
+                        f"Found predictions for {family_name}/{model_name} (file: {csv_files[0].name})"
+                    )
+                else:
+                    logger.warning(
+                        f"No CSV files matching '*{prediction_file_keyword}*.csv' found for {family_name}/{model_name}"
+                    )
 
     # Log summary
     total_models = sum(len(models) for models in discovered_models.values())
@@ -345,6 +387,7 @@ def load_predictions(
     model_paths: Dict[str, List[str]],
     evaluation_day: Union[str, int] = EVALUATION_DAY_OF_MONTH,
     common_codes_only: bool = True,
+    prediction_file_keyword: str = "predictions",
 ) -> Dict[str, pd.DataFrame]:
     """
     Load and standardize prediction data from multiple models.
@@ -358,6 +401,8 @@ def load_predictions(
         'end' for last day of month, or integer for specific day
     common_codes_only : bool
         If True, filter to common basin codes across all models
+    prediction_file_keyword : str
+        Keyword that must be present in the CSV filename (e.g., 'hindcast', 'predictions')
 
     Returns:
     --------
@@ -374,7 +419,18 @@ def load_predictions(
             model_name = Path(model_path).name
             model_id = f"{family_name}_{model_name}"
 
-            prediction_file = Path(model_path) / PREDICTION_FILENAME
+            # Find CSV file containing the keyword
+            csv_files = list(Path(model_path).glob(f"*{prediction_file_keyword}*.csv"))
+
+            if not csv_files:
+                logger.warning(
+                    f"No CSV files matching '*{prediction_file_keyword}*.csv' found in {model_path}"
+                )
+                continue
+
+            # Use the first matching file
+            prediction_file = csv_files[0]
+            logger.info(f"Using prediction file: {prediction_file.name} for {model_id}")
 
             try:
                 # Load CSV file
@@ -541,6 +597,8 @@ def load_all_predictions(
     results_dir: str = "../monthly_forecasting_results",
     evaluation_day: Union[str, int] = EVALUATION_DAY_OF_MONTH,
     common_codes_only: bool = True,
+    flat_structure: bool = False,
+    prediction_file_keyword: str = "predictions",
 ) -> Tuple[Dict[str, pd.DataFrame], Dict[str, Dict]]:
     """
     Complete workflow to discover, load, and validate all prediction data.
@@ -553,6 +611,11 @@ def load_all_predictions(
         'end' for last day of month, or integer for specific day
     common_codes_only : bool
         If True, filter to common basin codes across all models
+    flat_structure : bool
+        If True, scan for models in flat structure (results_dir/model_name/*.csv)
+        If False, scan for models in family structure (results_dir/family_name/model_name/*.csv)
+    prediction_file_keyword : str
+        Keyword that must be present in the CSV filename (e.g., 'hindcast', 'predictions')
 
     Returns:
     --------
@@ -561,12 +624,14 @@ def load_all_predictions(
     """
     # Discover prediction files
     logger.info("Scanning for prediction files...")
-    model_paths = scan_prediction_files(results_dir)
+    model_paths = scan_prediction_files(
+        results_dir, flat_structure, prediction_file_keyword
+    )
 
     # Load predictions
     logger.info("Loading prediction data...")
     loaded_predictions = load_predictions(
-        model_paths, evaluation_day, common_codes_only
+        model_paths, evaluation_day, common_codes_only, prediction_file_keyword
     )
 
     # Validate data
