@@ -373,15 +373,10 @@ We welcome contributions! Please:
 
 See [CLAUDE.md](CLAUDE.md) for detailed development guidelines and [scratchpads/README.md](scratchpads/README.md) for the development workflow.
 
-## License
-
-[Add license information here]
 
 ## Contact
 
 Sandro Hunziker - hunziker@hydrosolutions.ch
 
-## Acknowledgments
 
-[Add acknowledgments for data sources, collaborators, funding, etc.]
 
