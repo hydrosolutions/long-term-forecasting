@@ -163,14 +163,14 @@ class LinearRegressionModel(BaseForecastModel):
         # Select features based on correlation threshold
         if len(best_features_above_threshold) == 0:
             # No features above threshold - use top features regardless
-            logger.warning(
+            logger.debug(
                 f"No features with a correlation greater than {threshold} for {this_period}. "
                 f"Selecting top {num_low_corr_features} features regardless of correlation."
             )
             features_week = best_features[:num_low_corr_features]
         elif len(best_features_above_threshold) < num_low_corr_features:
             # Some features above threshold but fewer than minimum - backfill with top features
-            logger.info(
+            logger.debug(
                 f"Only {len(best_features_above_threshold)} features above threshold {threshold} for {this_period}. "
                 f"Backfilling to {num_low_corr_features} features with top-correlated features."
             )
@@ -213,16 +213,13 @@ class LinearRegressionModel(BaseForecastModel):
 
         prediction_data = prediction_data.dropna(subset=features, how="any").copy()
         if len(prediction_data) == 0:
-            logger.warning("No prediction data available after dropping NaNs.")
+            logger.debug("No prediction data available after dropping NaNs.")
             # get the columns with nan in features
             nan_columns = prediction_data[features].isna().any()
             missing_features = nan_columns[nan_columns].index.tolist()
-            logger.warning(
-                f"Features with NaN values in prediction data: {missing_features}"
-            )
             return [np.nan], [np.nan], np.nan, None
         if len(calibration_data) < self.general_config["num_features"] * 2:
-            logger.warning("Not enough calibration data available after dropping NaNs.")
+            logger.debug("Not enough calibration data available after dropping NaNs.")
             return [np.nan], [np.nan], np.nan, None
 
         X_calibration = calibration_data[features]
@@ -234,7 +231,12 @@ class LinearRegressionModel(BaseForecastModel):
         if lr_type == "linear":
             model = LinearRegression()
         elif lr_type == "ridge":
-            model = Pipeline([("scaler", StandardScaler()), ("ridge", RidgeCV())])
+            model = Pipeline(
+                [
+                    ("scaler", StandardScaler()),
+                    ("ridge", RidgeCV(cv=len(X_calibration))),
+                ]
+            )
         elif lr_type == "lasso":
             model = Pipeline(
                 [

@@ -171,6 +171,12 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         )
         self.model_names = model_names
 
+        # sort by date so the newsest date is at the top
+        base_predictors = base_predictors.sort_values(by=["date"], ascending=[False])
+        today = pd.to_datetime(datetime.datetime.now().date())
+        base_predictors = base_predictors[base_predictors["date"] <= today]
+        logger.info(f"Head of Base Predictors data:\n{base_predictors.head(10)}")
+
         logger.info("converting base predictors to mm/day")
         for model in model_names:
             base_predictors = self._m3_to_mm(base_predictors, col=model)
@@ -288,8 +294,10 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
     def _m3_to_mm(self, data: pd.DataFrame, col: str = "discharge") -> pd.DataFrame:
         for code in data.code.unique():
+            if code in self.rivers_to_remove:
+                continue
             if code not in self.static_data["code"].values:
-                logger.warning(
+                logger.debug(
                     f"Code {code} not found in static data. Skipping this code."
                 )
                 self.rivers_to_remove.append(code)
@@ -306,7 +314,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
     def _mm_to_m3(self, data: pd.DataFrame, col: Union[List[str], str]) -> pd.DataFrame:
         for code in data.code.unique():
             if code not in self.static_data["code"].values:
-                logger.warning(
+                logger.debug(
                     f"Code {code} not found in static data. Skipping this code."
                 )
                 self.rivers_to_remove.append(code)
@@ -867,8 +875,8 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         )
 
         logger.info(f"Total number of unique codes: {len(all_codes)}")
-        logger.info("Data Tail before filtering:")
-        logger.info(self.data.tail())
+        # logger.info("Data Tail before filtering:")
+        # logger.info(self.data.tail())
 
         ## Cutoff between cutoff day and today
         operational_data = self.data[
@@ -889,6 +897,12 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             code_data = code_data.sort_values(by="date", ascending=False)
 
             # take the most recent date where all features are available
+            features_with_na_values = code_data[self.features].isna().any(axis=1)
+            # logg the missing features
+            if features_with_na_values.any():
+                logger.warning(
+                    f"The following features are missing for code {code}: {code_data[self.features].columns[code_data[self.features].isna().any()].tolist()}"
+                )
             code_data = code_data.dropna(subset=self.features)
             if code_data.empty:
                 logger.warning(f"No complete feature data available for code {code}.")
@@ -1069,57 +1083,30 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         hindcast = hindcast[pred_cols]
         hindcast = hindcast.merge(ground_truth, on=["date", "code"], how="left")
 
+        #  Calculate valid period
+        if not self.general_config.get("offset"):
+            self.general_config["offset"] = self.general_config["prediction_horizon"]
+        shift = (
+            self.general_config["offset"] - self.general_config["prediction_horizon"]
+        )
+        valid_from = (
+            hindcast["date"]
+            + datetime.timedelta(days=1)
+            + datetime.timedelta(days=shift)
+        )
+        valid_to = valid_from + datetime.timedelta(
+            days=self.general_config["prediction_horizon"]
+        )
+
+        hindcast["valid_from"] = valid_from
+        hindcast["valid_to"] = valid_to
+
         # save model
         self.save_model()
 
         logger.info("Hindcasting completed")
         logger.info("Head of hindcast DataFrame:")
         logger.info(hindcast.head())
-
-        # quick evaluation of coverage
-        coverage_90 = np.mean(
-            (hindcast["Q_obs"] >= hindcast["Q5"])
-            & (hindcast["Q_obs"] <= hindcast["Q95"])
-        )
-        logger.info(f"Approximate 90% coverage: {coverage_90:.2f}")
-
-        coverage_50 = np.mean(
-            (hindcast["Q_obs"] >= hindcast["Q25"])
-            & (hindcast["Q_obs"] <= hindcast["Q75"])
-        )
-
-        logger.info(f"Approximate 50% coverage: {coverage_50:.2f}")
-
-        hindcast["in_90"] = (hindcast["Q_obs"] >= hindcast["Q5"]) & (
-            hindcast["Q_obs"] <= hindcast["Q95"]
-        )
-        hindcast["in_50"] = (hindcast["Q_obs"] >= hindcast["Q25"]) & (
-            hindcast["Q_obs"] <= hindcast["Q75"]
-        )
-
-        # group by code and calculate coverage per code
-        coverage_by_code = (
-            hindcast.groupby("code")
-            .agg(
-                coverage_90=("in_90", "mean"),
-                coverage_50=("in_50", "mean"),
-                n_samples=("Q_obs", "count"),
-            )
-            .reset_index()
-        )
-
-        import matplotlib.pyplot as plt
-        import seaborn as sns
-
-        # boxplot of coverage_90 and coverage_50
-        plt.figure(figsize=(10, 6))
-        sns.boxplot(data=coverage_by_code[["coverage_90", "coverage_50"]])
-        plt.title("Coverage by Code")
-        plt.ylabel("Coverage")
-        plt.ylim(0, 1)
-        plt.grid(axis="y")
-        plt.tight_layout()
-        plt.show()
 
         return hindcast
 
