@@ -234,7 +234,13 @@ class LinearRegressionModel(BaseForecastModel):
             model = Pipeline(
                 [
                     ("scaler", StandardScaler()),
-                    ("ridge", RidgeCV(cv=len(X_calibration))),
+                    (
+                        "ridge",
+                        RidgeCV(
+                            cv=None,  # Uses Efficient Leave-One-Out CV
+                            alphas=[1e-6, 1e-3, 1e-2, 0.1, 1.0, 10.0, 50.0],
+                        ),
+                    ),
                 ]
             )
         elif lr_type == "lasso":
@@ -245,7 +251,7 @@ class LinearRegressionModel(BaseForecastModel):
                         "lasso",
                         LassoCV(
                             alphas=np.logspace(-4, 0, 30),
-                            cv=len(X_calibration),
+                            cv=None,  # Uses Efficient Leave-One-Out CV
                             max_iter=100,
                         ),
                     ),  # Leave-One-Out CV
