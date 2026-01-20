@@ -39,12 +39,12 @@ month_mapping = {
 }
 
 model_colors = {
-    "Linear Regression Base": "#787878",  # gray
-    "Base Case Ensemble": "#787878",  # orange
+    "Linear Regression Base": "#505050",  # gray
+    "Base Case Ensemble": "#A15B5B",  # orange
     "SnowMapper Ensemble": "#1F77B4",  # orange
     "MC ALD": "#2CA02C",  # green,
     "Glacier Mapper Ensemble": "#0ECFFF",  # red
-    "Gla MC ALD": "#7BDBAB",  # red
+    "Gla MC ALD": "#7741E3",  # red
 }
 
 metric_renamer = {
@@ -100,6 +100,15 @@ def plot_monthly_overall(
             plot_df["month"], categories=list(month_mapping.values()), ordered=True
         )
         plot_df = plot_df.sort_values("month")
+
+        # only plot months that exist in the data
+        existing_months = [
+            m for m in plot_df["month"].cat.categories if m in plot_df["month"].values
+        ]
+        plot_df = plot_df[plot_df["month"].isin(existing_months)]
+        
+        # Remove unused categories from the categorical to prevent empty bars in plot
+        plot_df["month"] = plot_df["month"].cat.remove_unused_categories()
 
         # order of models in legend
         plot_df["model"] = pd.Categorical(
@@ -158,8 +167,19 @@ def create_monthly_and_overall_performance_plots(
     models_to_plot: List[str],
     rename_dict: Dict[str, str],
     save_dir: str,
+    agricultural: bool = False,
 ):
     """Create and save monthly and overall performance plots for selected models and metrics."""
+    if agricultural:
+        # filter to only include april to september
+        df_metrics = df_metrics[
+            df_metrics["month"].isin(
+                ["April", "May", "June", "July", "August", "September", "Overall"]
+            )
+        ].copy()
+        print("Filtered metrics to agricultural months (April to September)")
+        print("unique months in data:", df_metrics["month"].unique())
+    
     fig, ax = plt.subplots()
     ax = plot_monthly_overall(
         df_metrics,
@@ -1122,7 +1142,7 @@ def draw_feature_importance(folders_to_check):
 
 # run with uv run python dev_tools/visualization/gla_eval.py
 def main():
-    save_dir = "../monthly_forecasting_results/figures/KGZ_Glacier_Eval"
+    save_dir = "../monthly_forecasting_results/figures/KGZ_Glacier_Eval_2"
     os.makedirs(save_dir, exist_ok=True)
     config_plotting()
 
@@ -1133,20 +1153,23 @@ def main():
         "../monthly_forecasting_models/SnowMapper_Based/Snow_GBT",
         "../monthly_forecasting_models/SnowMapper_Based/Snow_GBT_Norm",
         "../monthly_forecasting_models/SnowMapper_Based/Snow_GBT_LR",
-        "../monthly_forecasting_models/BaseCase/GBT",
+        #"../monthly_forecasting_models/BaseCase/GBT",
+        "../monthly_forecasting_models/BaseCase/LR_Base",
     ]
     # Analyze gl_fr feature importance across models
     print("\n" + "=" * 60)
     print("FEATURE IMPORTANCE ANALYSIS")
     print("=" * 60)
-    draw_feature_importance(folders_to_check=folders_to_check)
+    #
+    # draw_feature_importance(folders_to_check=folders_to_check)
 
     # Plot top 20 features for all GBT models
     print("\n" + "=" * 60)
     print("TOP 20 FEATURES ACROSS GBT MODELS")
     print("=" * 60)
 
-    top_features_save_path = Path(save_dir) / "top_20_features_all_models.png"
+
+    """top_features_save_path = Path(save_dir) / "top_20_features_all_models.png"
     df_top_features, fig_top_features = collect_and_plot_top_features(
         folders=folders_to_check, top_n=20, save_path=str(top_features_save_path)
     )
@@ -1163,10 +1186,10 @@ def main():
         )
         print(f"\nMost common features across all models:")
         feature_counts = df_top_features["feature"].value_counts().head(15)
-        print(feature_counts)
+        print(feature_counts)"""
 
-    plt.show()
-    plt.close("all")
+    #plt.show()
+    #plt.close("all")
 
     # Continue with existing analysis
     print("\n" + "=" * 60)
@@ -1182,16 +1205,9 @@ def main():
         # to int
         static_df["code"] = static_df["code"].astype(int)
 
-    models_to_plot = [
-        # "BaseCase_Ensemble",
-        "SnowMapper_Based_Ensemble",
-        "Uncertainty_MC_ALD",
-        "GlacierMapper_Based_Ensemble",
-        "Uncertainty_Gla_MC_ALD",
-    ]
 
     rename_dict = {
-        # "BaseCase_LR_Base": "Linear Regression Base",
+        "BaseCase_LR_Base": "Linear Regression Base",
         "BaseCase_Ensemble": "Base Case Ensemble",
         "SnowMapper_Based_Ensemble": "SnowMapper Ensemble",
         "Uncertainty_MC_ALD": "MC ALD",
@@ -1209,15 +1225,29 @@ def main():
 
     metric_to_plot = "r2"
 
+    models_to_plot = [
+         "BaseCase_Ensemble",
+        "BaseCase_LR_Base"
+        "SnowMapper_Based_Ensemble",
+        "Uncertainty_MC_ALD",
+        "GlacierMapper_Based_Ensemble",
+        "Uncertainty_Gla_MC_ALD",
+    ]
+
+
     create_monthly_and_overall_performance_plots(
         df_metrics=df_metrics,
         metric_to_plot=metric_to_plot,
         models_to_plot=models_to_plot,
         rename_dict=rename_dict,
         save_dir=save_dir,
+        agricultural=True,
     )
 
+
     plt.close("all")
+
+    sys.exit(0)
 
     combinations = [
         ("Glacier Mapper Ensemble", "SnowMapper Ensemble", "Gla_Snow"),
