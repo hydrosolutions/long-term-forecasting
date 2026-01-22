@@ -203,9 +203,13 @@ class StreamflowFeatureExtractor:
         else:
             self.offset = offset
 
-        assert self.offset >= self.prediction_horizon, (
-            "Offset must be greater or equal than prediction horizon"
-        )
+        if self.offset <= self.prediction_horizon:
+            logger.warning(
+                "Offset is smaller than or equal to prediction horizon. "
+                "This may lead to data leakage. But it can be a valid use case."
+                "Targets are accessed over the period [t+k-H + 1, t+k] where k is the offset and H is the prediction horizon."
+                "Please ensure this is intended behavior."
+            )
 
         # Define feature configurations
         self.feature_configs = feature_configs

@@ -16,7 +16,7 @@ The diagram above illustrates the complete workflow from data ingestion to opera
 
 ### Key Features
 
-- **Multiple Model Families**: Linear regression baselines and advanced tree-based models (XGBoost, LightGBM, CatBoost)
+- **Multiple Model Families**: Linear regression baselines and gradient boosted tree-based models (XGBoost, LightGBM, CatBoost)
 - **Advanced Feature Engineering**: Time-series features, elevation band aggregation, and glacier-related features
 - **Ensemble Methods**: Naive averaging, temporal meta-models, and uncertainty quantification
 - **Comprehensive Evaluation**: Interactive dashboards and extensive metrics

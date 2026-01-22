@@ -547,9 +547,9 @@ def process_training_data(
     artifacts.static_features = static_features if static_features else []
     artifacts.target_col = target
 
-    logger.info(f"Numeric features: {len(artifacts.num_features)}")
-    logger.info(f"Categorical features: {len(artifacts.cat_features)}")
-    logger.info(f"Static features: {len(artifacts.static_features)}")
+    logger.debug(f"Numeric features: {len(artifacts.num_features)}")
+    logger.debug(f"Categorical features: {len(artifacts.cat_features)}")
+    logger.debug(f"Static features: {len(artifacts.static_features)}")
 
     # We scale the static features globally
     static_scaler = {}
@@ -560,7 +560,7 @@ def process_training_data(
                 mean = df_processed[feature].mean()
                 std = df_processed[feature].std()
                 static_scaler[feature] = (mean, std)
-                logger.info(f"Static feature {feature} - mean: {mean}, std: {std}")
+                logger.debug(f"Static feature {feature} - mean: {mean}, std: {std}")
             else:
                 logger.warning(f"Static feature {feature} not found in training data")
 
@@ -765,7 +765,7 @@ def _handle_missing_values_training(
             df, long_term_mean=artifacts.long_term_means, features=numeric_features
         )
         logger.info("Created long-term mean artifacts")
-        logger.info(
+        logger.debug(
             f"Long Term Stats shape: {artifacts.long_term_stats.shape if hasattr(artifacts.long_term_stats, 'shape') else 'N/A'}"
         )
 
@@ -885,7 +885,7 @@ def _normalization_training(
             features_for_stats.append(target)
             artifacts.relative_features.append(target)  # Track target as relative
 
-            logger.info(
+            logger.debug(
                 f"Using target '{target}' as a relative feature for normalization"
             )
 
@@ -894,8 +894,8 @@ def _normalization_training(
                 df, features=features_for_stats
             )
 
-            logger.info(f"Long-term stats shape: {artifacts.long_term_stats.shape}")
-            logger.info(f"Long term stats head: {artifacts.long_term_stats.head()}")
+            logger.debug(f"Long-term stats shape: {artifacts.long_term_stats.shape}")
+            logger.debug(f"Long term stats head: {artifacts.long_term_stats.head()}")
 
             # Apply long-term mean scaling to relative features
             df = du.apply_long_term_mean_scaling(
@@ -905,10 +905,10 @@ def _normalization_training(
                 features_to_scale=features_for_stats,
             )
 
-            logger.info(
+            logger.debug(
                 f"Applied long-term mean scaling to features: {features_for_stats}"
             )
-            logger.info(
+            logger.debug(
                 f"Description of the long-term stats: {df[features_for_stats].describe()}"
             )
 
@@ -961,7 +961,7 @@ def _normalization_training(
             "Use 'global', 'per_basin'."
         )
 
-    logger.info("Created normalization scaler")
+    logger.debug("Created normalization scaler")
     return df, artifacts
 
 
@@ -1114,7 +1114,7 @@ def _apply_normalization(
                 features_to_scale=relative_features_in_df,
             )
 
-            logger.info(
+            logger.debug(
                 f"Applied long-term mean scaling to relative features: {relative_features_in_df}"
             )
 
@@ -1219,12 +1219,12 @@ def post_process_predictions(
             prediction_col=prediction_column,
             target_col=target,
         )
-        logger.info(f"Applied period-based denormalization to {prediction_column}")
+        logger.debug(f"Applied period-based denormalization to {prediction_column}")
 
     else:
         # Target uses global/per_basin normalization
         normalization_process = experiment_config.get("normalization_type", "global")
-        logger.info(f"Denormalization process: {normalization_process}")
+        logger.debug(f"Denormalization process: {normalization_process}")
 
         if normalization_process == "per_basin":
             if artifacts.scaler is None:
@@ -1245,7 +1245,7 @@ def post_process_predictions(
                 var_used_for_scaling=target,
             )
 
-            logger.info(f"Applied per-basin denormalization to {prediction_column}")
+            logger.debug(f"Applied per-basin denormalization to {prediction_column}")
 
         elif normalization_process == "global":
             if artifacts.scaler is None:
@@ -1264,7 +1264,7 @@ def post_process_predictions(
                 var_used_for_scaling=target,
             )
 
-            logger.info(f"Applied global denormalization to {prediction_column}")
+            logger.debug(f"Applied global denormalization to {prediction_column}")
 
         else:
             raise ValueError(
@@ -1272,6 +1272,6 @@ def post_process_predictions(
                 "Use 'global', 'per_basin'."
             )
 
-    logger.info(f"Applied denormalization to {prediction_column}")
+    logger.debug(f"Applied denormalization to {prediction_column}")
 
     return df_predictions
