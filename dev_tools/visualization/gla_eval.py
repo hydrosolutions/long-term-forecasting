@@ -106,7 +106,7 @@ def plot_monthly_overall(
             m for m in plot_df["month"].cat.categories if m in plot_df["month"].values
         ]
         plot_df = plot_df[plot_df["month"].isin(existing_months)]
-        
+
         # Remove unused categories from the categorical to prevent empty bars in plot
         plot_df["month"] = plot_df["month"].cat.remove_unused_categories()
 
@@ -179,7 +179,7 @@ def create_monthly_and_overall_performance_plots(
         ].copy()
         print("Filtered metrics to agricultural months (April to September)")
         print("unique months in data:", df_metrics["month"].unique())
-    
+
     fig, ax = plt.subplots()
     ax = plot_monthly_overall(
         df_metrics,
@@ -1153,7 +1153,7 @@ def main():
         "../monthly_forecasting_models/SnowMapper_Based/Snow_GBT",
         "../monthly_forecasting_models/SnowMapper_Based/Snow_GBT_Norm",
         "../monthly_forecasting_models/SnowMapper_Based/Snow_GBT_LR",
-        #"../monthly_forecasting_models/BaseCase/GBT",
+        # "../monthly_forecasting_models/BaseCase/GBT",
         "../monthly_forecasting_models/BaseCase/LR_Base",
     ]
     # Analyze gl_fr feature importance across models
@@ -1167,7 +1167,6 @@ def main():
     print("\n" + "=" * 60)
     print("TOP 20 FEATURES ACROSS GBT MODELS")
     print("=" * 60)
-
 
     """top_features_save_path = Path(save_dir) / "top_20_features_all_models.png"
     df_top_features, fig_top_features = collect_and_plot_top_features(
@@ -1188,8 +1187,8 @@ def main():
         feature_counts = df_top_features["feature"].value_counts().head(15)
         print(feature_counts)"""
 
-    #plt.show()
-    #plt.close("all")
+    # plt.show()
+    # plt.close("all")
 
     # Continue with existing analysis
     print("\n" + "=" * 60)
@@ -1204,7 +1203,6 @@ def main():
         static_df = static_df.rename(columns={"CODE": "code"})
         # to int
         static_df["code"] = static_df["code"].astype(int)
-
 
     rename_dict = {
         "BaseCase_LR_Base": "Linear Regression Base",
@@ -1226,14 +1224,12 @@ def main():
     metric_to_plot = "r2"
 
     models_to_plot = [
-         "BaseCase_Ensemble",
-        "BaseCase_LR_Base"
-        "SnowMapper_Based_Ensemble",
+        "BaseCase_Ensemble",
+        "BaseCase_LR_BaseSnowMapper_Based_Ensemble",
         "Uncertainty_MC_ALD",
         "GlacierMapper_Based_Ensemble",
         "Uncertainty_Gla_MC_ALD",
     ]
-
 
     create_monthly_and_overall_performance_plots(
         df_metrics=df_metrics,
@@ -1243,7 +1239,6 @@ def main():
         save_dir=save_dir,
         agricultural=True,
     )
-
 
     plt.close("all")
 

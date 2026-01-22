@@ -62,6 +62,8 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         model_config: Dict[str, Any],
         feature_config: Dict[str, Any],
         path_config: Dict[str, Any],
+        base_predictors: Optional[pd.DataFrame] = None,
+        base_model_names: Optional[List[str]] = None,
     ) -> None:
         """
         Initialize the DeepMetaLearner model.
@@ -73,6 +75,8 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             model_config: Deep learning model hyperparameters
             feature_config: Feature engineering configuration
             path_config: Path configuration for saving/loading
+            base_predictors: Optional[pd.DataFrame] = None,
+            base_model_names: Optional[List[str]] = None,
         """
         super().__init__(
             data=data,
@@ -82,6 +86,9 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             feature_config=feature_config,
             path_config=path_config,
         )
+
+        self.base_predictors = base_predictors
+        self.base_model_names = base_model_names
 
         # this will be overwritten in calibration / fit
         self.is_fitted = False
@@ -165,11 +172,16 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         logger.info("Ground Truth created")
 
         # 2. Load base predictors using inherited method
-        logger.info("Loading base predictors")
-        base_predictors, model_names = self.__load_base_predictors__(
-            use_mean_pred=self.general_config.get("use_ens_mean", False)
-        )
-        self.model_names = model_names
+        if self.base_predictors is not None and self.base_model_names is not None:
+            logger.info("Using provided base predictors and model names")
+            base_predictors = self.base_predictors
+            model_names = self.base_model_names
+        else:
+            logger.info("Loading base predictors - NOT DATABASE COMPATIBLE YET")
+            base_predictors, model_names = self.__load_base_predictors__(
+                use_mean_pred=self.general_config.get("use_ens_mean", False)
+            )
+            self.model_names = model_names
 
         # sort by date so the newsest date is at the top
         base_predictors = base_predictors.sort_values(by=["date"], ascending=[False])
