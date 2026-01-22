@@ -54,6 +54,8 @@ class SciRegressor(BaseForecastModel):
         model_config: Dict[str, Any],
         feature_config: Dict[str, Any],
         path_config: Dict[str, Any],
+        base_predictors: Optional[pd.DataFrame] = None,
+        base_model_names: Optional[List[str]] = None,
     ) -> None:
         """
         Initialize the SciRegressor model with a configuration dictionary.
@@ -66,6 +68,11 @@ class SciRegressor(BaseForecastModel):
             model_config (Dict[str, Any]): Model-specific  - hyperparameters.
             feature_config (Dict[str, Any]): Feature engineering configuration.
             path_config (Dict[str, Any]): Path configuration for saving/loading data.
+            base_predictors (Optional[pd.DataFrame]): Pre-loaded base model predictions.
+                If provided, will be used instead of loading from filesystem.
+                Expected format: DataFrame with columns [date, code, Q_model1, Q_model2, ...]
+            base_model_names (Optional[List[str]]): List of base model column names.
+                Required if base_predictors is provided.
         """
         super().__init__(
             data=data,
@@ -130,6 +137,10 @@ class SciRegressor(BaseForecastModel):
         self.allowbale_missing_value_operational = self.general_config.get(
             "allowbale_missing_value_operational", 0
         )
+
+        # Store external predictions if provided
+        self._external_base_predictors = base_predictors
+        self._external_base_model_names = base_model_names
 
     def __preprocess_data__(self):
         """
@@ -310,7 +321,28 @@ class SciRegressor(BaseForecastModel):
         """
         Loads all the prediction df's from the path_config['path_to_lr_predictors'] directory.
         Where the model name is the name of the folder the prediction.csv is located in.
+
+        .. deprecated::
+            Loading predictions internally is deprecated. Use prediction_loader module
+            and pass base_predictors parameter to constructor instead.
+
+        Returns:
+            Tuple of (predictions_df, prediction_column_names)
         """
+        # Check if external predictions were provided
+        if self._external_base_predictors is not None and self._external_base_model_names is not None:
+            logger.info("Using externally provided base predictors")
+            return self._external_base_predictors, self._external_base_model_names
+
+        # Fall back to file-based loading with deprecation warning
+        warnings.warn(
+            "Loading predictions internally is deprecated. "
+            "Use lt_forecasting.scr.prediction_loader module and pass "
+            "base_predictors parameter to constructor instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+
         path_list = self.path_config["path_to_lr_predictors"]
         models = []
 
