@@ -57,12 +57,12 @@ def load_predictions_from_filesystem(
     pred_cols = []
 
     for path in paths:
-        # Extract model name from folder structure
-        model_name = os.path.basename(os.path.dirname(path))
-
         # Handle directory paths - add predictions.csv if not specified
         if not path.endswith(".csv"):
             path = os.path.join(path, "predictions.csv")
+
+        # Extract model name from folder structure (after path normalization)
+        model_name = os.path.basename(os.path.dirname(path))
 
         # Check if file exists
         if not os.path.exists(path):
@@ -301,8 +301,12 @@ def handle_duplicate_predictions(
         pred_cols = [col for col in df.columns if "Q_" in col and col != "Q_obs"]
         logger.debug(f"Auto-detected prediction columns: {pred_cols}")
 
-    # Create aggregation dictionary
-    agg_dict = {col: "mean" for col in pred_cols}
+    # Create aggregation dictionary for all columns (except groupby keys)
+    agg_dict = {}
+    for col in df.columns:
+        if col not in ["date", "code"]:
+            # Average all numeric/prediction columns
+            agg_dict[col] = "mean"
 
     # Average predictions for duplicate (date, code) combinations
     result = df.groupby(["date", "code"], as_index=False).agg(agg_dict)
