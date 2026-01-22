@@ -31,13 +31,13 @@ load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
 
 day_of_forecast = {
-    # "month_0": 10,
-    "month_1": 1,
-    "month_2": 1,
-    "month_3": 1,
-    "month_4": 1,
-    "month_5": 1,
-    "month_6": 1,
+    "month_0": 15,
+    "month_1": 25,
+    "month_2": 25,
+    "month_3": 25,
+    "month_4": 25,
+    "month_5": 25,
+    #"month_6": 25,
     # "month_7": 25,
     # "month_8": 25,
     # "month_9": 25,
@@ -1644,7 +1644,7 @@ def plot_metric_by_lead_time_combined(
 
 
 def main():
-    region = "Tajikistan"  # Options: "Kyrgyzstan" or "Tajikistan"
+    region = "Kyrgyzstan"  # Options: "Kyrgyzstan" or "Tajikistan"
     save_dir = Path(output_dir) / f"{region.lower()}"
     # Configuration for plotting
     metric_to_plot = (
