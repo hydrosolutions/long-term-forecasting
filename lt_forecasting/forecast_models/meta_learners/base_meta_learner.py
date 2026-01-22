@@ -2,8 +2,9 @@ import os
 import pandas as pd
 import numpy as np
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 import matplotlib.pyplot as plt
+import warnings
 
 # Ensure the logs directory exists
 import datetime
@@ -36,6 +37,8 @@ class BaseMetaLearner(BaseForecastModel):
         model_config: Dict[str, Any],
         feature_config: Dict[str, Any],
         path_config: Dict[str, Any],
+        base_predictors: Optional[pd.DataFrame] = None,
+        base_model_names: Optional[List[str]] = None,
     ) -> None:
         """
         Initialize the BaseMetaLearner model with a configuration dictionary.
@@ -44,6 +47,10 @@ class BaseMetaLearner(BaseForecastModel):
             general_config (Dict[str, Any]): General configuration for the model.
             model_config (Dict[str, Any]): Model-specific configuration.
             path_config (Dict[str, Any]): Path configuration for saving/loading data.
+            base_predictors (Optional[pd.DataFrame]): Pre-loaded base model predictions.
+                If provided, will be used instead of loading from filesystem.
+            base_model_names (Optional[List[str]]): List of base model column names.
+                Required if base_predictors is provided.
         """
         super().__init__(
             data=data,
@@ -73,15 +80,56 @@ class BaseMetaLearner(BaseForecastModel):
 
         self.target = self.general_config.get("target_column", "Q_obs")
 
+        # Store external predictions if provided
+        self._external_base_predictors = base_predictors
+        self._external_base_model_names = base_model_names
+
     def __load_base_predictors__(
         self, use_mean_pred: bool = False
     ) -> Tuple[pd.DataFrame, List[str]]:
         """
         Load base predictors from the specified path.
 
+        .. deprecated::
+            Loading predictions internally is deprecated. Use prediction_loader module
+            and pass base_predictors parameter to constructor instead.
+
         Returns:
             Tuple[pd.DataFrame, List[str]]: A tuple containing the DataFrame of base predictors and a list of their names (column names).
         """
+        # Check if external predictions were provided
+        if self._external_base_predictors is not None and self._external_base_model_names is not None:
+            logger.info("Using externally provided base predictors")
+            # Need to merge with self.data to maintain left join behavior
+            df_to_merge_on = self.data[["date", "code"]].copy()
+            for col_name in self._external_base_model_names:
+                # Handle Q_ prefix - external loader uses Q_ prefix, but BaseMetaLearner expects without prefix
+                if col_name.startswith("Q_"):
+                    model_name = col_name.replace("Q_", "")
+                else:
+                    model_name = col_name
+
+                if col_name in self._external_base_predictors.columns:
+                    sub_df = self._external_base_predictors[["date", "code", col_name]].copy()
+                    sub_df.rename(columns={col_name: model_name}, inplace=True)
+                    df_to_merge_on = df_to_merge_on.merge(
+                        sub_df, on=["date", "code"], how="left"
+                    )
+
+            # Extract model names (without Q_ prefix)
+            model_names = [name.replace("Q_", "") if name.startswith("Q_") else name
+                          for name in self._external_base_model_names]
+            return df_to_merge_on, model_names
+
+        # Fall back to file-based loading with deprecation warning
+        warnings.warn(
+            "Loading predictions internally is deprecated. "
+            "Use lt_forecasting.scr.prediction_loader module and pass "
+            "base_predictors parameter to constructor instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+
         path_to_base_predictors = self.path_config["path_to_base_predictors"]
 
         base_models_cols = []
