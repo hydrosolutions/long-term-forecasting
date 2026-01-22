@@ -6,7 +6,7 @@ A comprehensive machine learning system for predicting river discharge at long t
 
 ## Overview
 
-The Long Term Discharge Forecasting System implements a modular pipeline that integrates multiple data sources, employs various machine learning algorithms, and uses ensemble techniques to produce robust discharge predictions. The system is designed for operational forecasting in Central Asian basins with complex hydrology influenced by snow and glacier dynamics.
+The Long Term Discharge Forecasting System implements a modular pipeline that integrates multiple data sources, employs various machine learning algorithms, and uses ensemble techniques to produce robust discharge predictions. The system is designed for operational forecasting in Central Asian basins with complex hydrology influenced by snow and glacier dynamics. This code was develeoped in the context of the [SAPPHIRE project](https://www.hydrosolutions.ch/projects/sapphire-central-asia) and funded by the [Swiss Agency for Development and Cooperation](https://www.eda.admin.ch/eda/en/home/fdfa/organisation-fdfa/directorates-divisions/sdc.html). The code is the backbone of the machine learning based long-term forecasting component in the [SAPPHIRE Forecast Tools](https://github.com/hydrosolutions/SAPPHIRE_Forecast_Tools). Note that this repository is still work in progress.
 
 ### System Architecture
 
@@ -199,18 +199,19 @@ The system uses a robust validation approach:
 - Serves as baseline and input for advanced models
 
 #### 2. Tree-Based Models (SciRegressor)
-- **Algorithms**: XGBoost, LightGBM, CatBoost, Random Forest
+- **Algorithms**: XGBoost, LightGBM, CatBoost, ... All models which support sklearn-style fit and predict funtions.
 - **Extended Features**: 
   - All linear regression features
   - GlacierMapper data (SLA, FSC)
   - Linear regression predictions as meta-features
 - **Advantages**: Captures non-linear relationships and interactions
+- **Hyperparameter Tuning** Hyperparameter tuning using Optuna is implemented only for XGB, LGBM and Catboost. 
 
 ### Ensemble Strategies
 
 1. **Naive Ensemble**: Simple average of all base predictors
-2. **Temporal Meta-Model**: Detects and corrects model drift using historical forecasts
-3. **Uncertainty Quantification**: Asymmetric Laplace distribution for prediction intervals
+2. **Uncertainty Quantification**: Asymmetric Laplace distribution for prediction intervals.
+3. **Temporal Meta-Model**: Detects and corrects model drift using historical forecasts [not yet operationally tested]
 
 ## Output Formats
 
@@ -235,13 +236,12 @@ The system integrates multiple data sources:
 1. **Discharge Data**: Historical river discharge observations
 2. **Forcing Data**: Temperature and precipitation
 3. **Snow Data**: Snow water equivalent (SWE), height of snow (HS), runoff (ROF)
-4. **Snow Cover Area (SCA)**: Satellite-based snow coverage
-5. **Static Basin Characteristics**: Elevation, area, glacier coverage
-6. **GlacierMapper**: Snow line altitude (SLA) and glacier features
+4. **Static Basin Characteristics**: Elevation, area, glacier coverage
+5. **Remote Sensing Timeseries / New Features** New features can easily be added and passed to the classes in long dataframe format. 
 
 ## Feature Engineering
 
-The system supports extensive feature engineering:
+The system supports extensive feature engineering, all features are fully configurable in the feature_config.json:
 
 ### Time-Series Features
 - Rolling window statistics (mean, slope, peak-to-peak)
@@ -257,29 +257,8 @@ The system supports extensive feature engineering:
 - Global normalization
 - Per-basin normalization
 - Long-term mean scaling (period-based)
-- Mixed normalization strategies
 
-## Recent Updates
 
-### GlacierMapper Integration
-- Added support for Snow Line Altitude (SLA) features
-- Integrated Fractional Snow Cover (FSC) data
-- Enhanced glacier dynamics representation
-
-### Enhanced Elevation Zones
-- Configurable number of elevation bands (default: 5)
-- Improved representation of vertical gradients
-- Better snow process modeling at different elevations
-
-### Improved Temporal Scaling
-- Period-based normalization (36 periods = 3 per month)
-- Long-term mean scaling enhancements
-- Better handling of seasonal patterns
-
-### Interactive Dashboard
-- Dash-based evaluation dashboard
-- Real-time model comparison
-- Performance metrics visualization
 
 ## Advanced Usage
 
@@ -360,22 +339,11 @@ uv run ruff check
 
 4. Document architectural decisions
 
-## Contributing
-
-We welcome contributions! Please:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Follow the coding standards
-4. Write tests for new functionality
-5. Update documentation as needed
-6. Submit a pull request
-
-See [CLAUDE.md](CLAUDE.md) for detailed development guidelines and [scratchpads/README.md](scratchpads/README.md) for the development workflow.
 
 
 ## Contact
 
 Sandro Hunziker - hunziker@hydrosolutions.ch
+
 
 
