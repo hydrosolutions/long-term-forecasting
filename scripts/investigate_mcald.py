@@ -108,7 +108,14 @@ REGIONS_TO_ANALYZE: list[str] = ["Kyrgyzstan"]
 
 # Horizons to analyze: list of horizon names or "all"
 # Examples: ["month_1", "month_2", "month_3"] or ["month_0"] or "all"
-HORIZONS_TO_ANALYZE: list[str] | str = ["month_0", "month_1", "month_2", "month_3", "month_4", "month_5"]
+HORIZONS_TO_ANALYZE: list[str] | str = [
+    "month_0",
+    "month_1",
+    "month_2",
+    "month_3",
+    "month_4",
+    "month_5",
+]
 
 # Whether to save plots to files (True) or display interactively (False)
 SAVE_PLOTS: bool = True
@@ -125,17 +132,19 @@ def get_path_config(region: str) -> dict[str, str]:
     elif region == "Tajikistan":
         return taj_path_config
     else:
-        raise ValueError(f"Unknown region: {region}. Must be 'Kyrgyzstan' or 'Tajikistan'")
+        raise ValueError(
+            f"Unknown region: {region}. Must be 'Kyrgyzstan' or 'Tajikistan'"
+        )
 
 
 def get_mc_ald_path(pred_dir: str, horizon: str) -> Path:
     """
     Construct the path to MC_ALD hindcast file for a given horizon.
-    
+
     Args:
         pred_dir: Base prediction directory
         horizon: Horizon name (e.g., "month_1")
-        
+
     Returns:
         Path to the MC_ALD hindcast CSV file
     """
@@ -148,49 +157,49 @@ def load_mc_ald_data(
 ) -> pd.DataFrame | None:
     """
     Load MC_ALD hindcast data for a specific horizon.
-    
+
     Args:
         pred_dir: Base prediction directory
         horizon: Horizon name (e.g., "month_1")
-        
+
     Returns:
         DataFrame with MC_ALD data or None if file not found
     """
     file_path = get_mc_ald_path(pred_dir, horizon)
-    
+
     if not file_path.exists():
         logger.warning(f"MC_ALD hindcast file not found: {file_path}")
         return None
-    
+
     try:
         data = pd.read_csv(file_path, parse_dates=["date"])
-        
+
         # Filter by day of forecast if specified
         forecast_day = day_of_forecast.get(horizon)
         if forecast_day is not None:
             data = data[data["date"].dt.day == forecast_day].copy()
-        
+
         # Select relevant columns
         required_cols = ["date", "code", "Q_loc", "Q_MC_ALD", "Q_obs"]
         available_cols = [col for col in required_cols if col in data.columns]
-        
+
         if len(available_cols) < len(required_cols):
             missing = set(required_cols) - set(available_cols)
             logger.warning(f"Missing columns in {file_path}: {missing}")
             return None
-        
+
         data = data[available_cols].dropna()
         data["month"] = data["date"].dt.month
         data["horizon"] = horizon
         data["horizon_num"] = int(horizon.split("_")[1])
-        
+
         logger.info(
             f"Loaded {len(data)} records from {horizon} "
             f"({data['code'].nunique()} codes, months: {sorted(data['month'].unique())})"
         )
-        
+
         return data
-        
+
     except Exception as e:
         logger.error(f"Failed to load {file_path}: {e}")
         return None
@@ -395,7 +404,9 @@ def plot_r2_distribution_by_month(
     }
 
     # Boxplot
-    sns.boxplot(x="month", y="R²", hue="Method", data=plot_df, palette=palette, ax=axes[0])
+    sns.boxplot(
+        x="month", y="R²", hue="Method", data=plot_df, palette=palette, ax=axes[0]
+    )
     axes[0].axhline(0, color="gray", linestyle="--", alpha=0.5)
     axes[0].set_title(
         f"{region} - {horizon}\nR² Distribution per Month (Leave-One-Out CV)",
@@ -409,7 +420,13 @@ def plot_r2_distribution_by_month(
 
     # Violin plot
     sns.violinplot(
-        x="month", y="R²", hue="Method", data=plot_df, palette=palette, inner="box", ax=axes[1]
+        x="month",
+        y="R²",
+        hue="Method",
+        data=plot_df,
+        palette=palette,
+        inner="box",
+        ax=axes[1],
     )
     axes[1].axhline(0, color="gray", linestyle="--", alpha=0.5)
     axes[1].set_title(
@@ -517,7 +534,11 @@ def plot_summary_statistics(
 
     axes[0].set_xlabel("Month", fontsize=11)
     axes[0].set_ylabel("Median R²", fontsize=11)
-    axes[0].set_title(f"{region} - {horizon}\nMedian R² per Month by Method", fontsize=12, fontweight="bold")
+    axes[0].set_title(
+        f"{region} - {horizon}\nMedian R² per Month by Method",
+        fontsize=12,
+        fontweight="bold",
+    )
     axes[0].set_xticks(x)
     axes[0].set_xticklabels([month_renaming.get(m, m)[:3] for m in months])
     axes[0].legend(fontsize=9)
@@ -541,7 +562,11 @@ def plot_summary_statistics(
 
     axes[1].set_xlabel("Month", fontsize=11)
     axes[1].set_ylabel("R² Improvement", fontsize=11)
-    axes[1].set_title(f"{region} - {horizon}\nR² Improvement of Corrected Q_loc", fontsize=12, fontweight="bold")
+    axes[1].set_title(
+        f"{region} - {horizon}\nR² Improvement of Corrected Q_loc",
+        fontsize=12,
+        fontweight="bold",
+    )
     axes[1].set_xticks(x)
     axes[1].set_xticklabels([month_renaming.get(m, m)[:3] for m in months])
     axes[1].legend(fontsize=9)
@@ -586,13 +611,16 @@ def plot_r2_by_horizon(
         )
         .reset_index()
     )
-    
+
     # Flatten column names
     agg_data.columns = [
         "horizon",
-        "Q_loc_mean", "Q_loc_std",
-        "Q_MC_ALD_mean", "Q_MC_ALD_std",
-        "Q_loc_corr_mean", "Q_loc_corr_std",
+        "Q_loc_mean",
+        "Q_loc_std",
+        "Q_MC_ALD_mean",
+        "Q_MC_ALD_std",
+        "Q_loc_corr_mean",
+        "Q_loc_corr_std",
     ]
 
     fig, ax = plt.subplots(figsize=(12, 7))
@@ -600,31 +628,64 @@ def plot_r2_by_horizon(
     horizons = agg_data["horizon"].values
 
     # Plot lines with error bands
-    ax.plot(horizons, agg_data["Q_loc_mean"], "o-", color="#3498db", linewidth=2, 
-            markersize=8, label="Q_loc (original)")
-    ax.fill_between(horizons, 
-                    agg_data["Q_loc_mean"] - agg_data["Q_loc_std"],
-                    agg_data["Q_loc_mean"] + agg_data["Q_loc_std"],
-                    color="#3498db", alpha=0.2)
+    ax.plot(
+        horizons,
+        agg_data["Q_loc_mean"],
+        "o-",
+        color="#3498db",
+        linewidth=2,
+        markersize=8,
+        label="Q_loc (original)",
+    )
+    ax.fill_between(
+        horizons,
+        agg_data["Q_loc_mean"] - agg_data["Q_loc_std"],
+        agg_data["Q_loc_mean"] + agg_data["Q_loc_std"],
+        color="#3498db",
+        alpha=0.2,
+    )
 
-    ax.plot(horizons, agg_data["Q_MC_ALD_mean"], "s-", color="#e74c3c", linewidth=2,
-            markersize=8, label="Q_MC_ALD")
-    ax.fill_between(horizons,
-                    agg_data["Q_MC_ALD_mean"] - agg_data["Q_MC_ALD_std"],
-                    agg_data["Q_MC_ALD_mean"] + agg_data["Q_MC_ALD_std"],
-                    color="#e74c3c", alpha=0.2)
+    ax.plot(
+        horizons,
+        agg_data["Q_MC_ALD_mean"],
+        "s-",
+        color="#e74c3c",
+        linewidth=2,
+        markersize=8,
+        label="Q_MC_ALD",
+    )
+    ax.fill_between(
+        horizons,
+        agg_data["Q_MC_ALD_mean"] - agg_data["Q_MC_ALD_std"],
+        agg_data["Q_MC_ALD_mean"] + agg_data["Q_MC_ALD_std"],
+        color="#e74c3c",
+        alpha=0.2,
+    )
 
-    ax.plot(horizons, agg_data["Q_loc_corr_mean"], "^-", color="#2ecc71", linewidth=2,
-            markersize=8, label="Q_loc (corrected)")
-    ax.fill_between(horizons,
-                    agg_data["Q_loc_corr_mean"] - agg_data["Q_loc_corr_std"],
-                    agg_data["Q_loc_corr_mean"] + agg_data["Q_loc_corr_std"],
-                    color="#2ecc71", alpha=0.2)
+    ax.plot(
+        horizons,
+        agg_data["Q_loc_corr_mean"],
+        "^-",
+        color="#2ecc71",
+        linewidth=2,
+        markersize=8,
+        label="Q_loc (corrected)",
+    )
+    ax.fill_between(
+        horizons,
+        agg_data["Q_loc_corr_mean"] - agg_data["Q_loc_corr_std"],
+        agg_data["Q_loc_corr_mean"] + agg_data["Q_loc_corr_std"],
+        color="#2ecc71",
+        alpha=0.2,
+    )
 
     ax.set_xlabel("Forecast Lead Time (months)", fontsize=12, fontweight="bold")
     ax.set_ylabel("Mean R² Score", fontsize=12, fontweight="bold")
-    ax.set_title(f"{region}: R² vs Forecast Lead Time\n(Mean ± Std across all codes and months)",
-                 fontsize=14, fontweight="bold")
+    ax.set_title(
+        f"{region}: R² vs Forecast Lead Time\n(Mean ± Std across all codes and months)",
+        fontsize=14,
+        fontweight="bold",
+    )
     ax.set_xticks(horizons)
     ax.axhline(0, color="gray", linestyle="--", alpha=0.5)
     ax.legend(loc="best", fontsize=11)
@@ -661,37 +722,43 @@ def plot_bias_by_month(
     """
     # Calculate biases as percentage of observed
     data = data.copy()
-    
+
     # Skip rows where Q_obs is zero or very small
     data = data[data["Q_obs"] > 0.01]
-    
+
     # Calculate bias percentages
     data["true_bias_pct"] = (data["Q_obs"] - data["Q_loc"]) / data["Q_obs"] * 100
     data["model_corr_pct"] = (data["Q_MC_ALD"] - data["Q_loc"]) / data["Q_obs"] * 100
-    
+
     # Average per code and month
     avg_bias = (
         data.groupby(["code", "month"])
-        .agg({
-            "true_bias_pct": "mean",
-            "model_corr_pct": "mean",
-        })
+        .agg(
+            {
+                "true_bias_pct": "mean",
+                "model_corr_pct": "mean",
+            }
+        )
         .reset_index()
     )
-    
+
     # Reshape for plotting
     plot_data = []
     for _, row in avg_bias.iterrows():
-        plot_data.append({
-            "month": row["month"],
-            "Bias Type": "(Q_obs - Q_loc) / Q_obs (true bias)",
-            "Bias (%)": row["true_bias_pct"],
-        })
-        plot_data.append({
-            "month": row["month"],
-            "Bias Type": "(Q_MC_ALD - Q_loc) / Q_obs (model correction)",
-            "Bias (%)": row["model_corr_pct"],
-        })
+        plot_data.append(
+            {
+                "month": row["month"],
+                "Bias Type": "(Q_obs - Q_loc) / Q_obs (true bias)",
+                "Bias (%)": row["true_bias_pct"],
+            }
+        )
+        plot_data.append(
+            {
+                "month": row["month"],
+                "Bias Type": "(Q_MC_ALD - Q_loc) / Q_obs (model correction)",
+                "Bias (%)": row["model_corr_pct"],
+            }
+        )
 
     plot_df = pd.DataFrame(plot_data)
 
@@ -705,10 +772,8 @@ def plot_bias_by_month(
     }
 
     sns.boxplot(
-        x="month", y="Bias (%)", hue="Bias Type", data=plot_df, 
-        palette=palette, ax=ax
+        x="month", y="Bias (%)", hue="Bias Type", data=plot_df, palette=palette, ax=ax
     )
-
 
     ax.set_ylim(-100, 100)
     ax.axhline(0, color="gray", linestyle="--", linewidth=1.5, alpha=0.7)
@@ -743,13 +808,15 @@ def plot_bias_all_horizons(
     n_cols = min(3, n_horizons)
     n_rows = (n_horizons + n_cols - 1) // n_cols
 
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(7 * n_cols, 5 * n_rows), squeeze=False)
+    fig, axes = plt.subplots(
+        n_rows, n_cols, figsize=(7 * n_cols, 5 * n_rows), squeeze=False
+    )
     axes_flat = axes.flatten()
 
     for idx, (data, horizon) in enumerate(zip(all_data, horizons)):
         ax = axes_flat[idx]
         plot_bias_by_month(data, region, horizon, ax=ax)
-        
+
         # Only show legend on first subplot
         if idx > 0:
             ax.get_legend().remove()
@@ -797,15 +864,17 @@ def analyze_region_horizon(
 
     # Get path configuration
     path_config = get_path_config(region)
-    
+
     # Load data
     data = load_mc_ald_data(path_config["pred_dir"], horizon)
-    
+
     if data is None or data.empty:
         logger.warning(f"No data available for {region} - {horizon}")
         return None, None
 
-    logger.info(f"Loaded {len(data)} records with {data['code'].nunique()} unique codes")
+    logger.info(
+        f"Loaded {len(data)} records with {data['code'].nunique()} unique codes"
+    )
 
     # Train correction model using LOOCV
     logger.info("Training linear regression correction model with Leave-One-Out CV...")
@@ -854,13 +923,13 @@ def analyze_region_horizon(
 
 def main() -> None:
     """Main function to run MC_ALD analysis."""
-    
+
     # Determine horizons to analyze
     if HORIZONS_TO_ANALYZE == "all":
         horizons_to_use = ALL_HORIZONS
     else:
         horizons_to_use = HORIZONS_TO_ANALYZE
-    
+
     logger.info("=" * 80)
     logger.info("MC_ALD Investigation Script")
     logger.info("=" * 80)
@@ -896,7 +965,7 @@ def main() -> None:
 
             if r2_data is not None:
                 all_r2_data.append(r2_data)
-            
+
             if data is not None:
                 all_raw_data.append(data)
                 processed_horizons.append(horizon)
@@ -906,9 +975,11 @@ def main() -> None:
             bias_plot_path = None
             if save_dir:
                 bias_plot_path = save_dir / f"{region.lower()}_bias_all_horizons.png"
-            
-            fig = plot_bias_all_horizons(all_raw_data, processed_horizons, region, bias_plot_path)
-            
+
+            fig = plot_bias_all_horizons(
+                all_raw_data, processed_horizons, region, bias_plot_path
+            )
+
             if not SAVE_PLOTS:
                 plt.show()
             else:
@@ -917,13 +988,13 @@ def main() -> None:
         # Create combined horizon plot if multiple horizons analyzed
         if len(all_r2_data) > 1:
             combined_r2 = pd.concat(all_r2_data, ignore_index=True)
-            
+
             horizon_plot_path = None
             if save_dir:
                 horizon_plot_path = save_dir / f"{region.lower()}_r2_by_horizon.png"
-            
+
             fig = plot_r2_by_horizon(combined_r2, region, horizon_plot_path)
-            
+
             if not SAVE_PLOTS:
                 plt.show()
             else:
@@ -933,7 +1004,7 @@ def main() -> None:
             logger.info(f"\n{'=' * 80}")
             logger.info(f"{region}: Overall Summary Across All Horizons")
             logger.info("=" * 80)
-            
+
             overall_summary = (
                 combined_r2.groupby("horizon_num")
                 .agg(

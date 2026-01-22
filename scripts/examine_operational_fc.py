@@ -37,7 +37,7 @@ day_of_forecast = {
     "month_3": 25,
     "month_4": 25,
     "month_5": 25,
-    #"month_6": 25,
+    # "month_6": 25,
     # "month_7": 25,
     # "month_8": 25,
     # "month_9": 25,
