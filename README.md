@@ -4,6 +4,11 @@ A comprehensive machine learning system for predicting river discharge at long t
 
 **Author**: Sandro Hunziker
 
+## Maintenance Status
+
+🟢 **Active** – Ongoing development as part of [SAPPHIRE Forecast Tools](https://github.com/hydrosolutions/sapphire-forecast-tools)
+
+---
 ## Overview
 
 The Long Term Discharge Forecasting System implements a modular pipeline that integrates multiple data sources, employs various machine learning algorithms, and uses ensemble techniques to produce robust discharge predictions. The system is designed for operational forecasting in Central Asian basins with complex hydrology influenced by snow and glacier dynamics. This code was develeoped in the context of the [SAPPHIRE project](https://www.hydrosolutions.ch/projects/sapphire-central-asia) and funded by the [Swiss Agency for Development and Cooperation](https://www.eda.admin.ch/eda/en/home/fdfa/organisation-fdfa/directorates-divisions/sdc.html). The code is the backbone of the machine learning based long-term forecasting component in the [SAPPHIRE Forecast Tools](https://github.com/hydrosolutions/SAPPHIRE_Forecast_Tools). Note that this repository is still work in progress.
