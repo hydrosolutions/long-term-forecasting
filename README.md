@@ -44,6 +44,12 @@ The diagram above illustrates the complete workflow from data ingestion to opera
 
 ## Quick Start
 
+### Installation
+For using it as a package (as in the SAPPHIRE Forecast Tools).
+```bash
+pip install git+https://github.com/hydrosolutions/long-term-forecasting.git@vX.X.X
+```
+
 ### Prerequisites
 
 - Python 3.11
