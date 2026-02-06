@@ -31,15 +31,15 @@ load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
 
 day_of_forecast = {
-    "month_0": 15,
+    "month_0": 10,
     "month_1": 25,
     "month_2": 25,
     "month_3": 25,
     "month_4": 25,
     "month_5": 25,
-    # "month_6": 25,
-    # "month_7": 25,
-    # "month_8": 25,
+    "month_6": 25,
+    "month_7": 25,
+    "month_8": 25,
     # "month_9": 25,
 }
 
@@ -60,19 +60,26 @@ horizons = list(day_of_forecast.keys())
 # Models to exclude from ensemble (includes Q_obs variants as safety measure)
 models_not_to_ensemble = [
     "MC_ALD",
-    "SM_GBT",
-    "SM_GBT_Norm",
-    "SM_GBT_LR",
-    "LR_SM_ROF",
-    "LR_SM",
-    "LR_Base",
     "MC_ALD_loc",
     "obs",
     "Obs",
     "OBS",  # Exclude any observation-based "models"
 ]
 
-models_plot = ["LR_Base", "LR_SM", "MC_ALD"]
+# Submodel variants to exclude (use only main model output)
+submodel_suffixes_to_exclude = ["_xgb", "_catboost", "_lgbm", "_rf"]
+
+# Model weights for weighted ensemble (GBT models weight 3x, LR models weight 1x)
+model_weights = {
+    "SM_GBT": 3,
+    "SM_GBT_Norm": 3,
+    "SM_GBT_LR": 3,
+    "LR_SM": 1,
+    "LR_Base": 1,
+    "LR_SM_ROF": 1,
+}
+
+models_plot = ["LR_Base", "LR_SM", "MC_ALD", "Ensemble"]
 
 month_renaming = {
     1: "January",
@@ -98,11 +105,6 @@ issue_months_to_evaluate: list[int] | None = None  # Evaluate all months
 # False: Load observations from file and aggregate to monthly means
 use_Q_obs: bool = False
 
-# Flag to control whether to apply climatology-based ratio correction
-# True: Calculate ratio = Q_pred / Q_ltm_period, then Q_pred_corrected = ratio * Q_ltm_monthly
-# False: Use Q_pred directly without correction
-apply_climatology_correction: bool = True
-
 
 def calculate_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
     """
@@ -114,6 +116,7 @@ def calculate_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
     4. nMAE = MAE / mean(observed)
     5. Accuracy : |y_true - y_pred| <= 0.675 * std of y_true -> 1 else 0
     6. Efficiency: std (|y_true - y_pred|) / std(y_true)
+    7. PBIAS: 100 * sum(predicted - observed) / sum(observed)
 
     Args:
         y_true: Series of observed values
@@ -136,6 +139,7 @@ def calculate_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
             "nmae": np.nan,
             "accuracy": np.nan,
             "efficiency": np.nan,
+            "pbias": np.nan,
             "n_samples": len(y_true_clean),
         }
 
@@ -146,6 +150,7 @@ def calculate_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
 
     mean_obs = y_true_clean.mean()
     std_obs = y_true_clean.std()
+    sum_obs = y_true_clean.sum()
 
     nrmse = rmse / mean_obs if mean_obs != 0 else np.nan
     nmae = mae / mean_obs if mean_obs != 0 else np.nan
@@ -158,6 +163,11 @@ def calculate_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
     errors = np.abs(y_true_clean - y_pred_clean)
     efficiency = errors.std() / std_obs if std_obs != 0 else np.nan
 
+    # PBIAS: Percent Bias - positive means over-prediction, negative means under-prediction
+    pbias = (
+        100 * (y_pred_clean - y_true_clean).sum() / sum_obs if sum_obs != 0 else np.nan
+    )
+
     return {
         "r2": r2,
         "rmse": rmse,
@@ -166,6 +176,7 @@ def calculate_metrics(y_true: pd.Series, y_pred: pd.Series) -> dict:
         "nmae": nmae,
         "accuracy": accuracy,
         "efficiency": efficiency,
+        "pbias": pbias,
         "n_samples": len(y_true_clean),
     }
 
@@ -278,357 +289,14 @@ def calculate_leave_one_out_monthly_mean_fast(
     return df
 
 
-def precompute_daily_climatology(
-    daily_obs: pd.DataFrame,
-) -> pd.DataFrame:
-    """
-    Pre-compute daily climatology statistics for fast leave-one-out calculations.
-
-    Creates a lookup table with sum and count of discharge for each (code, month, day)
-    combination across all years, enabling O(1) leave-one-out calculations.
-
-    Args:
-        daily_obs: DataFrame with columns: date, code, discharge
-
-    Returns:
-        DataFrame with columns: code, month, day, total_sum, n_years, yearly data
-    """
-    df = daily_obs.copy()
-    df["year"] = df["date"].dt.year
-    df["month"] = df["date"].dt.month
-    df["day"] = df["date"].dt.day
-
-    # Aggregate by code, month, day, year first (in case of duplicates)
-    daily_by_year = (
-        df.groupby(["code", "year", "month", "day"])["discharge"].mean().reset_index()
-    )
-
-    # Create summary stats for each (code, month, day)
-    daily_stats = (
-        daily_by_year.groupby(["code", "month", "day"])
-        .agg(
-            total_sum=("discharge", "sum"),
-            n_years=("discharge", "count"),
-        )
-        .reset_index()
-    )
-
-    # Also create a pivot of year -> discharge for each (code, month, day)
-    # This allows us to quickly subtract specific years
-    yearly_pivot = daily_by_year.pivot_table(
-        index=["code", "month", "day"],
-        columns="year",
-        values="discharge",
-        aggfunc="mean",
-    ).reset_index()
-
-    # Merge stats with yearly data
-    result = daily_stats.merge(yearly_pivot, on=["code", "month", "day"], how="left")
-
-    # Ensure month and day are integers
-    result["month"] = result["month"].astype(int)
-    result["day"] = result["day"].astype(int)
-
-    logger.info(f"Pre-computed daily climatology for {result['code'].nunique()} codes")
-
-    return result
-
-
-def calculate_period_ltm_fast(
-    daily_climatology: pd.DataFrame,
-    predictions_df: pd.DataFrame,
-    daily_obs: pd.DataFrame,
-) -> pd.DataFrame:
-    """
-    Calculate leave-one-out period means and stds for all predictions using vectorized operations.
-
-    For each prediction, calculates the long-term mean and std for the valid_from to valid_to period,
-    excluding all years that overlap with the prediction (valid_from.year, valid_to.year, target_year).
-
-    Args:
-        daily_climatology: Pre-computed daily climatology from precompute_daily_climatology
-        predictions_df: DataFrame with predictions (must have valid_from, valid_to, code, target_year)
-        daily_obs: Original daily observations (for year lookup)
-
-    Returns:
-        predictions_df with Q_ltm_period and Q_std_period columns added
-    """
-    df = predictions_df.copy()
-
-    # Extract period bounds
-    df["from_month"] = df["valid_from"].dt.month
-    df["from_day"] = df["valid_from"].dt.day
-    df["to_month"] = df["valid_to"].dt.month
-    df["to_day"] = df["valid_to"].dt.day
-    df["from_year"] = df["valid_from"].dt.year
-    df["to_year"] = df["valid_to"].dt.year
-
-    # Get unique years in the daily observations
-    year_cols = [
-        col for col in daily_climatology.columns if isinstance(col, (int, np.integer))
-    ]
-
-    # Helper function to convert month/day to day-of-year (for period filtering)
-    def to_doy(month: int, day: int) -> int:
-        days_in_months = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        return sum(days_in_months[: int(month)]) + min(
-            int(day), days_in_months[int(month)]
-        )
-
-    # Add day-of-year to climatology (vectorized)
-    clim = daily_climatology.copy()
-    days_in_months_cumsum = np.array(
-        [0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
-    )
-    clim["doy"] = days_in_months_cumsum[clim["month"].values] + clim["day"].values
-
-    # Process in batches by unique (code, valid_from, valid_to, target_year) combinations
-    # This is much faster than row-by-row
-    unique_periods = df[
-        [
-            "code",
-            "valid_from",
-            "valid_to",
-            "target_year",
-            "from_month",
-            "from_day",
-            "to_month",
-            "to_day",
-            "from_year",
-            "to_year",
-        ]
-    ].drop_duplicates()
-
-    logger.info(f"Calculating period LTM for {len(unique_periods)} unique periods...")
-
-    period_ltm_results = []
-
-    for _, period in unique_periods.iterrows():
-        code = period["code"]
-        from_doy = to_doy(period["from_month"], period["from_day"])
-        to_doy_val = to_doy(period["to_month"], period["to_day"])
-
-        # Years to exclude (leave-one-out)
-        exclude_years = set(
-            [period["from_year"], period["to_year"], period["target_year"]]
-        )
-
-        # Filter climatology for this code and period
-        code_clim = clim[clim["code"] == code].copy()
-
-        # Filter by day-of-year range
-        if from_doy <= to_doy_val:
-            period_clim = code_clim[
-                (code_clim["doy"] >= from_doy) & (code_clim["doy"] <= to_doy_val)
-            ]
-        else:
-            # Period spans year boundary
-            period_clim = code_clim[
-                (code_clim["doy"] >= from_doy) | (code_clim["doy"] <= to_doy_val)
-            ]
-
-        if period_clim.empty:
-            period_ltm_results.append(
-                {
-                    "code": code,
-                    "valid_from": period["valid_from"],
-                    "valid_to": period["valid_to"],
-                    "target_year": period["target_year"],
-                    "Q_ltm_period": np.nan,
-                    "Q_std_period": np.nan,
-                }
-            )
-            continue
-
-        # Calculate leave-one-out mean and std
-        # Sum all year columns except excluded years
-        valid_year_cols = [y for y in year_cols if y not in exclude_years]
-
-        if not valid_year_cols:
-            period_ltm_results.append(
-                {
-                    "code": code,
-                    "valid_from": period["valid_from"],
-                    "valid_to": period["valid_to"],
-                    "target_year": period["target_year"],
-                    "Q_ltm_period": np.nan,
-                    "Q_std_period": np.nan,
-                }
-            )
-            continue
-
-        # Calculate mean across valid years for each day, then mean across days
-        # This properly weights each day equally
-        daily_means = period_clim[valid_year_cols].mean(axis=1, skipna=True)
-        period_mean = daily_means.mean()
-
-        # Calculate std: for each year, get the period mean, then std across years
-        # This gives the inter-annual variability of period means
-        year_period_means = []
-        for y in valid_year_cols:
-            year_data = period_clim[y].dropna()
-            if len(year_data) > 0:
-                year_period_means.append(year_data.mean())
-
-        if len(year_period_means) >= 2:
-            period_std = np.std(year_period_means, ddof=1)  # sample std
-        else:
-            period_std = np.nan
-
-        period_ltm_results.append(
-            {
-                "code": code,
-                "valid_from": period["valid_from"],
-                "valid_to": period["valid_to"],
-                "target_year": period["target_year"],
-                "Q_ltm_period": period_mean,
-                "Q_std_period": period_std,
-            }
-        )
-
-    period_ltm_df = pd.DataFrame(period_ltm_results)
-
-    # Merge back to predictions
-    df = df.merge(
-        period_ltm_df, on=["code", "valid_from", "valid_to", "target_year"], how="left"
-    )
-
-    # Clean up temporary columns
-    df = df.drop(
-        columns=["from_month", "from_day", "to_month", "to_day", "from_year", "to_year"]
-    )
-
-    logger.info(f"Calculated period LTM for {len(unique_periods)} unique periods")
-
-    return df
-
-
-def apply_climatology_ratio_correction_fast(
-    predictions_df: pd.DataFrame,
-    daily_obs: pd.DataFrame,
-    monthly_obs_with_ltm: pd.DataFrame,
-    region: str,
-) -> pd.DataFrame:
-    """
-    Apply climatology-based z-score correction to predictions (FAST vectorized version).
-
-    For each prediction:
-    1. Calculate leave-one-out long-term mean and std for the valid_from to valid_to period
-       (excluding ALL years that overlap with valid_from/valid_to to prevent data leakage)
-    2. Calculate z-score: z = (Q_pred - Q_ltm_period) / Q_std_period
-    3. Clip z-score at 2% and 98% probability levels (z ≈ -2.054 to +2.054)
-    4. Final prediction = Q_ltm_monthly + z_clipped * Q_std_monthly
-
-    IMPORTANT: Leave-one-out is applied on a yearly basis to prevent data leakage.
-
-    Args:
-        predictions_df: DataFrame with predictions (must have valid_from, valid_to, Q_pred)
-        daily_obs: DataFrame with daily observations (date, code, discharge)
-        monthly_obs_with_ltm: DataFrame with monthly obs and leave-one-out means/stds
-        region: Region name ("Kyrgyzstan" or "Tajikistan")
-
-    Returns:
-        DataFrame with added columns:
-        - Q_ltm_period: Leave-one-out long-term mean for the valid period
-        - Q_std_period: Leave-one-out standard deviation for the valid period
-        - Q_ltm_monthly: Leave-one-out long-term mean for the target month
-        - Q_std_monthly: Leave-one-out standard deviation for the target month
-        - z_score: (Q_pred - Q_ltm_period) / Q_std_period
-        - z_score_clipped: z_score clipped at 2% and 98% levels
-        - Q_pred_corrected: Q_ltm_monthly + z_score_clipped * Q_std_monthly
-    """
-    from scipy import stats
-
-    df = predictions_df.copy()
-
-    # Calculate target date based on region
-    if region == "Kyrgyzstan":
-        # Vectorized: add horizon months
-        df["target_date"] = df.apply(
-            lambda row: row["issue_date"] + pd.DateOffset(months=int(row["horizon"])),
-            axis=1,
-        )
-    elif region == "Tajikistan":
-        df["target_date"] = df.apply(
-            lambda row: row["issue_date"]
-            + pd.DateOffset(months=int(row["horizon"]) - 1),
-            axis=1,
-        )
-    else:
-        raise ValueError(f"Unknown region: {region}")
-
-    df["target_year"] = df["target_date"].dt.year
-    df["target_month"] = df["target_date"].dt.month
-    df["issue_month"] = df["issue_date"].dt.month
-
-    logger.info(
-        "Calculating climatology-based z-score corrections (fast vectorized)..."
-    )
-    logger.info("  NOTE: Using leave-one-out on yearly basis to prevent data leakage")
-    logger.info("  NOTE: Z-scores clipped at 2% and 98% probability levels")
-
-    # Pre-compute daily climatology
-    logger.info("  Pre-computing daily climatology...")
-    daily_climatology = precompute_daily_climatology(daily_obs)
-
-    # Calculate period LTM and STD for all predictions
-    logger.info("  Calculating period leave-one-out means and stds...")
-    df = calculate_period_ltm_fast(daily_climatology, df, daily_obs)
-
-    # Merge with monthly leave-one-out means and stds
-    logger.info("  Merging with monthly leave-one-out means and stds...")
-    df = df.merge(
-        monthly_obs_with_ltm[
-            ["code", "year", "month", "Q_ltm_monthly", "Q_std_monthly"]
-        ],
-        left_on=["code", "target_year", "target_month"],
-        right_on=["code", "year", "month"],
-        how="left",
-    )
-    df = df.drop(columns=["year", "month"], errors="ignore")
-
-    # Calculate z-score: (Q_pred - Q_ltm_period) / Q_std_period
-    logger.info("  Calculating z-scores and corrected predictions...")
-    df["z_score"] = (df["Q_pred"] - df["Q_ltm_period"]) / df["Q_std_period"]
-
-    # Clip z-score at 1% and 99% probability levels
-    # For a standard normal distribution:
-    z_lower = stats.norm.ppf(0.01)
-    z_upper = stats.norm.ppf(0.99)
-    df["z_score_clipped"] = df["z_score"].clip(lower=z_lower, upper=z_upper)
-
-    # Transform z-score to monthly prediction: Q_ltm_monthly + z_clipped * Q_std_monthly
-    df["Q_pred_corrected"] = (
-        df["Q_ltm_monthly"] + df["z_score_clipped"] * df["Q_std_monthly"]
-    )
-
-    # Handle edge cases (missing std, etc.)
-    df.loc[df["Q_std_period"] <= 0, "z_score"] = np.nan
-    df.loc[df["Q_std_period"] <= 0, "z_score_clipped"] = np.nan
-    df.loc[df["Q_std_period"].isna(), "Q_pred_corrected"] = np.nan
-    df.loc[df["Q_std_monthly"].isna(), "Q_pred_corrected"] = np.nan
-
-    # Ensure Q_pred_corrected is non-negative (discharge can't be negative)
-    df["Q_pred_corrected"] = df["Q_pred_corrected"].clip(lower=0)
-
-    logger.info(f"Finished processing {len(df)} rows")
-    logger.info(f"  Rows with Q_ltm_period: {df['Q_ltm_period'].notna().sum()}")
-    logger.info(f"  Rows with Q_std_period: {df['Q_std_period'].notna().sum()}")
-    logger.info(f"  Rows with Q_pred_corrected: {df['Q_pred_corrected'].notna().sum()}")
-    logger.info(
-        f"  Z-score stats: min={df['z_score'].min():.3f}, median={df['z_score'].median():.3f}, max={df['z_score'].max():.3f}"
-    )
-    logger.info(
-        f"  Z-score clipped stats: min={df['z_score_clipped'].min():.3f}, median={df['z_score_clipped'].median():.3f}, max={df['z_score_clipped'].max():.3f}"
-    )
-    logger.info(f"  Z-score clip bounds: [{z_lower:.3f}, {z_upper:.3f}] (1% - 99%)")
-
-    return df
-
-
 def create_ensemble(predictions_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Creates ensemble mean across all models except those in models_not_to_ensemble.
+    Creates weighted ensemble across selected models.
+
+    Weighting: GBT models (SM_GBT, SM_GBT_Norm, SM_GBT_LR) weighted 3x,
+               LR models (LR_SM, LR_Base, LR_SM_ROF) weighted 1x.
+
+    Only uses main model outputs (excludes _xgb, _catboost, _lgbm variants).
 
     Args:
         predictions_df: DataFrame with predictions containing columns:
@@ -637,32 +305,58 @@ def create_ensemble(predictions_df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         DataFrame with ensemble predictions added as a new model "Ensemble"
     """
-    # Filter models to ensemble
-    ensemble_models = predictions_df[
-        ~predictions_df["model"].isin(models_not_to_ensemble)
-    ].copy()
+    # Filter out excluded models and submodel variants
+    df = predictions_df.copy()
 
-    logger.info(f"Creating ensemble from {ensemble_models['model'].nunique()} models")
+    # Exclude models in the exclusion list
+    df_filtered = df[~df["model"].isin(models_not_to_ensemble)].copy()
+
+    # Exclude submodel variants (e.g., model_xgb, model_catboost)
+    for suffix in submodel_suffixes_to_exclude:
+        df_filtered = df_filtered[~df_filtered["model"].str.endswith(suffix)]
+
+    # Keep only models that have weights defined
+    df_filtered = df_filtered[df_filtered["model"].isin(model_weights.keys())]
+
     logger.info(
-        f" Names of models included: {ensemble_models['model'].unique().tolist()}"
+        f"Creating weighted ensemble from {df_filtered['model'].nunique()} models"
     )
+    logger.info(f"  Models included: {df_filtered['model'].unique().tolist()}")
+    logger.info(f"  Weights: {model_weights}")
 
-    if ensemble_models.empty:
+    if df_filtered.empty:
         logger.warning("No models available for ensemble creation")
         return predictions_df
 
-    # Group by code, issue_date, horizon and calculate mean prediction
-    ensemble = (
-        ensemble_models.groupby(
-            ["code", "issue_date", "horizon", "valid_from", "valid_to"]
-        )
-        .agg(
-            {
-                "Q_pred": "mean",
-                "Q_obs": "first",  # Q_obs should be the same for all models
-            }
-        )
-        .reset_index()
+    # Add weight column based on model
+    df_filtered["weight"] = df_filtered["model"].map(model_weights)
+
+    # Calculate weighted mean for each group
+    def weighted_mean(group):
+        weights = group["weight"].values
+        values = group["Q_pred"].values
+        return np.average(values, weights=weights)
+
+    # Group by code, issue_date, horizon and calculate weighted mean prediction
+    grouped = df_filtered.groupby(
+        ["code", "issue_date", "horizon", "valid_from", "valid_to"]
+    )
+
+    ensemble_preds = grouped.apply(weighted_mean, include_groups=False).reset_index()
+    ensemble_preds.columns = [
+        "code",
+        "issue_date",
+        "horizon",
+        "valid_from",
+        "valid_to",
+        "Q_pred",
+    ]
+
+    # Get Q_obs from the first model in each group
+    q_obs = grouped["Q_obs"].first().reset_index().rename(columns={"Q_obs": "Q_obs"})
+
+    ensemble = ensemble_preds.merge(
+        q_obs, on=["code", "issue_date", "horizon", "valid_from", "valid_to"]
     )
 
     # Add model name
@@ -678,54 +372,31 @@ def create_ensemble(predictions_df: pd.DataFrame) -> pd.DataFrame:
     # Concatenate with original predictions
     combined = pd.concat([predictions_df, ensemble], ignore_index=True)
 
-    logger.info(f"Created ensemble from {ensemble_models['model'].nunique()} models")
+    logger.info(
+        f"Created weighted ensemble from {df_filtered['model'].nunique()} models"
+    )
 
     return combined
 
 
-def aggregate(
-    predictions_df: pd.DataFrame, monthly_obs: pd.DataFrame, region: str
-) -> pd.DataFrame:
+def aggregate(predictions_df: pd.DataFrame, monthly_obs: pd.DataFrame) -> pd.DataFrame:
     """
-    Merge predictions with monthly aggregated observations based on region-specific logic.
+    Merge predictions with monthly aggregated observations.
 
-    For Kyrgyzstan: target month = issue_date + horizon (months)
-        e.g., 15.4 + month_0 = April, month_1 = May, etc.
-    For Tajikistan: target month = issue_date + horizon - 1 (months)
-        e.g., 15.4 + month_1 = April, etc.
+    Target month is extracted directly from valid_from (no shift calculation needed).
 
     Args:
-        predictions_df: DataFrame with predictions (code, issue_date, horizon, Q_pred, model, etc.)
+        predictions_df: DataFrame with predictions (code, issue_date, valid_from, horizon, Q_pred, model, etc.)
         monthly_obs: DataFrame with monthly observations (code, year, month, Q_obs_monthly)
-        region: Region name ("Kyrgyzstan" or "Tajikistan")
 
     Returns:
         DataFrame with merged predictions and monthly observations, including target_month
     """
     df = predictions_df.copy()
 
-    # Calculate target date based on region
-    if region == "Kyrgyzstan":
-        # Target month = issue_date + horizon
-        df["target_date"] = df.apply(
-            lambda row: row["issue_date"] + pd.DateOffset(months=int(row["horizon"])),
-            axis=1,
-        )
-    elif region == "Tajikistan":
-        # Target month = issue_date + horizon - 1
-        df["target_date"] = df.apply(
-            lambda row: row["issue_date"]
-            + pd.DateOffset(months=int(row["horizon"]) - 1),
-            axis=1,
-        )
-    else:
-        raise ValueError(
-            f"Unknown region: {region}. Must be 'Kyrgyzstan' or 'Tajikistan'"
-        )
-
-    # Extract year and month from target_date
-    df["target_year"] = df["target_date"].dt.year
-    df["target_month"] = df["target_date"].dt.month
+    # Target month directly from valid_from (no shift calculation)
+    df["target_month"] = df["valid_from"].dt.month
+    df["target_year"] = df["valid_from"].dt.year
     df["issue_month"] = df["issue_date"].dt.month
 
     # Merge with monthly observations
@@ -743,7 +414,7 @@ def aggregate(
     merged["Q_obs"] = merged["Q_obs_monthly"].combine_first(merged["Q_obs"])
     merged = merged.drop(columns=["Q_obs_monthly"], errors="ignore")
 
-    logger.info(f"Aggregated predictions with monthly observations for {region}")
+    logger.info("Aggregated predictions with monthly observations")
     logger.info(f"  Total records: {len(merged)}")
     logger.info(f"  Records with Q_obs: {merged['Q_obs'].notna().sum()}")
 
@@ -792,6 +463,235 @@ def compute_metrics_dataframe(aggregated_df: pd.DataFrame) -> pd.DataFrame:
     logger.info(f"Computed metrics for {len(metrics_df)} combinations")
 
     return metrics_df
+
+
+def create_horizon_metrics_dataframe(
+    aggregated_df: pd.DataFrame,
+    horizon: int,
+    models: list[str] | None = None,
+    month_column: str = "target_month",
+) -> pd.DataFrame:
+    """
+    Create metrics DataFrame for a specific forecast horizon.
+
+    Args:
+        aggregated_df: DataFrame with aggregated predictions and observations
+        horizon: Forecast horizon to filter by
+        models: Optional list of models to include. If None, all models are included.
+        month_column: Column to use for month grouping ("target_month" or "issue_month")
+
+    Returns:
+        DataFrame with columns: code, model, month, R2, Accuracy, Efficiency, PBIAS,
+                               MAE, nMAE, nRMSE, n_samples
+    """
+    # Filter by horizon
+    df = aggregated_df[aggregated_df["horizon"] == horizon].copy()
+
+    if df.empty:
+        logger.warning(f"No data found for horizon {horizon}")
+        return pd.DataFrame()
+
+    # Filter by models if specified
+    if models is not None:
+        df = df[df["model"].isin(models)]
+        if df.empty:
+            logger.warning(f"No data found for horizon {horizon} with specified models")
+            return pd.DataFrame()
+
+    metrics_list = []
+
+    # Group by (code, model, month)
+    for (code, model, month), group in df.groupby(["code", "model", month_column]):
+        metrics = calculate_metrics(group["Q_obs"], group["Q_pred"])
+
+        metrics_list.append(
+            {
+                "code": code,
+                "model": model,
+                "month": month,
+                "R2": metrics["r2"],
+                "Accuracy": metrics["accuracy"],
+                "Efficiency": metrics["efficiency"],
+                "PBIAS": metrics["pbias"],
+                "MAE": metrics["mae"],
+                "nMAE": metrics["nmae"],
+                "nRMSE": metrics["nrmse"],
+                "n_samples": metrics["n_samples"],
+            }
+        )
+
+    metrics_df = pd.DataFrame(metrics_list)
+
+    if not metrics_df.empty:
+        # Sort for consistent output
+        metrics_df = metrics_df.sort_values(["code", "model", "month"]).reset_index(
+            drop=True
+        )
+
+    logger.debug(
+        f"Created horizon {horizon} metrics DataFrame with {len(metrics_df)} rows"
+    )
+
+    return metrics_df
+
+
+def calculate_quantile_exceedance_rates(
+    observed: np.ndarray, quantile_preds: dict[str, np.ndarray]
+) -> dict[str, float]:
+    """
+    Calculate exceedance rate for each quantile.
+
+    For a well-calibrated forecast:
+    - Q5 should exceed observed ~5% of the time
+    - Q50 should exceed observed ~50% of the time
+    - Q95 should exceed observed ~95% of the time
+
+    Formula: exceedance_rate(p) = P(Q_p > observed)
+
+    Args:
+        observed: Array of observed values
+        quantile_preds: Dictionary mapping quantile names (e.g., "Q5", "Q50")
+                       to arrays of predicted quantile values
+
+    Returns:
+        Dictionary with exceedance rates for each quantile
+    """
+    results = {}
+
+    for quantile_name, pred_values in quantile_preds.items():
+        # Create mask for valid (non-NaN) pairs
+        mask = ~(np.isnan(observed) | np.isnan(pred_values))
+        obs_clean = observed[mask]
+        pred_clean = pred_values[mask]
+
+        if len(obs_clean) == 0:
+            results[f"{quantile_name}_exceedance"] = np.nan
+            continue
+
+        # Calculate exceedance rate: fraction where quantile prediction > observed
+        exceedance_rate = np.mean(pred_clean > obs_clean)
+        results[f"{quantile_name}_exceedance"] = exceedance_rate
+
+    return results
+
+
+def create_quantile_exceedance_dataframe(
+    aggregated_df: pd.DataFrame,
+    model: str = "MC_ALD",
+    horizons: list[int] | None = None,
+    month_column: str = "target_month",
+) -> pd.DataFrame:
+    """
+    Create quantile exceedance DataFrame for probabilistic model.
+
+    For each combination of code, month, and horizon, calculates the empirical
+    exceedance rates for each quantile (Q5, Q10, Q25, Q50, Q75, Q90, Q95) and
+    compares them to expected rates.
+
+    Args:
+        aggregated_df: DataFrame with aggregated predictions and observations
+        model: Model name to filter for (default: "MC_ALD")
+        horizons: Optional list of horizons to include. If None, all horizons are included.
+        month_column: Column to use for month grouping ("target_month" or "issue_month")
+
+    Returns:
+        DataFrame with columns:
+            code, month, horizon, Q5_exceedance, Q10_exceedance, Q25_exceedance,
+            Q50_exceedance, Q75_exceedance, Q90_exceedance, Q95_exceedance,
+            Q5_bias, Q10_bias, ..., n_samples
+    """
+    # Expected exceedance rates for each quantile
+    expected_rates = {
+        "Q5": 0.05,
+        "Q10": 0.10,
+        "Q25": 0.25,
+        "Q50": 0.50,
+        "Q75": 0.75,
+        "Q90": 0.90,
+        "Q95": 0.95,
+    }
+
+    # Filter for specified model
+    df = aggregated_df[aggregated_df["model"] == model].copy()
+
+    if df.empty:
+        logger.warning(f"No data found for model {model}")
+        return pd.DataFrame()
+
+    # Filter by horizons if specified
+    if horizons is not None:
+        df = df[df["horizon"].isin(horizons)]
+        if df.empty:
+            logger.warning(f"No data found for model {model} with specified horizons")
+            return pd.DataFrame()
+
+    # Identify available quantile columns
+    quantile_cols = [col for col in df.columns if re.fullmatch(r"Q\d+", col)]
+    available_quantiles = {
+        col: expected_rates.get(col) for col in quantile_cols if col in expected_rates
+    }
+
+    if not available_quantiles:
+        logger.warning(f"No quantile columns found for model {model}")
+        return pd.DataFrame()
+
+    logger.info(f"Found quantile columns: {list(available_quantiles.keys())}")
+
+    exceedance_list = []
+
+    # Group by (code, month, horizon)
+    for (code, month, horizon), group in df.groupby(["code", month_column, "horizon"]):
+        observed = group["Q_obs"].values
+
+        # Build quantile predictions dictionary
+        quantile_preds = {}
+        for q_col in available_quantiles.keys():
+            if q_col in group.columns:
+                quantile_preds[q_col] = group[q_col].values
+
+        # Calculate exceedance rates
+        exceedance_rates = calculate_quantile_exceedance_rates(observed, quantile_preds)
+
+        # Build result row
+        row = {
+            "code": code,
+            "month": month,
+            "horizon": horizon,
+        }
+
+        # Add exceedance rates and biases
+        for q_col, expected_rate in available_quantiles.items():
+            exc_key = f"{q_col}_exceedance"
+            if exc_key in exceedance_rates:
+                row[f"{q_col}_exc"] = exceedance_rates[exc_key]
+                # Bias = actual exceedance - expected exceedance
+                if not np.isnan(exceedance_rates[exc_key]):
+                    row[f"{q_col}_bias"] = exceedance_rates[exc_key] - expected_rate
+                else:
+                    row[f"{q_col}_bias"] = np.nan
+
+        # Count valid samples (where both Q_obs and at least one quantile are not NaN)
+        mask = ~np.isnan(observed)
+        for q_col in available_quantiles.keys():
+            if q_col in group.columns:
+                mask = mask & ~group[q_col].isna().values
+        row["n_samples"] = mask.sum()
+
+        exceedance_list.append(row)
+
+    exceedance_df = pd.DataFrame(exceedance_list)
+
+    if not exceedance_df.empty:
+        # Sort for consistent output
+        exceedance_df = exceedance_df.sort_values(
+            ["code", "month", "horizon"]
+        ).reset_index(drop=True)
+
+    logger.info(
+        f"Created quantile exceedance DataFrame for {model} with {len(exceedance_df)} rows"
+    )
+
+    return exceedance_df
 
 
 def load_predictions(
@@ -846,10 +746,10 @@ def load_predictions(
                 logger.debug(f"Empty dataframe in {hindcast_file}")
                 continue
 
-            # Convert dates to datetime
-            df["date"] = pd.to_datetime(df["date"])
-            df["valid_from"] = pd.to_datetime(df["valid_from"])
-            df["valid_to"] = pd.to_datetime(df["valid_to"])
+            # Convert dates to datetime (use mixed format to handle both date and datetime strings)
+            df["date"] = pd.to_datetime(df["date"], format="mixed")
+            df["valid_from"] = pd.to_datetime(df["valid_from"], format="mixed")
+            df["valid_to"] = pd.to_datetime(df["valid_to"], format="mixed")
 
             # Convert code to int
             df["code"] = df["code"].astype(int)
@@ -1686,21 +1586,8 @@ def main():
             )
             return
 
-        # Add target_month, issue_month based on region logic
-        if region == "Kyrgyzstan":
-            predictions_df["target_date"] = predictions_df.apply(
-                lambda row: row["issue_date"]
-                + pd.DateOffset(months=int(row["horizon"])),
-                axis=1,
-            )
-        elif region == "Tajikistan":
-            predictions_df["target_date"] = predictions_df.apply(
-                lambda row: row["issue_date"]
-                + pd.DateOffset(months=int(row["horizon"]) - 1),
-                axis=1,
-            )
-
-        predictions_df["target_month"] = predictions_df["target_date"].dt.month
+        # Add target_month, issue_month directly from valid_from
+        predictions_df["target_month"] = predictions_df["valid_from"].dt.month
         predictions_df["issue_month"] = predictions_df["issue_date"].dt.month
         aggregated_df = predictions_df
 
@@ -1712,42 +1599,16 @@ def main():
         logger.info("Calculating monthly observation targets...")
         monthly_obs = calculate_target(obs_df)
 
-        # Apply climatology-based ratio correction if enabled
-        if apply_climatology_correction:
-            logger.info("Applying climatology-based ratio correction...")
-
-            # Calculate leave-one-out monthly means (fast vectorized version)
-            monthly_obs_with_ltm = calculate_leave_one_out_monthly_mean_fast(
-                monthly_obs
-            )
-
-            # Apply ratio correction to predictions (fast vectorized version)
-            predictions_df = apply_climatology_ratio_correction_fast(
-                predictions_df=predictions_df,
-                daily_obs=obs_df,
-                monthly_obs_with_ltm=monthly_obs_with_ltm,
-                region=region,
-            )
-
-            # Use corrected predictions as Q_pred for evaluation
-            # Keep original Q_pred as Q_pred_original
-            predictions_df["Q_pred_original"] = predictions_df["Q_pred"]
-            predictions_df["Q_pred"] = predictions_df["Q_pred_corrected"]
-
-            logger.info(
-                "Ratio correction applied. Q_pred now contains corrected values."
-            )
-
         # Aggregate predictions with observations
         logger.info("Aggregating predictions with observations...")
-        aggregated_df = aggregate(predictions_df, monthly_obs, region)
+        aggregated_df = aggregate(predictions_df, monthly_obs)
 
     # Compute metrics dataframe
     logger.info("Computing metrics...")
     metrics_df = compute_metrics_dataframe(aggregated_df)
 
     logger.info(f"Metrics computed for {len(metrics_df)} combinations")
-    logger.info(f"\nMetrics DataFrame preview:")
+    logger.info("\nMetrics DataFrame preview:")
     print(metrics_df.head(20))
 
     # Diagnostic: Print coverage per model and horizon
@@ -1808,6 +1669,65 @@ def main():
 
     # Plot metric by target month for each forecast horizon
     available_horizons = sorted(metrics_df["horizon"].unique())
+
+    # ==========================================================================
+    # Create structured metrics DataFrames
+    # ==========================================================================
+
+    # Create deterministic metrics DataFrames (one per horizon)
+    logger.info("\nCreating horizon-specific metrics DataFrames...")
+    horizon_metrics: dict[int, pd.DataFrame] = {}
+    for horizon in available_horizons:
+        horizon_metrics[horizon] = create_horizon_metrics_dataframe(
+            aggregated_df,
+            horizon=horizon,
+            models=models_to_plot,
+            month_column="target_month",
+        )
+        logger.info(f"  Horizon {horizon}: {len(horizon_metrics[horizon])} rows")
+
+    # Create probabilistic evaluation DataFrame for MC_ALD
+    quantile_exceedance_df = pd.DataFrame()
+    if "MC_ALD" in aggregated_df["model"].unique():
+        logger.info("\nCreating quantile exceedance DataFrame for MC_ALD...")
+        quantile_exceedance_df = create_quantile_exceedance_dataframe(
+            aggregated_df,
+            model="MC_ALD",
+            horizons=available_horizons,
+            month_column="target_month",
+        )
+
+        # Print summary statistics for quantile calibration
+        if not quantile_exceedance_df.empty:
+            print("\n" + "=" * 80)
+            print("QUANTILE CALIBRATION SUMMARY (MC_ALD)")
+            print("Expected vs Actual Exceedance Rates (aggregated across all data)")
+            print("=" * 80)
+            quantile_cols = [
+                col for col in quantile_exceedance_df.columns if col.endswith("_exc")
+            ]
+            for q_col in quantile_cols:
+                q_name = q_col.replace("_exc", "")
+                expected = {
+                    "Q5": 0.05,
+                    "Q10": 0.10,
+                    "Q25": 0.25,
+                    "Q50": 0.50,
+                    "Q75": 0.75,
+                    "Q90": 0.90,
+                    "Q95": 0.95,
+                }.get(q_name, np.nan)
+                actual = quantile_exceedance_df[q_col].mean()
+                bias = actual - expected if not np.isnan(expected) else np.nan
+                print(
+                    f"  {q_name}: Expected={expected:.2f}, Actual={actual:.3f}, Bias={bias:+.3f}"
+                )
+            print("=" * 80 + "\n")
+    else:
+        logger.warning("MC_ALD model not found - skipping quantile exceedance analysis")
+
+    # ==========================================================================
+
     logger.info(f"\nPlotting {metric_to_plot} by target month for each horizon...")
 
     for horizon in available_horizons:

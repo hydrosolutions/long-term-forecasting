@@ -98,7 +98,10 @@ class BaseMetaLearner(BaseForecastModel):
             Tuple[pd.DataFrame, List[str]]: A tuple containing the DataFrame of base predictors and a list of their names (column names).
         """
         # Check if external predictions were provided
-        if self._external_base_predictors is not None and self._external_base_model_names is not None:
+        if (
+            self._external_base_predictors is not None
+            and self._external_base_model_names is not None
+        ):
             logger.info("Using externally provided base predictors")
             # Need to merge with self.data to maintain left join behavior
             df_to_merge_on = self.data[["date", "code"]].copy()
@@ -110,15 +113,19 @@ class BaseMetaLearner(BaseForecastModel):
                     model_name = col_name
 
                 if col_name in self._external_base_predictors.columns:
-                    sub_df = self._external_base_predictors[["date", "code", col_name]].copy()
+                    sub_df = self._external_base_predictors[
+                        ["date", "code", col_name]
+                    ].copy()
                     sub_df.rename(columns={col_name: model_name}, inplace=True)
                     df_to_merge_on = df_to_merge_on.merge(
                         sub_df, on=["date", "code"], how="left"
                     )
 
             # Extract model names (without Q_ prefix)
-            model_names = [name.replace("Q_", "") if name.startswith("Q_") else name
-                          for name in self._external_base_model_names]
+            model_names = [
+                name.replace("Q_", "") if name.startswith("Q_") else name
+                for name in self._external_base_model_names
+            ]
             return df_to_merge_on, model_names
 
         # Fall back to file-based loading with deprecation warning
@@ -127,7 +134,7 @@ class BaseMetaLearner(BaseForecastModel):
             "Use lt_forecasting.scr.prediction_loader module and pass "
             "base_predictors parameter to constructor instead.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
 
         path_to_base_predictors = self.path_config["path_to_base_predictors"]

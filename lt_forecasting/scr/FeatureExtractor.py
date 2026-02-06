@@ -419,8 +419,8 @@ class StreamflowFeatureExtractor:
         for column, config in self.feature_configs.items():
             logger.info(f"Creating features for column: {column}")
             features_with_column = [col for col in df.columns if column in col]
-            logger.info(f"Features with column '{column}': {features_with_column}")
-            logger.info(f"Configuration for column '{column}': {config}")
+            logger.debug(f"Features with column '{column}': {features_with_column}")
+            logger.debug(f"Configuration for column '{column}': {config}")
             for c in config:
                 for col in features_with_column:
                     features = self._create_rolling_features(df, col, c)

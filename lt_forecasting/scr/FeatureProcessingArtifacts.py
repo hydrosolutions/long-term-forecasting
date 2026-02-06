@@ -387,7 +387,7 @@ class FeatureProcessingArtifacts:
             else:
                 logger.warning(f"Unexpected scaler format for {key}: {value}")
 
-        logger.info(f"Loaded scaler with {len(scaler)} entries from JSON")
+        logger.debug(f"Loaded scaler with {len(scaler)} entries from JSON")
         return scaler
 
     @staticmethod
@@ -412,7 +412,7 @@ class FeatureProcessingArtifacts:
 
         try:
             df = pd.read_parquet(parquet_path)
-            logger.info(
+            logger.debug(
                 f"Loaded long_term_means DataFrame from Parquet with shape {df.shape}"
             )
             return df
@@ -430,7 +430,7 @@ class FeatureProcessingArtifacts:
         if parquet_path.exists():
             try:
                 df = pd.read_parquet(parquet_path)
-                logger.info(
+                logger.debug(
                     f"Loaded long_term_stats from Parquet with shape {df.shape}"
                 )
                 return df
@@ -597,7 +597,7 @@ def process_training_data(
         artifacts.selected_features if artifacts.selected_features else features
     )
 
-    logger.info(f"Final feature count: {len(artifacts.final_features)}")
+    logger.debug(f"Final feature count: {len(artifacts.final_features)}")
 
     return df_processed, artifacts
 
@@ -673,9 +673,9 @@ def load_artifacts_for_production(
 
     artifacts = FeatureProcessingArtifacts.load(artifact_path)
 
-    logger.info(f"Loaded artifacts for {model_name} {version}")
-    logger.info(f"Artifacts created: {artifacts.creation_timestamp}")
-    logger.info(f"Feature count: {artifacts.feature_count}")
+    logger.debug(f"Loaded artifacts for {model_name} {version}")
+    logger.debug(f"Artifacts created: {artifacts.creation_timestamp}")
+    logger.debug(f"Feature count: {artifacts.feature_count}")
 
     return artifacts
 
@@ -747,7 +747,7 @@ def _handle_missing_values_training(
     if handle_na == "drop":
         all_cols = list(set(features + [target]))
         df = df.dropna(subset=all_cols)
-        logger.info("Applied dropna strategy")
+        logger.debug("Applied dropna strategy")
 
     elif handle_na == "long_term_mean":
         # Import here to avoid circular imports
@@ -764,7 +764,7 @@ def _handle_missing_values_training(
         df = du.apply_long_term_mean(
             df, long_term_mean=artifacts.long_term_means, features=numeric_features
         )
-        logger.info("Created long-term mean artifacts")
+        logger.debug("Created long-term mean artifacts")
         logger.debug(
             f"Long Term Stats shape: {artifacts.long_term_stats.shape if hasattr(artifacts.long_term_stats, 'shape') else 'N/A'}"
         )
@@ -785,7 +785,7 @@ def _handle_missing_values_training(
             df[impute_cols] = pd.DataFrame(
                 imputed_data, columns=impute_cols, index=df.index
             )
-            logger.info(f"Created imputer with strategy: {impute_method}")
+            logger.debug(f"Created imputer with strategy: {impute_method}")
 
     return df, artifacts
 
@@ -817,7 +817,7 @@ def _feature_selection_training(
             if any(upper_triangle[column] > 0.95)
         ]
         X_train = X_train.drop(columns=artifacts.highly_correlated_features)
-        logger.info(
+        logger.debug(
             f"Identified highly correlated features: {artifacts.highly_correlated_features}"
         )
 
@@ -829,7 +829,7 @@ def _feature_selection_training(
     selected_numeric_features = X_train.columns[
         artifacts.feature_selector.get_support()
     ].tolist()
-    logger.info(
+    logger.debug(
         f"Selected features from mutual information: {selected_numeric_features}"
     )
 

@@ -102,7 +102,10 @@ class TestLoadPredictionsFromFilesystem:
         pd.DataFrame(data1).to_csv(model1_dir / "predictions.csv", index=False)
         pd.DataFrame(data2).to_csv(model2_dir / "predictions.csv", index=False)
 
-        paths = [str(model1_dir / "predictions.csv"), str(model2_dir / "predictions.csv")]
+        paths = [
+            str(model1_dir / "predictions.csv"),
+            str(model2_dir / "predictions.csv"),
+        ]
         predictions, pred_cols = load_predictions_from_filesystem(paths)
 
         assert len(pred_cols) == 2
@@ -153,7 +156,10 @@ class TestLoadPredictionsFromFilesystem:
         pd.DataFrame(data1).to_csv(model1_dir / "predictions.csv", index=False)
         pd.DataFrame(data2).to_csv(model2_dir / "predictions.csv", index=False)
 
-        paths = [str(model1_dir / "predictions.csv"), str(model2_dir / "predictions.csv")]
+        paths = [
+            str(model1_dir / "predictions.csv"),
+            str(model2_dir / "predictions.csv"),
+        ]
         predictions, _ = load_predictions_from_filesystem(paths, join_type="inner")
 
         # Only dates 2 and 3 should be present (intersection)
@@ -184,7 +190,10 @@ class TestLoadPredictionsFromFilesystem:
         pd.DataFrame(data1).to_csv(model1_dir / "predictions.csv", index=False)
         pd.DataFrame(data2).to_csv(model2_dir / "predictions.csv", index=False)
 
-        paths = [str(model1_dir / "predictions.csv"), str(model2_dir / "predictions.csv")]
+        paths = [
+            str(model1_dir / "predictions.csv"),
+            str(model2_dir / "predictions.csv"),
+        ]
         predictions, _ = load_predictions_from_filesystem(paths, join_type="left")
 
         # All 3 dates from model1 should be present
@@ -238,7 +247,9 @@ class TestLoadPredictionsFromDataframe:
             }
         )
 
-        predictions, pred_cols = load_predictions_from_dataframe(df, ["model1", "model2"])
+        predictions, pred_cols = load_predictions_from_dataframe(
+            df, ["model1", "model2"]
+        )
 
         assert len(pred_cols) == 2
         assert "Q_model1" in pred_cols
@@ -256,7 +267,9 @@ class TestLoadPredictionsFromDataframe:
             }
         )
 
-        predictions, pred_cols = load_predictions_from_dataframe(df, ["model1", "model2"])
+        predictions, pred_cols = load_predictions_from_dataframe(
+            df, ["model1", "model2"]
+        )
 
         assert len(pred_cols) == 2
         assert "Q_model1" in pred_cols

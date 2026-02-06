@@ -175,19 +175,17 @@ class MLPUncertaintyModel(pl.LightningModule):
             # Use first feature as μ
             mu = x[:, 0]
             beta = self.softplus(params[:, 0]) + 1e-2
-            tau = torch.sigmoid(params[:, 1])
-
-            # clip tau to be in range
-            tau = torch.clamp(tau, min=1e-2, max=0.99)
+            # Map sigmoid to [0.30, 0.70] for numerical stability
+            # This keeps gradients flowing while constraining asymmetry
+            tau = 0.30 + 0.4 * torch.sigmoid(params[:, 1])
 
             # detach mu to avoid gradients flowing into input feature
             # mu = mu.detach()
         else:
             mu = params[:, 0]
             beta = self.softplus(params[:, 1]) + 1e-2
-            tau = torch.sigmoid(params[:, 2])
-            # clip tau to be in range
-            tau = torch.clamp(tau, min=1e-3, max=0.999)
+            # Map sigmoid to [0.30, 0.70] for numerical stability
+            tau = 0.30 + 0.4 * torch.sigmoid(params[:, 2])
 
         return mu, beta, tau
 
@@ -275,12 +273,12 @@ class MLPUncertaintyModel(pl.LightningModule):
         MC_num_samples: int = 100,
         ALD_num_samples: int = 100,
         quantiles: Optional[List[float]] = None,
+        disable_mc_dropout: bool = False,
     ) -> pd.DataFrame:
         if quantiles is None:
             quantiles = list(self.quantiles)
 
         self.eval()
-        self.enable_dropout()
 
         results: list[pd.DataFrame] = []
 
@@ -291,50 +289,68 @@ class MLPUncertaintyModel(pl.LightningModule):
             x = batch["X"]
             batch_size = x.shape[0]
 
-            # Collect all samples: shape (batch_size, MC_num_samples * ALD_num_samples)
-            all_samples = []
-            locs = []
-
-            # Run MC forward passes
-            for i in range(MC_num_samples):
+            if disable_mc_dropout:
+                # Use analytical quantiles from single forward pass (fast, stable)
                 with torch.no_grad():
                     mu, beta, tau = self(x)
 
-                # Move to CPU
-                mu_cpu = mu.cpu()
-                beta_cpu = beta.cpu()
-                tau_cpu = tau.cpu()
+                mu_np = mu.cpu().numpy()
+                beta_np = beta.cpu().numpy()
+                tau_np = tau.cpu().numpy()
 
-                # Store location parameters
-                locs.append(mu_cpu.numpy())
+                # Compute analytical quantiles
+                qvals = np.zeros((batch_size, len(quantiles)))
+                for idx, q in enumerate(quantiles):
+                    qvals[:, idx] = predict_ALD_quantile(mu_np, beta_np, tau_np, q)
 
-                # Draw multiple samples from ALD for this MC iteration
-                samples_i = sample_ald(
-                    mu_cpu, beta_cpu, tau_cpu, num_samples=ALD_num_samples
+                # For analytical, Q_mean = Q_loc = mode (mu)
+                avg_loc = mu_np
+                # Use median (Q50) as the mean estimate for analytical
+                q_mean = predict_ALD_quantile(mu_np, beta_np, tau_np, 0.5)
+
+            else:
+                # MC dropout enabled: use sampling to capture mixture distribution
+                self.enable_dropout()
+
+                all_samples = []
+                locs = []
+
+                # Run MC forward passes
+                for _ in range(MC_num_samples):
+                    with torch.no_grad():
+                        mu, beta, tau = self(x)
+
+                    mu_cpu = mu.cpu()
+                    beta_cpu = beta.cpu()
+                    tau_cpu = tau.cpu()
+
+                    # Store location parameters
+                    locs.append(mu_cpu.numpy())
+
+                    # Draw multiple samples from ALD for this MC iteration
+                    samples_i = sample_ald(
+                        mu_cpu, beta_cpu, tau_cpu, num_samples=ALD_num_samples
+                    )
+                    all_samples.append(samples_i)
+
+                # Combine all samples: shape (batch_size, MC * ALD samples)
+                all_samples = np.concatenate(all_samples, axis=1)
+                locs = np.stack(locs, axis=1)
+
+                # Compute quantiles across all samples
+                qvals = (
+                    np.quantile(all_samples, quantiles, axis=1).T
+                    if len(quantiles) > 0
+                    else np.empty((batch_size, 0))
                 )
-                all_samples.append(samples_i)  # Shape: (batch_size, ALD_num_samples)
 
-            # Combine all samples
-            # all_samples is list of arrays with shape (batch_size, ALD_num_samples)
-            all_samples = np.concatenate(
-                all_samples, axis=1
-            )  # Shape: (batch_size, MC * ALD samples)
-            locs = np.stack(locs, axis=1)  # Shape: (batch_size, MC_num_samples)
+                # Sample mean from all drawn samples
+                q_mean = all_samples.mean(axis=1)
 
-            # Compute quantiles across all samples
-            qvals = (
-                np.quantile(all_samples, quantiles, axis=1).T
-                if len(quantiles) > 0
-                else np.empty((batch_size, 0))
-            )
+                # Average loc parameter across MC runs
+                avg_loc = locs.mean(axis=1)
 
-            # Sample mean from all drawn samples
-            sample_mean = all_samples.mean(axis=1)
-
-            # Average loc parameter across MC runs
-            avg_loc = locs.mean(axis=1)
-
-            # Build result dict (rest of your code is fine)
+            # Build result dict
             data: dict[str, object] = {}
 
             # Include metadata
@@ -351,7 +367,7 @@ class MLPUncertaintyModel(pl.LightningModule):
                 col_name = f"Q{int(round(q * 100))}"
                 data[col_name] = qvals[:, idx]
 
-            data["Q_mean"] = sample_mean
+            data["Q_mean"] = q_mean
             data["Q_loc"] = avg_loc
 
             df_batch = pd.DataFrame(data)

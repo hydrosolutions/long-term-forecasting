@@ -105,9 +105,7 @@ def load_predictions_from_filesystem(
             f"No valid predictions found in provided paths. Checked {len(paths)} paths."
         )
 
-    logger.info(
-        f"Successfully loaded {len(pred_cols)} prediction models: {pred_cols}"
-    )
+    logger.info(f"Successfully loaded {len(pred_cols)} prediction models: {pred_cols}")
     logger.debug(
         f"Prediction DataFrame shape: {all_predictions.shape}, "
         f"Date range: {all_predictions['date'].min()} to {all_predictions['date'].max()}"
@@ -163,7 +161,9 @@ def load_predictions_from_dataframe(
     df["code"] = df["code"].astype(int)
 
     # Build prediction column names with Q_ prefix
-    pred_cols = [f"Q_{name}" if not name.startswith("Q_") else name for name in model_names]
+    pred_cols = [
+        f"Q_{name}" if not name.startswith("Q_") else name for name in model_names
+    ]
 
     # Check if all model columns exist
     for i, pred_col in enumerate(pred_cols):

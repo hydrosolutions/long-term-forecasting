@@ -54,6 +54,33 @@ predictions = pd.DataFrame({
 
 #### Usage with SciRegressor
 
+**RECOMMENDED APPROACH**: Use `prediction_utils.load_base_predictions_for_model()` which handles prefix stripping automatically:
+
+```python
+from lt_forecasting.scr.prediction_utils import load_base_predictions_for_model
+from lt_forecasting.forecast_models.SciRegressor import SciRegressor
+
+# Automatically handles area conversion and prefix stripping
+base_preds, model_names = load_base_predictions_for_model(
+    model_type="sciregressor",
+    path_config={"path_to_lr_predictors": ["/data/model1/", "/data/model2/"]},
+    static_data=static_data
+)
+
+model = SciRegressor(
+    data=data,
+    static_data=static_data,
+    general_config=general_config,
+    model_config=model_config,
+    feature_config=feature_config,
+    path_config=path_config,
+    base_predictors=base_preds,
+    base_model_names=model_names  # Already stripped of Q_ prefix
+)
+```
+
+**MANUAL APPROACH** (if you need more control):
+
 ```python
 from lt_forecasting.scr.prediction_loader import (
     load_predictions_from_filesystem,
@@ -70,9 +97,15 @@ base_preds, model_names = load_predictions_from_filesystem(
     paths,
     join_type="inner"  # Only keep common (date, code) pairs
 )
+# model_names will be ['Q_model1', 'Q_model2'] at this point
+
+# Strip Q_ prefix for SciRegressor (it adds prefix internally)
+model_names = [name.replace("Q_", "") for name in model_names]
+# model_names is now ['model1', 'model2']
 
 # Apply area conversion (required for SciRegressor)
-base_preds = apply_area_conversion(base_preds, static_data, model_names)
+# Note: Still use the Q_-prefixed column names for conversion
+base_preds = apply_area_conversion(base_preds, static_data, ['Q_model1', 'Q_model2'])
 
 # Create model with external predictions
 model = SciRegressor(
@@ -83,7 +116,7 @@ model = SciRegressor(
     feature_config=feature_config,
     path_config=path_config,
     base_predictors=base_preds,      # Pass external predictions
-    base_model_names=model_names      # Pass column names
+    base_model_names=model_names      # Pass model names WITHOUT Q_ prefix
 )
 
 # Method 2: Load from database
@@ -206,6 +239,307 @@ model = BaseMetaLearner(
 | **Column Naming** | Uses `Q_{model}` as-is | Strips `Q_` prefix internally |
 | **Ensemble Handling** | Single prediction per model | Supports ensemble members |
 | **Duplicate Handling** | Not built-in | Built-in averaging |
+
+---
+
+## Input Format Specification
+
+This section provides a comprehensive reference for all input formats and conventions used in the prediction loader system.
+
+### CSV File Format
+
+When using `load_predictions_from_filesystem()`, CSV files must follow this structure:
+
+**Required Columns:**
+- `date`: Date in ISO format (YYYY-MM-DD) or any pandas-parseable format
+- `code`: Integer basin/station code
+- `Q_{model_name}`: Float prediction values (one or more columns)
+
+**Example:**
+```csv
+date,code,Q_model1,Q_model2
+2024-01-01,1,100.5,95.3
+2024-01-01,2,150.2,145.8
+2024-01-02,1,105.1,98.7
+2024-01-02,2,152.8,147.2
+```
+
+**Notes:**
+- Date format is flexible (e.g., "2024-01-01", "01/01/2024", "20240101" all work)
+- Code must be an integer matching codes in static_data
+- Q_ prefix is mandatory in the CSV file
+- Column names after Q_ must match the folder name containing the CSV
+
+### DataFrame Format
+
+When using `load_predictions_from_dataframe()`, input columns can have either format:
+
+**With Q_ Prefix (Recommended):**
+```python
+df = pd.DataFrame({
+    'date': pd.to_datetime(['2024-01-01', '2024-01-02']),
+    'code': [1, 1],
+    'Q_model1': [100.5, 105.1],
+    'Q_model2': [95.3, 98.7]
+})
+```
+
+**Without Q_ Prefix (Also Accepted):**
+```python
+df = pd.DataFrame({
+    'date': pd.to_datetime(['2024-01-01', '2024-01-02']),
+    'code': [1, 1],
+    'model1': [100.5, 105.1],
+    'model2': [95.3, 98.7]
+})
+```
+
+**Important:** The output will always have the Q_ prefix, regardless of input format.
+
+### Column Naming Convention Reference
+
+The following table shows how column names are transformed at different stages:
+
+| Context | Input Format | Output Format | Example |
+|---------|-------------|---------------|---------|
+| File loading | Q_{folder_name} | Q_{model_name} | Folder: `lstm/` → Column: `Q_lstm` |
+| DataFrame loading (with prefix) | Q_{model_name} | Q_{model_name} | `Q_xgboost` → `Q_xgboost` |
+| DataFrame loading (without prefix) | {model_name} | Q_{model_name} | `random_forest` → `Q_random_forest` |
+| **prediction_loader output** | - | **Q_{model_name}** | **Always returns with Q_ prefix** |
+| **SciRegressor input** | **{model_name}** | - | **Expects WITHOUT Q_ prefix** |
+| SciRegressor internal | {model_name} | Q_{model_name} | `lstm` → `Q_lstm` (adds prefix) |
+| **BaseMetaLearner input** | **Q_{model_name} or {model_name}** | - | **Accepts both formats** |
+| BaseMetaLearner internal | Q_{model_name} | {model_name} | `Q_lstm` → `lstm` (strips prefix) |
+
+**Key Points:**
+- File loading: Model name is extracted from the parent folder name
+- DataFrame loading: Q_ prefix is added if not present
+- **prediction_loader output**: Always returns column names WITH Q_ prefix
+- **SciRegressor input**: Expects `base_model_names` WITHOUT Q_ prefix (model adds prefix internally)
+- **BaseMetaLearner input**: Accepts either format (strips prefix internally if present)
+- **Recommendation**: Use `prediction_utils.load_base_predictions_for_model()` which handles prefix stripping automatically
+
+### Understanding the Q_ Prefix Inconsistency
+
+**The Problem:**
+
+Different model types have different expectations for the `base_model_names` parameter:
+
+1. **prediction_loader output**: Always returns column names WITH `Q_` prefix
+   ```python
+   predictions, model_names = load_predictions_from_filesystem(paths)
+   # model_names = ['Q_model1', 'Q_model2']
+   ```
+
+2. **SciRegressor expects**: Model names WITHOUT `Q_` prefix (adds it internally)
+   ```python
+   # CORRECT for SciRegressor:
+   model = SciRegressor(..., base_model_names=['model1', 'model2'])
+
+   # INCORRECT for SciRegressor:
+   model = SciRegressor(..., base_model_names=['Q_model1', 'Q_model2'])
+   # This would result in Q_Q_model1, Q_Q_model2
+   ```
+
+3. **BaseMetaLearner accepts**: Either format (handles both gracefully)
+   ```python
+   # Both work for BaseMetaLearner:
+   model = BaseMetaLearner(..., base_model_names=['Q_model1', 'Q_model2'])
+   model = BaseMetaLearner(..., base_model_names=['model1', 'model2'])
+   ```
+
+**The Solution:**
+
+Use `prediction_utils.load_base_predictions_for_model()` which automatically handles the prefix stripping:
+
+```python
+from lt_forecasting.scr.prediction_utils import load_base_predictions_for_model
+
+# Automatically strips Q_ prefix for SciRegressor
+preds, model_names = load_base_predictions_for_model(
+    model_type="sciregressor",
+    path_config=path_config,
+    static_data=static_data
+)
+# model_names will be ['model1', 'model2'] (no Q_ prefix)
+
+# Keeps Q_ prefix for BaseMetaLearner
+preds, model_names = load_base_predictions_for_model(
+    model_type="UncertaintyMixtureModel",
+    path_config=path_config,
+    static_data=static_data
+)
+# model_names will be ['Q_model1', 'Q_model2'] (with Q_ prefix)
+```
+
+**Manual Handling (if not using prediction_utils):**
+
+```python
+from lt_forecasting.scr.prediction_loader import load_predictions_from_filesystem
+
+# Load predictions (always returns with Q_ prefix)
+predictions, model_names = load_predictions_from_filesystem(paths)
+
+# For SciRegressor: Strip Q_ prefix
+if model_type == "sciregressor":
+    model_names = [name.replace("Q_", "") for name in model_names]
+
+# For BaseMetaLearner: Use as-is (or strip, both work)
+# No changes needed
+```
+
+### Unit Handling Reference
+
+Different models have different unit requirements:
+
+| Model | Expected Input Unit | Processing Applied | Output Unit |
+|-------|--------------------|--------------------|-------------|
+| SciRegressor | m³/s (cubic meters/second) | Converts to mm/day using area_km2 | mm/day |
+| BaseMetaLearner | Any (model-dependent) | No conversion applied | Same as input |
+| HistoricalMetaLearner | Any (model-dependent) | No conversion applied | Same as input |
+| UncertaintyMixtureModel | Any (model-dependent) | No conversion applied | Same as input |
+
+**Conversion Formula (SciRegressor only):**
+```python
+# Applied by apply_area_conversion()
+value_mm_day = value_m3_s * area_km2 / 86.4
+```
+
+**Important Notes:**
+- SciRegressor **requires** `apply_area_conversion()` to be called before passing predictions
+- BaseMetaLearner models assume predictions are already in the correct units
+- If your base models output in different units, convert them before loading
+
+### Migration Example: Old vs New Pattern
+
+This example shows how to migrate from the deprecated internal loading to the new external loading pattern.
+
+#### Old Pattern (Deprecated)
+```python
+# Predictions loaded automatically from path_config
+from lt_forecasting.forecast_models.SciRegressor import SciRegressor
+
+path_config = {
+    "path_to_lr_predictors": [
+        "/data/predictions/model1/predictions.csv",
+        "/data/predictions/model2/predictions.csv"
+    ]
+}
+
+model = SciRegressor(
+    data=data,
+    static_data=static_data,
+    general_config=general_config,
+    model_config=model_config,
+    feature_config=feature_config,
+    path_config=path_config  # Predictions loaded internally
+)
+# DeprecationWarning: Loading predictions from path_config is deprecated
+```
+
+**Problems with old pattern:**
+- No flexibility in data sources (filesystem only)
+- No control over loading process
+- No ability to cache/reuse predictions
+- Tight coupling between model and data loading
+- No database or API support
+
+#### New Pattern (Recommended)
+```python
+# Predictions loaded explicitly before model creation
+from lt_forecasting.scr.prediction_loader import (
+    load_predictions_from_filesystem,
+    apply_area_conversion
+)
+from lt_forecasting.forecast_models.SciRegressor import SciRegressor
+
+path_config = {
+    "path_to_lr_predictors": [
+        "/data/predictions/model1/predictions.csv",
+        "/data/predictions/model2/predictions.csv"
+    ]
+}
+
+# Step 1: Load predictions explicitly
+base_preds, model_names = load_predictions_from_filesystem(
+    path_config["path_to_lr_predictors"],
+    join_type="inner"
+)
+
+# Step 2: Apply necessary conversions
+base_preds = apply_area_conversion(
+    predictions=base_preds,
+    static_data=static_data,
+    pred_cols=model_names
+)
+
+# Step 3: Pass predictions to model
+model = SciRegressor(
+    data=data,
+    static_data=static_data,
+    general_config=general_config,
+    model_config=model_config,
+    feature_config=feature_config,
+    path_config=path_config,
+    base_predictors=base_preds,      # NEW: External predictions
+    base_model_names=model_names      # NEW: Column names
+)
+```
+
+**Benefits of new pattern:**
+- Flexibility: Load from filesystem, database, API, or any pandas DataFrame
+- Control: Inspect and transform predictions before passing to model
+- Reusability: Load once, use with multiple models
+- Testability: Easy to mock prediction sources for testing
+- Separation of concerns: Data loading separated from model logic
+
+#### Alternative Sources (New Pattern Only)
+
+**From Database:**
+```python
+import sqlalchemy as sa
+from lt_forecasting.scr.prediction_loader import load_predictions_from_dataframe
+
+engine = sa.create_engine("postgresql://user:pass@localhost/db")
+df = pd.read_sql("SELECT date, code, Q_model1, Q_model2 FROM predictions", engine)
+
+base_preds, model_names = load_predictions_from_dataframe(
+    df, model_names=['model1', 'model2']
+)
+base_preds = apply_area_conversion(base_preds, static_data, model_names)
+```
+
+**From API:**
+```python
+import requests
+from lt_forecasting.scr.prediction_loader import load_predictions_from_dataframe
+
+response = requests.get("https://api.example.com/predictions")
+df = pd.DataFrame(response.json()['data'])
+
+base_preds, model_names = load_predictions_from_dataframe(
+    df, model_names=['model1', 'model2']
+)
+base_preds = apply_area_conversion(base_preds, static_data, model_names)
+```
+
+**From In-Memory Processing:**
+```python
+from lt_forecasting.scr.prediction_loader import load_predictions_from_dataframe
+
+# Generate predictions programmatically
+df = pd.DataFrame({
+    'date': pd.date_range('2024-01-01', periods=100),
+    'code': [1] * 100,
+    'Q_model1': np.random.randn(100) * 50 + 100,
+    'Q_model2': np.random.randn(100) * 45 + 95
+})
+
+base_preds, model_names = load_predictions_from_dataframe(
+    df, model_names=['model1', 'model2']
+)
+base_preds = apply_area_conversion(base_preds, static_data, model_names)
+```
 
 ---
 
