@@ -37,6 +37,7 @@ from lt_forecasting.forecast_models.deep_models.uncertainty_mixture import (
     UncertaintyMixtureModel,
 )
 from lt_forecasting.scr import data_loading as dl
+from lt_forecasting.scr.prediction_utils import load_base_predictions_for_model
 from dev_tools.eval_scr import eval_helper, metric_functions
 
 # Setup logging
@@ -44,6 +45,7 @@ from lt_forecasting.log_config import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def load_configuration(config_dir: str) -> Dict[str, Any]:
@@ -176,6 +178,13 @@ def create_model(
     # Determine model type based on configuration or name
     model_type = general_config.get("model_type", "linear_regression")
 
+    # Load base predictions if needed for this model type
+    base_predictors, base_model_names = load_base_predictions_for_model(
+        model_type=model_type,
+        path_config=path_config,
+        static_data=static_data,
+    )
+
     # Create model instance
     if model_type == "linear_regression":
         model = LinearRegressionModel(
@@ -194,6 +203,8 @@ def create_model(
             model_config=model_config,
             feature_config=feature_config,
             path_config=path_config,
+            base_predictors=base_predictors,
+            base_model_names=base_model_names,
         )
     elif model_type == "historical_meta_learner":
         model = HistoricalMetaLearner(
@@ -203,6 +214,8 @@ def create_model(
             model_config=model_config,
             feature_config=feature_config,
             path_config=path_config,
+            base_predictors=base_predictors,
+            base_model_names=base_model_names,
         )
     elif model_type == "UncertaintyMixtureModel":
         model = UncertaintyMixtureModel(
@@ -212,6 +225,8 @@ def create_model(
             model_config=model_config,
             feature_config=feature_config,
             path_config=path_config,
+            base_predictors=base_predictors,
+            base_model_names=base_model_names,
         )
     else:
         raise ValueError(f"Unknown model type: {model_type}")

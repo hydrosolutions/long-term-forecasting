@@ -54,6 +54,8 @@ class SciRegressor(BaseForecastModel):
         model_config: Dict[str, Any],
         feature_config: Dict[str, Any],
         path_config: Dict[str, Any],
+        base_predictors: Optional[pd.DataFrame] = None,
+        base_model_names: Optional[List[str]] = None,
     ) -> None:
         """
         Initialize the SciRegressor model with a configuration dictionary.
@@ -66,6 +68,11 @@ class SciRegressor(BaseForecastModel):
             model_config (Dict[str, Any]): Model-specific  - hyperparameters.
             feature_config (Dict[str, Any]): Feature engineering configuration.
             path_config (Dict[str, Any]): Path configuration for saving/loading data.
+            base_predictors (Optional[pd.DataFrame]): Pre-loaded base model predictions.
+                If provided, will be used instead of loading from filesystem.
+                Expected format: DataFrame with columns [date, code, Q_model1, Q_model2, ...]
+            base_model_names (Optional[List[str]]): List of base model column names.
+                Required if base_predictors is provided.
         """
         super().__init__(
             data=data,
@@ -127,9 +134,13 @@ class SciRegressor(BaseForecastModel):
             "relative_scaling_vars", []
         )
 
-        self.allowbale_missing_value_operational = self.general_config.get(
-            "allowbale_missing_value_operational", 0
+        self.allowable_missing_value_operational = self.general_config.get(
+            "allowable_missing_value_operational", 0
         )
+
+        # Store external predictions if provided
+        self._external_base_predictors = base_predictors
+        self._external_base_model_names = base_model_names
 
     def __preprocess_data__(self):
         """
@@ -137,8 +148,8 @@ class SciRegressor(BaseForecastModel):
         """
         logger.info(f"-" * 50)
         logger.info(f"Starting data preprocessing for {self.name}")
-        logger.info(f"Initial data shape: {self.data.shape}")
-        logger.info(f"Initial columns: {self.data.columns.tolist()}")
+        logger.debug(f"Initial data shape: {self.data.shape}")
+        logger.debug(f"Initial columns: {self.data.columns.tolist()}")
         logger.info(f"-" * 50)
         try:
             self.data = du.glacier_mapper_features(
@@ -146,6 +157,8 @@ class SciRegressor(BaseForecastModel):
                 static=self.static_data,
                 cols_to_keep=self.general_config["glacier_mapper_features_to_keep"],
             )
+        except KeyError as e:
+            logger.debug(f"KeyError: {e}")
         except Exception as e:
             logger.error(f"Error in glacier_mapper_features: {e}")
 
@@ -253,7 +266,7 @@ class SciRegressor(BaseForecastModel):
             if any([f in col for f in self.feature_set])
         ]
 
-        logger.info(f"Feature set for {self.name}: {self.feature_set}")
+        logger.debug(f"Feature set for {self.name}: {self.feature_set}")
 
         # check if the cat_features are in the columns
         for cat_feature in self.cat_features:
@@ -306,11 +319,84 @@ class SciRegressor(BaseForecastModel):
 
         logger.debug("Feature extraction completed. Data shape: %s", self.data.shape)
 
+    def m3_s_to_mm_d(self, df: pd.DataFrame, pred_cols: List[str]) -> pd.DataFrame:
+        """
+        Convert prediction columns from m³/s to mm/day.
+
+        This conversion is necessary because the model is trained on discharge values
+        in mm/day, but base predictors are typically provided in m³/s.
+
+        Args:
+            df (pd.DataFrame): DataFrame containing predictions and a 'code' column
+            pred_cols (List[str]): List of prediction column names to convert
+
+        Returns:
+            pd.DataFrame: DataFrame with converted prediction columns
+
+        Formula:
+            value_mm_day = value_m3_s * area_km2 / 86.4
+            where 86.4 = 1000 * 86400 / 1e6 converts m³/s to mm/day
+        """
+        df = df.copy()
+        for code in df["code"].unique():
+            if code not in self.static_data["code"].values:
+                logger.warning(
+                    f"Code {code} not found in static data. Skipping conversion for this code."
+                )
+                continue
+            area = self.static_data[self.static_data["code"] == code][
+                "area_km2"
+            ].values[0]
+            df.loc[df["code"] == code, pred_cols] = (
+                df.loc[df["code"] == code, pred_cols] * area / 86.4
+            )
+        return df
+
     def __load_lr_predictors__(self) -> pd.DataFrame:
         """
         Loads all the prediction df's from the path_config['path_to_lr_predictors'] directory.
         Where the model name is the name of the folder the prediction.csv is located in.
+
+        .. deprecated::
+            Loading predictions internally is deprecated. Use prediction_loader module
+            and pass base_predictors parameter to constructor instead.
+
+        Returns:
+            Tuple of (predictions_df, prediction_column_names)
         """
+        # Check if external predictions were provided
+        if (
+            self._external_base_predictors is not None
+            and self._external_base_model_names is not None
+        ):
+            logger.debug("Using externally provided base predictors")
+            # rename columns from model to Q_model
+            for model_name in self._external_base_model_names:
+                if model_name not in self._external_base_predictors.columns:
+                    logger.warning(
+                        f"Model name '{model_name}' not found in provided base predictors. Skipping this model."
+                    )
+                    continue
+                new_col_name = f"Q_{model_name}"
+                self._external_base_predictors.rename(
+                    columns={model_name: new_col_name}, inplace=True
+                )
+            renamed_cols = [f"Q_{name}" for name in self._external_base_model_names]
+            # Convert external predictors from m³/s to mm/day
+            converted_predictors = self.m3_s_to_mm_d(
+                self._external_base_predictors, renamed_cols
+            )
+            return converted_predictors, renamed_cols
+
+        # Fall back to file-based loading with deprecation warning
+        warnings.warn(
+            "Loading predictions internally is deprecated. "
+            "Use either lt_forecasting.scr.prediction_loader module or database"
+            " and pass base_predictors parameter to constructor instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         path_list = self.path_config["path_to_lr_predictors"]
         models = []
 
@@ -351,20 +437,8 @@ class SciRegressor(BaseForecastModel):
                     how="inner",
                 )
 
-        for code in all_predictions["code"].unique():
-            if code not in self.static_data["code"].values:
-                logger.warning(
-                    f"Code {code} not found in static data. Skipping this code."
-                )
-                continue
-            area = self.static_data[self.static_data["code"] == code][
-                "area_km2"
-            ].values[0]
-            all_predictions.loc[all_predictions["code"] == code, pred_cols] = (
-                all_predictions.loc[all_predictions["code"] == code, pred_cols]
-                * area
-                / 86.4
-            )
+        # Convert legacy predictions from m³/s to mm/day using the new method
+        all_predictions = self.m3_s_to_mm_d(all_predictions, pred_cols)
 
         return all_predictions, pred_cols
 
@@ -437,7 +511,7 @@ class SciRegressor(BaseForecastModel):
         Returns:
             pd.DataFrame: DataFrame containing the cross-validated predictions.
         """
-        logger.info(f"Starting LOOCV for {self.name} with years: {years}")
+        logger.debug(f"Starting LOOCV for {self.name} with years: {years}")
 
         df_predictions = pd.DataFrame()
 
@@ -446,7 +520,7 @@ class SciRegressor(BaseForecastModel):
         if "catboost" in model_type:
             if len(self.cat_features) > 0:
                 features = features + self.cat_features
-                logger.info(
+                logger.debug(
                     f"Using categorical features for {model_type}: {self.cat_features}"
                 )
 
@@ -559,7 +633,7 @@ class SciRegressor(BaseForecastModel):
         if "catboost" in model_type:
             if len(self.cat_features) > 0:
                 features = features + self.cat_features
-                logger.info(
+                logger.debug(
                     f"Using categorical features for {model_type}: {self.cat_features}"
                 )
 
@@ -652,7 +726,7 @@ class SciRegressor(BaseForecastModel):
         Returns:
             forecast (pd.DataFrame): DataFrame containing the forecasted values.
         """
-        logger.info(f"Starting operational prediction for {self.name}")
+        logger.debug(f"Starting operational prediction for {self.name}")
 
         if today is None:
             today = datetime.datetime.now()
@@ -667,13 +741,15 @@ class SciRegressor(BaseForecastModel):
             logger.error(
                 "No fitted models found. Please train models first using calibrate_model_and_hindcast()."
             )
-            return pd.DataFrame()
+            raise ValueError(
+                "No fitted models found. Please train models first using calibrate_model_and_hindcast()."
+            )
 
         # Step 2: Filter data to only include last 2 years (for fast processing)
         cutoff_date = today - pd.DateOffset(years=2)
         self.data = self.data[self.data["date"] >= cutoff_date].copy()
 
-        logger.info(
+        logger.debug(
             f"Filtered data from {cutoff_date.strftime('%Y-%m-%d')} to {self.data['date'].max().strftime('%Y-%m-%d')}"
         )
 
@@ -699,7 +775,7 @@ class SciRegressor(BaseForecastModel):
         valid_from_str = valid_from.strftime("%Y-%m-%d")
         valid_to_str = valid_to.strftime("%Y-%m-%d")
 
-        logger.info(f"Forecast valid from: {valid_from_str} to: {valid_to_str}")
+        logger.debug(f"Forecast valid from: {valid_from_str} to: {valid_to_str}")
 
         # Step 5: Make predictions with ensemble of models
         forecast_predictions = {}
@@ -726,7 +802,7 @@ class SciRegressor(BaseForecastModel):
                 )
                 continue
 
-            logger.info(f"Making predictions with {model_type}")
+            logger.debug(f"Making predictions with {model_type}")
 
             # Get model components
             model = self.fitted_models[model_type]["model"]
@@ -745,13 +821,13 @@ class SciRegressor(BaseForecastModel):
                 basin_data = self.data[self.data["code"] == code].copy()
 
                 if basin_data.empty:
-                    logger.warning(f"No data available for basin {code}. Skipping.")
+                    logger.debug(f"No data available for basin {code}. Skipping.")
                     failed_basins.append(code)
                     continue
 
                 # Take the most recent complete observation
                 today_row = basin_data[basin_data["date"] == today]
-                if today_row[final_features].isnull().any(axis=1).any():
+                """if today_row[final_features].isnull().any(axis=1).any():
                     logger.warning(
                         f"Missing features for basin {code} on {today.strftime('%Y-%m-%d')}."
                     )
@@ -764,20 +840,20 @@ class SciRegressor(BaseForecastModel):
                         .columns[today_row[final_features].isnull().any(axis=0)]
                         .tolist()
                     )
-                    logger.warning(f"Features which are Nan : {cols_with_nan}")
+                    logger.warning(f"Features which are Nan : {cols_with_nan}")"""
 
                 # TODO: Clever way to handle after how many missing features we need to skip the basin
                 # Maybe load feature importance and if feature in top 10 skip the basin
                 number_of_nan_columns = today_row[final_features].isnull().sum().sum()
-                if number_of_nan_columns > self.allowbale_missing_value_operational:
-                    logger.warning(
+                if number_of_nan_columns > self.allowable_missing_value_operational:
+                    logger.debug(
                         f"Too many missing features ({number_of_nan_columns}) for basin {code} on {today.strftime('%Y-%m-%d')}. Skipping."
                     )
                     failed_basins.append(code)
                     continue
 
                 if today_row.empty:
-                    logger.warning(
+                    logger.debug(
                         f"No data available for basin {code} on {today.strftime('%Y-%m-%d')}. Skipping."
                     )
                     failed_basins.append(code)
@@ -790,8 +866,8 @@ class SciRegressor(BaseForecastModel):
                 logger.error("No prediction data available for any basin.")
                 continue
 
-            logger.info(f"Successful dataloading for basins: {len(successful_basins)}")
-            logger.info(f"Failed dataloading for basins: {len(failed_basins)}")
+            logger.debug(f"Successful dataloading for basins: {len(successful_basins)}")
+            logger.debug(f"Failed dataloading for basins: {len(failed_basins)}")
 
             # Combine all basin prediction data
             prediction_df = pd.concat(prediction_data, ignore_index=True)
@@ -815,10 +891,12 @@ class SciRegressor(BaseForecastModel):
 
             # check if there are any nan vlaues
             if forecast_model[pred_col].isnull().any():
-                logger.info(f"Found NaN values in predictions for {model_type}.")
+                logger.debug(f"Found NaN values in predictions for {model_type}.")
                 # log the codes with NaN predictions
                 nan_codes = forecast_model[forecast_model[pred_col].isnull()]["code"]
-                logger.info(f"NaN predictions for codes: {nan_codes.unique().tolist()}")
+                logger.debug(
+                    f"NaN predictions for codes: {nan_codes.unique().tolist()}"
+                )
 
             # Post process predictions
             forecast_model = post_process_predictions(
@@ -830,12 +908,12 @@ class SciRegressor(BaseForecastModel):
             )
 
             if forecast_model[pred_col].isnull().any():
-                logger.info(
+                logger.debug(
                     f"Found NaN values in post-processed predictions for {model_type}."
                 )
                 # log the codes with NaN predictions
                 nan_codes = forecast_model[forecast_model[pred_col].isnull()]["code"]
-                logger.info(
+                logger.debug(
                     f"NaN post-processed predictions for codes: {nan_codes.unique().tolist()}"
                 )
 
@@ -910,7 +988,7 @@ class SciRegressor(BaseForecastModel):
                 # Add the empty row to the forecast DataFrame
                 forecast = pd.concat([forecast, empty_row_df], ignore_index=True)
 
-        logger.info(
+        logger.debug(
             f"Operational forecast completed for {len(forecast)} basins with {len(all_pred_cols)} predictions"
         )
 

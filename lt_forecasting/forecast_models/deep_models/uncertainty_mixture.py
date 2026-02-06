@@ -85,11 +85,9 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             model_config=model_config,
             feature_config=feature_config,
             path_config=path_config,
+            base_predictors=base_predictors,
+            base_model_names=base_model_names,
         )
-
-        self.base_predictors = base_predictors
-        self.base_model_names = base_model_names
-
         # this will be overwritten in calibration / fit
         self.is_fitted = False
 
@@ -148,7 +146,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         logger.info(f"Starting data preprocessing for deep meta-learning: {self.name}")
 
         # 1. Create target variable using FeatureExtractor (same as HistoricalMetaLearner)
-        logger.info("Creating target variable with FeatureExtractor")
+        logger.debug("Creating target variable with FeatureExtractor")
 
         extractor = FE.StreamflowFeatureExtractor(
             feature_configs={},  # empty dict to not create any features
@@ -169,15 +167,18 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
         self.ground_truth = target_data.copy()
         self.ground_truth = du.get_periods(self.ground_truth)
-        logger.info("Ground Truth created")
+        logger.debug("Ground Truth created")
 
         # 2. Load base predictors using inherited method
-        if self.base_predictors is not None and self.base_model_names is not None:
-            logger.info("Using provided base predictors and model names")
-            base_predictors = self.base_predictors
-            model_names = self.base_model_names
+        if (
+            self._external_base_predictors is not None
+            and self._external_base_model_names is not None
+        ):
+            logger.debug("Using provided base predictors and model names")
+            base_predictors = self._external_base_predictors
+            model_names = self._external_base_model_names
         else:
-            logger.info("Loading base predictors - NOT DATABASE COMPATIBLE YET")
+            logger.debug("Loading base predictors - NOT DATABASE COMPATIBLE YET")
             base_predictors, model_names = self.__load_base_predictors__(
                 use_mean_pred=self.general_config.get("use_ens_mean", False)
             )
@@ -187,14 +188,14 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         base_predictors = base_predictors.sort_values(by=["date"], ascending=[False])
         today = pd.to_datetime(datetime.datetime.now().date())
         base_predictors = base_predictors[base_predictors["date"] <= today]
-        logger.info(f"Head of Base Predictors data:\n{base_predictors.head(10)}")
+        logger.debug(f"Head of Base Predictors data:\n{base_predictors.head(10)}")
 
-        logger.info("converting base predictors to mm/day")
+        logger.debug("converting base predictors to mm/day")
         for model in model_names:
             base_predictors = self._m3_to_mm(base_predictors, col=model)
 
         # 3. Merge the base predictors with target data
-        logger.info("Merging base predictors with target data")
+        logger.debug("Merging base predictors with target data")
         merged_data = target_data.merge(
             base_predictors, on=["date", "code"], how="left"
         )
@@ -202,7 +203,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # remove rivers which are not in static data
         if self.rivers_to_remove:
             unique_rivers_to_remove = set(self.rivers_to_remove)
-            logger.info(f"Removing rivers: {unique_rivers_to_remove}")
+            logger.debug(f"Removing rivers: {unique_rivers_to_remove}")
             merged_data = merged_data[
                 ~merged_data["code"].isin(unique_rivers_to_remove)
             ]
@@ -232,14 +233,14 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # 4. Reformat to long format with ensemble_member column
 
         # 5. Create periods column for temporal features
-        logger.info("Creating period columns")
+        logger.debug("Creating period columns")
         preprocessed_data = du.get_periods(merged_data)
 
         # calculate error statistics for each code, period and ensemble member , loocv style
         preprocessed_data = self._loo_error_stats(preprocessed_data)
 
         # 6. Add temporal features for deep learning
-        logger.info("Adding temporal features for deep learning")
+        logger.debug("Adding temporal features for deep learning")
         preprocessed_data = self._add_temporal_features(preprocessed_data)
 
         #  create a feature list
@@ -276,12 +277,12 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # Force contiguous copy to minimize fragmentation after all transformations
         preprocessed_data = preprocessed_data.copy()
 
-        logger.info(f"Preprocessed data shape: {preprocessed_data.shape}")
-        logger.info(f"Model names: {model_names}")
-        logger.info(
+        logger.debug(f"Preprocessed data shape: {preprocessed_data.shape}")
+        logger.debug(f"Model names: {model_names}")
+        logger.debug(
             f"Columns in preprocessed data: {preprocessed_data.columns.tolist()}"
         )
-        logger.info(f"Feature names: {self.features}")
+        logger.debug(f"Feature names: {self.features}")
 
         self.data = preprocessed_data
         self.model_names = model_names
@@ -399,7 +400,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # Force contiguous copy and reset index to minimize fragmentation
         reformatted_df = reformatted_df.copy().reset_index(drop=True)
 
-        logger.info(
+        logger.debug(
             f"Reformatted DataFrame from {len(df)} rows to {len(reformatted_df)} rows "
             f"with {len(existing_models)} ensemble members per original row."
         )
@@ -415,9 +416,9 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # Scale the target
         target_col = self.target_col
         pred_col = self.features[0]  # Assuming first feature is always Q_pred
-        logger.info("-" * 40)
-        logger.info(f"Calculating scaler for target column: {target_col}")
-        logger.info(f"Calculating scaler for prediction column: {pred_col}")
+        logger.debug("-" * 40)
+        logger.debug(f"Calculating scaler for target column: {target_col}")
+        logger.debug(f"Calculating scaler for prediction column: {pred_col}")
 
         if "pred" not in pred_col:
             logger.warning(f"First feature is not 'Q_pred', but {pred_col}")
@@ -567,10 +568,10 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         df_loo = pd.concat(merged_dfs, ignore_index=True)
         # Force contiguous copy after concat to minimize fragmentation
         df_loo = df_loo.copy()
-        logger.info("-" * 40)
-        logger.info(f"LOO error stats added, new shape: {df_loo.shape}")
-        logger.info(f"Columns after LOO error stats: {df_loo.columns.tolist()}")
-        logger.info("-" * 40)
+        logger.debug("-" * 40)
+        logger.debug(f"LOO error stats added, new shape: {df_loo.shape}")
+        logger.debug(f"Columns after LOO error stats: {df_loo.columns.tolist()}")
+        logger.debug("-" * 40)
         return df_loo
 
     def _rescale_predictions(
@@ -655,8 +656,8 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             df=val_data, features=self.features, target=self.target_col
         )
 
-        logger.info(f"Training dataset size: {len(train_dataset)}")
-        logger.info(f"Validation dataset size: {len(val_dataset)}")
+        logger.debug(f"Training dataset size: {len(train_dataset)}")
+        logger.debug(f"Validation dataset size: {len(val_dataset)}")
 
         # Create DataLoaders
         train_loader = DataLoader(
@@ -690,7 +691,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # Clear old checkpoints to prevent conflicts
         if os.path.exists(checkpoint_dir):
             shutil.rmtree(checkpoint_dir)
-            logger.info(f"Cleared old checkpoint directory: {checkpoint_dir}")
+            logger.debug(f"Cleared old checkpoint directory: {checkpoint_dir}")
 
         os.makedirs(checkpoint_dir, exist_ok=True)
 
@@ -717,10 +718,9 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         )
 
         try:
-            print("Starting model training...")
+            logger.debug("Starting model training...")
             self.trainer.fit(model, train_loader, val_loader)
         except Exception as e:
-            print(f"Error during training: {e}")
             logger.error(f"Error during training: {e}", exc_info=True)
             raise e
 
@@ -728,7 +728,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         best_model_path = checkpoint_callback.best_model_path
         if best_model_path and os.path.exists(best_model_path):
             model = MLPUncertaintyModel.load_from_checkpoint(best_model_path)
-            logger.info(f"Successfully loaded best model from {best_model_path}")
+            logger.debug(f"Successfully loaded best model from {best_model_path}")
         else:
             logger.warning("Could not find best model path. Using last model state.")
 
@@ -811,6 +811,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             MC_num_samples=self.model_config.get("MC_num_samples", 100),
             ALD_num_samples=self.model_config.get("ALD_num_samples", 500),
             quantiles=self.quantiles,
+            disable_mc_dropout=self.model_config.get("disable_mc_dropout", True),
         )
         """
         # 5. Combine and format results
@@ -831,8 +832,8 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         if f"Q_mean" in final_df.columns:
             final_df = final_df.rename(columns={f"Q_mean": f"Q_{self.name}"})
 
-        logger.info(f"Generated predictions for {len(final_df)} rows.")
-        logger.info(f"Prediction columns: {final_df.columns.tolist()}")
+        logger.debug(f"Generated predictions for {len(final_df)} rows.")
+        logger.debug(f"Prediction columns: {final_df.columns.tolist()}")
 
         return final_df
 
@@ -847,7 +848,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         Returns:
             forecast (pd.DataFrame): DataFrame containing the forecasted values.
         """
-        logger.info(f"Starting operational prediction for {self.name}")
+        logger.debug(f"Starting operational prediction for {self.name}")
 
         self.__preprocess_data__()
 
@@ -859,6 +860,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
         # Step 1: Load models and artifacts
         self.load_model()
+        logger.debug("Model loaded successfully.")
 
         # Step 3: Calculate valid period
         if not self.general_config.get("offset"):
@@ -874,7 +876,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         valid_from_str = valid_from.strftime("%Y-%m-%d")
         valid_to_str = valid_to.strftime("%Y-%m-%d")
 
-        logger.info(f"Forecast valid from: {valid_from_str} to: {valid_to_str}")
+        logger.debug(f"Forecast valid from: {valid_from_str} to: {valid_to_str}")
 
         # Step 4: Filter data for operational prediction
         all_codes = self.data["code"].unique()
@@ -882,11 +884,11 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         allowable_delay = self.general_config.get("allowable_delay", 3)
         cutoff_date = today - pd.Timedelta(days=allowable_delay)
 
-        logger.info(
+        logger.debug(
             f"Cutoff date for operational prediction: {cutoff_date.date()}. Considering all data after this date."
         )
 
-        logger.info(f"Total number of unique codes: {len(all_codes)}")
+        logger.debug(f"Total number of unique codes: {len(all_codes)}")
         # logger.info("Data Tail before filtering:")
         # logger.info(self.data.tail())
 
@@ -894,7 +896,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         operational_data = self.data[
             (self.data["date"] >= cutoff_date) & (self.data["date"] <= today)
         ].copy()
-        logger.info(f"Operational data shape after cutoff: {operational_data.shape}")
+        logger.debug(f"Operational data shape after cutoff: {operational_data.shape}")
 
         recent_operational_data = []
         ## get the most recent date where data is available for each code
@@ -912,12 +914,12 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             features_with_na_values = code_data[self.features].isna().any(axis=1)
             # logg the missing features
             if features_with_na_values.any():
-                logger.warning(
+                logger.debug(
                     f"The following features are missing for code {code}: {code_data[self.features].columns[code_data[self.features].isna().any()].tolist()}"
                 )
             code_data = code_data.dropna(subset=self.features)
             if code_data.empty:
-                logger.warning(f"No complete feature data available for code {code}.")
+                logger.debug(f"No complete feature data available for code {code}.")
                 continue
             most_recent_date = code_data["date"].iloc[0]
             recent_data = code_data[code_data["date"] == most_recent_date]
@@ -925,7 +927,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
 
         operational_data = pd.concat(recent_operational_data, ignore_index=True)
 
-        logger.info(
+        logger.debug(
             f"Operational data shape after dropping missing features: {operational_data.shape}"
         )
 
@@ -937,15 +939,17 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             subset=["code"], keep="first"
         )
 
-        logger.info(f"Operational data shape after filtering: {operational_data.shape}")
+        logger.debug(
+            f"Operational data shape after filtering: {operational_data.shape}"
+        )
         missing_codes = set(all_codes) - set(operational_data["code"].unique())
         if missing_codes:
-            logger.warning(
+            logger.info(
                 f"No recent data available for codes: {missing_codes}. These will be skipped in the forecast."
             )
 
         if operational_data.empty:
-            logger.warning(
+            logger.info(
                 "No data available for operational prediction after filtering. Exiting."
             )
             return pd.DataFrame()
@@ -967,9 +971,9 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         pred_cols.append("code")
         forecast = forecast[pred_cols]
 
-        logger.info("Operational prediction completed")
-        logger.info("Head of forecast DataFrame:")
-        logger.info(forecast.head())
+        logger.debug("Operational prediction completed")
+        logger.debug("Head of forecast DataFrame:")
+        logger.debug(forecast.head())
 
         forecast["valid_from"] = valid_from_str
         forecast["valid_to"] = valid_to_str
@@ -1243,7 +1247,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             df=train_data, features=self.features, target=self.target_col
         )
 
-        logger.info(f"Training dataset size: {len(train_dataset)}")
+        logger.debug(f"Training dataset size: {len(train_dataset)}")
 
         # Create DataLoaders
         train_loader = DataLoader(
@@ -1280,7 +1284,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         return True, "UncertaintyMixtureMLP: Hyperparameter tuned successfully"
 
     def save_model(self):
-        logger.info(f"Saving {self.name} models")
+        logger.debug(f"Saving {self.name} models")
         save_path = os.path.join(self.path_config["model_home_path"], f"{self.name}")
         os.makedirs(save_path, exist_ok=True)
 
@@ -1337,7 +1341,7 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         # Load the scaler
         with open(scaler_path, "r") as f:
             self.scaler = json.load(f)
-        logger.info(f"Scaler loaded from {scaler_path}")
+        logger.debug(f"Scaler loaded from {scaler_path}")
 
         # Initialize the model architecture
         model = self._init_model(
@@ -1352,4 +1356,4 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         model.load_state_dict(torch.load(model_path))
         self.model = model
 
-        logger.info(f"Model loaded from {model_path}")
+        logger.debug(f"Model loaded from {model_path}")

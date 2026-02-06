@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 import datetime
 from tqdm import tqdm as progress_bar
 
@@ -50,6 +50,8 @@ class HistoricalMetaLearner(BaseMetaLearner):
         model_config: Dict[str, Any],
         feature_config: Dict[str, Any],
         path_config: Dict[str, Any],
+        base_predictors: Optional[pd.DataFrame] = None,
+        base_model_names: Optional[List[str]] = None,
     ) -> None:
         """
         Initialize the HistoricalMetaLearner model with a configuration dictionary.
@@ -58,6 +60,8 @@ class HistoricalMetaLearner(BaseMetaLearner):
             general_config (Dict[str, Any]): General configuration for the model.
             model_config (Dict[str, Any]): Model-specific configuration.
             path_config (Dict[str, Any]): Path configuration for saving/loading data.
+            base_predictors (Optional[pd.DataFrame]): Pre-loaded base model predictions.
+            base_model_names (Optional[List[str]]): List of base model column names.
         """
         super().__init__(
             data=data,
@@ -66,6 +70,8 @@ class HistoricalMetaLearner(BaseMetaLearner):
             model_config=model_config,
             feature_config=feature_config,
             path_config=path_config,
+            base_predictors=base_predictors,
+            base_model_names=base_model_names,
         )
 
         self.num_samples_val = self.general_config.get("num_samples_val", 10)
@@ -105,6 +111,9 @@ class HistoricalMetaLearner(BaseMetaLearner):
         )  # Threshold for "small difference" (10%)
 
         self.target = self.general_config.get("target_column", "Q_obs")
+
+        self.base_model_names = base_model_names
+        self.base_predictors = base_predictors
 
     def __preprocess_data__(self):
         """

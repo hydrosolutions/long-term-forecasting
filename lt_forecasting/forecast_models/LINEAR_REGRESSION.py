@@ -273,11 +273,16 @@ class LinearRegressionModel(BaseForecastModel):
         else:
             raise ValueError(f"Unknown model type: {lr_type}")
 
-        model.fit(X_calibration, y_calibration)
+        try:
+            model.fit(X_calibration, y_calibration)
 
-        y_pred = model.predict(X_prediction)
+            y_pred = model.predict(X_prediction)
 
-        y_pred_calibration = model.predict(X_calibration)
+            y_pred_calibration = model.predict(X_calibration)
+        except Exception as e:
+            logger.error(f"Error fitting/predicting with Linear Regression model: {e}")
+            return [np.nan], [np.nan], np.nan, None
+
         r2_calibration = r2_score(y_calibration, y_pred_calibration)
         return y_pred, y_pred_calibration, r2_calibration, model
 
@@ -392,11 +397,6 @@ class LinearRegressionModel(BaseForecastModel):
                     f"Prediction for {code} relative to long-term mean: {predictions[0] / calibration_target_mean}"
                 )
                 logger.debug(f"R2 calibration for {code}: {r2_cali}")
-                # construct the model and debug the equation
-                model_equation = f"y = {model.intercept_:.3f} + " + " + ".join(
-                    [f"{coef:.3f}*{feat}" for coef, feat in zip(model.coef_, features)]
-                )
-                logger.debug(f"Model equation for {code}: {model_equation}")
 
             # Create a DataFrame for the predictions
             pred_col = f"Q_{self.name}"
@@ -476,7 +476,7 @@ class LinearRegressionModel(BaseForecastModel):
         logger.info(
             f"Performing Leave-One-Year-Out CV for {len(loocv_years)} years: {loocv_years}"
         )
-        logger.info(
+        logger.debug(
             "Unique periods in data: " + ", ".join(self.data["period"].unique())
         )
 
@@ -585,7 +585,7 @@ class LinearRegressionModel(BaseForecastModel):
             hindcast_df = hindcast_df.sort_values(["date", "code"]).reset_index(
                 drop=True
             )
-            logger.info(
+            logger.debug(
                 f"Calibration complete. Generated {len(hindcast_df)} predictions for {len(hindcast_df['code'].unique())} codes"
             )
         else:
@@ -644,7 +644,7 @@ class LinearRegressionModel(BaseForecastModel):
         Returns:
             None
         """
-        logger.info(
+        logger.debug(
             f"Linear Regression model is being fitted each time seperately - no model to save."
         )
 
@@ -655,6 +655,6 @@ class LinearRegressionModel(BaseForecastModel):
         Returns:
             None
         """
-        logger.info(
+        logger.debug(
             f"Linear Regression model is being fitted each time seperately - no model to load."
         )
