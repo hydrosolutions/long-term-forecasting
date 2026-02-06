@@ -821,7 +821,7 @@ class SciRegressor(BaseForecastModel):
                 basin_data = self.data[self.data["code"] == code].copy()
 
                 if basin_data.empty:
-                    logger.debug(f"No data available for basin {code}. Skipping.")
+                    logger.info(f"No data available for basin {code}. Skipping.")
                     failed_basins.append(code)
                     continue
 
@@ -846,7 +846,7 @@ class SciRegressor(BaseForecastModel):
                 # Maybe load feature importance and if feature in top 10 skip the basin
                 number_of_nan_columns = today_row[final_features].isnull().sum().sum()
                 if number_of_nan_columns > self.allowable_missing_value_operational:
-                    logger.debug(
+                    logger.info(
                         f"Too many missing features ({number_of_nan_columns}) for basin {code} on {today.strftime('%Y-%m-%d')}. Skipping."
                     )
                     failed_basins.append(code)
@@ -863,7 +863,19 @@ class SciRegressor(BaseForecastModel):
                 successful_basins.append(code)
 
             if not prediction_data:
-                logger.error("No prediction data available for any basin.")
+                logger.warning(
+                    f"No prediction data available for any basin for model {model_type}. "
+                    "Returning NaN predictions."
+                )
+                # Create a forecast with NaN predictions for all basins
+                forecast_model = pd.DataFrame(
+                    {
+                        "date": today,
+                        "code": basin_codes,
+                        pred_col: np.nan,
+                    }
+                )
+                forecast_predictions[model_type] = forecast_model
                 continue
 
             logger.debug(f"Successful dataloading for basins: {len(successful_basins)}")
@@ -933,8 +945,17 @@ class SciRegressor(BaseForecastModel):
             )
 
         if not all_pred_cols:
-            logger.error("No successful predictions made.")
-            return pd.DataFrame()
+            logger.warning(
+                "No models were available for prediction. "
+                "Returning forecast with NaN predictions."
+            )
+            # Return forecast_base with expected prediction columns as NaN
+            expected_pred_cols = [f"Q_{model_type}" for model_type in self.models]
+            ensemble_name = f"Q_{self.name}"
+            expected_pred_cols.append(ensemble_name)
+            for col in expected_pred_cols:
+                forecast[col] = np.nan
+            return forecast
 
         # Create ensemble prediction (average of all models)
         ensemble_name = f"Q_{self.name}"

@@ -195,11 +195,11 @@ def derive_features_from_snowmapper(df: pd.DataFrame) -> pd.DataFrame:
     cols_with_swe = [col for col in df.columns if "SWE" in col]
 
     if not cols_with_rof:
-        logger.warning("No ROF columns found in the DataFrame.")
+        logger.debug("No ROF columns found in the DataFrame.")
         return df
 
     if not cols_with_swe:
-        logger.warning("No SWE columns found in the DataFrame.")
+        logger.debug("No SWE columns found in the DataFrame.")
         return df
 
     logger.info(
@@ -212,11 +212,11 @@ def derive_features_from_snowmapper(df: pd.DataFrame) -> pd.DataFrame:
 
     # Validate that we have valid data
     if df["mean_ROF"].isna().all():
-        logger.warning("All ROF values are NaN after calculation")
+        logger.debug("All ROF values are NaN after calculation")
         return df
 
     if df["mean_SWE"].isna().all():
-        logger.warning("All SWE values are NaN after calculation")
+        logger.debug("All SWE values are NaN after calculation")
         return df
 
     # Create hydrologically meaningful features with proper bounds
