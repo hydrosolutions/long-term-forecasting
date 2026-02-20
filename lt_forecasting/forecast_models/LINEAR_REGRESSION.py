@@ -433,6 +433,13 @@ class LinearRegressionModel(BaseForecastModel):
         if "day" not in self.data.columns:
             self.data["day"] = self.data["date"].dt.day
 
+        # Allows to specify which months to include in the forecast 
+        forecast_months = self.general_config.get(
+            "forecast_months", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        )
+
+        self.data = self.data[self.data["date"].dt.month.isin(forecast_months)].copy()
+
         forecast_days = self.general_config.get(
             "forecast_days", [5, 10, 15, 20, 25, "end"]
         )

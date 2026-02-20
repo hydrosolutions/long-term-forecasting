@@ -734,6 +734,15 @@ class SciRegressor(BaseForecastModel):
         else:
             today = pd.to_datetime(today.strftime("%Y-%m-%d"))
 
+        today_month = today.month
+        forecast_months = self.general_config.get(
+            "forecast_months", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        )
+        if today_month not in forecast_months:
+            logger.warning(
+                f"Current month {today_month} is not in forecast_months {forecast_months}. This can lead to unreliable predictions."
+            )
+
         # Step 1: Load models and artifacts
         self.load_model()
 
@@ -1039,6 +1048,14 @@ class SciRegressor(BaseForecastModel):
         if "day" not in self.data.columns:
             self.data["day"] = self.data["date"].dt.day
 
+        # Allows to specify which months to include in the forecast 
+        forecast_months = self.general_config.get(
+            "forecast_months", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        )
+
+        self.data = self.data[self.data["date"].dt.month.isin(forecast_months)].copy()
+
+
         # Get configuration parameters
         test_years = self.test_years
 
@@ -1192,6 +1209,13 @@ class SciRegressor(BaseForecastModel):
         # Add day column if not present
         if "day" not in self.data.columns:
             self.data["day"] = self.data["date"].dt.day
+
+        # Allows to specify which months to include in the forecast 
+        forecast_months = self.general_config.get(
+            "forecast_months", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        )
+
+        self.data = self.data[self.data["date"].dt.month.isin(forecast_months)].copy()
 
         # Get configuration parameters
         hparam_tuning_years = self.hparam_tuning_years

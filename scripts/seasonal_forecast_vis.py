@@ -123,6 +123,17 @@ MONTH_ABBREV = {
     12: "Dec",
 }
 
+# Seasonal model directory names by issue month
+SEASONAL_DIR_NAMES = {
+    1: "seasonal_january",
+    2: "seasonal_february",
+    3: "seasonal_march",
+    4: "seasonal_april",
+}
+
+# Suffix for seasonal model names to distinguish from monthly-reconstructed
+SEASONAL_MODEL_SUFFIX = "_seasonal"
+
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -433,6 +444,159 @@ def reconstruct_seasonal_forecasts(
         f"{result_df['model'].nunique()} models"
     )
     return result_df
+
+
+# =============================================================================
+# DIRECT SEASONAL MODEL LOADING
+# =============================================================================
+
+
+def load_seasonal_model_hindcasts(
+    base_path: Path,
+    issue_months: list[int],
+    models: list[str] | None = None,
+) -> pd.DataFrame:
+    """
+    Load direct seasonal model hindcast predictions.
+
+    Seasonal models predict Apr-Sep discharge directly (not monthly).
+    Hindcast files are stored at:
+        {base_path}/seasonal_{month_name}/{model}/{model}_hindcast.csv
+
+    Args:
+        base_path: Base directory for predictions (e.g., long_term_predictions/)
+        issue_months: List of issue months to load (1=Jan, 2=Feb, etc.)
+        models: List of model names to load. If None, loads all available.
+
+    Returns:
+        DataFrame with columns: code, issue_year, issue_month, issue_day,
+                               issue_label, Q_pred_seasonal, model
+    """
+    results = []
+
+    for issue_month in issue_months:
+        if issue_month not in SEASONAL_DIR_NAMES:
+            continue
+
+        dir_name = SEASONAL_DIR_NAMES[issue_month]
+        seasonal_dir = Path(base_path) / dir_name
+
+        if not seasonal_dir.exists():
+            logger.debug(f"Seasonal directory not found: {seasonal_dir}")
+            continue
+
+        # Find model subdirectories
+        model_dirs = [d for d in seasonal_dir.iterdir() if d.is_dir()]
+
+        for model_dir in model_dirs:
+            model_name = model_dir.name
+
+            # Skip if not in requested models
+            if models is not None and model_name not in models:
+                continue
+
+            # Look for hindcast file
+            hindcast_file = model_dir / f"{model_name}_hindcast.csv"
+            if not hindcast_file.exists():
+                logger.debug(f"Hindcast file not found: {hindcast_file}")
+                continue
+
+            try:
+                df = pd.read_csv(hindcast_file)
+            except Exception as e:
+                logger.warning(f"Failed to read {hindcast_file}: {e}")
+                continue
+
+            if df.empty:
+                continue
+
+            # Parse date column to extract issue date components
+            df["date"] = pd.to_datetime(df["date"])
+            df["issue_year"] = df["date"].dt.year
+            df["issue_month"] = df["date"].dt.month
+            df["issue_day"] = df["date"].dt.day
+
+            # Create issue_label
+            month_abbrev = MONTH_ABBREV.get(issue_month, str(issue_month))
+            df["issue_label"] = f"{month_abbrev} 25"
+
+            # Find prediction column (Q_{ModelName})
+            pred_col = f"Q_{model_name}"
+            if pred_col not in df.columns:
+                # Try to find any Q_ column
+                q_cols = [c for c in df.columns if c.startswith("Q_")]
+                if q_cols:
+                    pred_col = q_cols[0]
+                else:
+                    logger.warning(f"No prediction column found in {hindcast_file}")
+                    continue
+
+            # Rename to standard column and add seasonal suffix to model name
+            df["Q_pred_seasonal"] = df[pred_col]
+            df["model"] = f"{model_name}{SEASONAL_MODEL_SUFFIX}"
+
+            # Select relevant columns
+            result = df[
+                [
+                    "code",
+                    "issue_year",
+                    "issue_month",
+                    "issue_day",
+                    "issue_label",
+                    "Q_pred_seasonal",
+                    "model",
+                ]
+            ].copy()
+
+            results.append(result)
+            logger.info(
+                f"Loaded {len(result)} seasonal hindcasts for {model_name} "
+                f"({month_abbrev})"
+            )
+
+    if not results:
+        logger.info("No direct seasonal model hindcasts found")
+        return pd.DataFrame()
+
+    combined = pd.concat(results, ignore_index=True)
+    logger.info(
+        f"Loaded {len(combined)} total seasonal hindcasts for "
+        f"{combined['model'].nunique()} models"
+    )
+    return combined
+
+
+def get_seasonal_observations(
+    monthly_obs: pd.DataFrame,
+    target_months: list[int] | None = None,
+) -> pd.DataFrame:
+    """
+    Calculate seasonal observations by averaging monthly values for Apr-Sep.
+
+    Args:
+        monthly_obs: DataFrame with monthly observations (from calculate_target)
+                    Expected columns: code, year, month, Q_obs_monthly
+        target_months: Months to average (default: [4, 5, 6, 7, 8, 9] for Apr-Sep)
+
+    Returns:
+        DataFrame with columns: code, year, Q_obs_seasonal
+    """
+    if target_months is None:
+        target_months = [4, 5, 6, 7, 8, 9]
+
+    # Filter for target months
+    filtered = monthly_obs[monthly_obs["month"].isin(target_months)].copy()
+
+    if filtered.empty:
+        return pd.DataFrame()
+
+    # Average across target months per code/year
+    seasonal_obs = (
+        filtered.groupby(["code", "year"])["Q_obs_monthly"].mean().reset_index()
+    )
+    seasonal_obs.columns = ["code", "year", "Q_obs_seasonal"]
+
+    return seasonal_obs
 
 
 # =============================================================================
@@ -1290,17 +1454,58 @@ def process_seasonal_forecasts(
         fc_output_dir = output_dir / region.lower() / "seasonal" / fc_type
         fc_output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Reconstruct seasonal forecasts
+        # Reconstruct seasonal forecasts from monthly predictions
         seasonal_df = reconstruct_seasonal_forecasts(
             predictions_df, monthly_obs, issue_dates
         )
+
+        # Load direct seasonal model hindcasts
+        issue_months_list = [k[0] for k in issue_dates.keys()]
+        seasonal_model_df = load_seasonal_model_hindcasts(
+            base_path=pred_config["pred_dir"],
+            issue_months=issue_months_list,
+            models=models,
+        )
+
+        # Merge seasonal model predictions with observations
+        if not seasonal_model_df.empty:
+            # Get seasonal observations (Apr-Sep average)
+            target_months = list(issue_dates.values())[0]["target_months"]
+            seasonal_obs_for_models = get_seasonal_observations(
+                monthly_obs, target_months=target_months
+            )
+
+            if not seasonal_obs_for_models.empty:
+                seasonal_model_df = seasonal_model_df.merge(
+                    seasonal_obs_for_models,
+                    left_on=["code", "issue_year"],
+                    right_on=["code", "year"],
+                    how="left",
+                )
+                # Drop duplicate year column
+                if "year" in seasonal_model_df.columns:
+                    seasonal_model_df = seasonal_model_df.drop(columns=["year"])
+            else:
+                seasonal_model_df["Q_obs_seasonal"] = np.nan
+
+            # Concatenate with reconstructed forecasts
+            if not seasonal_df.empty:
+                seasonal_df = pd.concat(
+                    [seasonal_df, seasonal_model_df], ignore_index=True
+                )
+            else:
+                seasonal_df = seasonal_model_df
 
         if seasonal_df.empty:
             logger.warning(f"No seasonal forecasts for {fc_type}")
             continue
 
-        # Filter to requested models
-        available_models = [m for m in models if m in seasonal_df["model"].unique()]
+        # Filter to requested models (including seasonal variants)
+        seasonal_model_names = [f"{m}{SEASONAL_MODEL_SUFFIX}" for m in models]
+        all_model_names = models + seasonal_model_names
+        available_models = [
+            m for m in all_model_names if m in seasonal_df["model"].unique()
+        ]
         if not available_models:
             logger.warning(f"None of the requested models found in {fc_type} forecasts")
             continue
