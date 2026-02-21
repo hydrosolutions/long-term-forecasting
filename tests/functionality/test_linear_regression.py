@@ -102,6 +102,8 @@ FEATURE_CONFIG = {
 
 MODEL_CONFIG = {"lr_type": "linear"}
 
+BAYESIAN_MODEL_CONFIG = {"lr_type": "bayesian_ridge"}
+
 PATH_CONFIG = {
     "path_discharge": "/fake/path/discharge",
     "path_forcing": "/fake/path/forcing",
@@ -806,6 +808,208 @@ if PYTEST_AVAILABLE:
     def test_lr_end_to_end(lr_tester):
         """Pytest: Test end-to-end workflow."""
         lr_tester.test_end_to_end_workflow()
+
+    def test_backward_compatibility_default_behavior(lr_tester):
+        """Test that configs WITHOUT corr_based_feature_selection key use correlation-based selection."""
+        # Default config should not have corr_based_feature_selection key
+        assert "corr_based_feature_selection" not in lr_tester.configs["general_config"]
+
+        model = LinearRegressionModel(
+            data=lr_tester.data,
+            static_data=lr_tester.static_data,
+            general_config=lr_tester.configs["general_config"],
+            model_config=lr_tester.configs["model_config"],
+            feature_config=lr_tester.configs["feature_config"],
+            path_config=lr_tester.configs["path_config"],
+        )
+
+        # Test _get_features_for_modeling defaults to correlation-based
+        model.data["period"] = "1-end"
+        test_df = model.data[model.data["code"] == model.data["code"].iloc[0]].copy()
+        # Note: 'target' column already exists after feature extraction
+
+        features = model._get_features_for_modeling(test_df, "target")
+
+        # Should return features selected by correlation (limited by num_features)
+        assert isinstance(features, list)
+        assert len(features) <= lr_tester.configs["general_config"]["num_features"]
+
+    def test_corr_based_feature_selection_disabled(lr_tester):
+        """Test that corr_based_feature_selection: false returns all matching features."""
+        config = lr_tester.configs["general_config"].copy()
+        config["corr_based_feature_selection"] = False
+
+        model = LinearRegressionModel(
+            data=lr_tester.data,
+            static_data=lr_tester.static_data,
+            general_config=config,
+            model_config=lr_tester.configs["model_config"],
+            feature_config=lr_tester.configs["feature_config"],
+            path_config=lr_tester.configs["path_config"],
+        )
+
+        model.data["period"] = "1-end"
+        test_df = model.data[model.data["code"] == model.data["code"].iloc[0]].copy()
+        # Note: 'target' column already exists after feature extraction
+
+        features = model._get_features_for_modeling(test_df, "target")
+
+        # Should return ALL matching features (more than with correlation selection)
+        assert isinstance(features, list)
+        # Count expected features from base_features and snow_vars
+        base_features = config.get("base_features", [])
+        expected_feature_count = 0
+        for bf in base_features:
+            expected_feature_count += len([c for c in test_df.columns if bf in c])
+
+        assert len(features) == expected_feature_count
+
+    # ============ BayesianRidge Tests ============
+
+    def test_bayesian_ridge_initialization(lr_tester):
+        """Verify BayesianRidge model type is set correctly."""
+        model = LinearRegressionModel(
+            data=lr_tester.data,
+            static_data=lr_tester.static_data,
+            general_config=lr_tester.configs["general_config"],
+            model_config=BAYESIAN_MODEL_CONFIG,
+            feature_config=lr_tester.configs["feature_config"],
+            path_config=lr_tester.configs["path_config"],
+        )
+        assert model.model_type == "bayesian_ridge"
+
+    def test_bayesian_ridge_quantile_columns_present(lr_tester):
+        """Check Q5, Q10, Q25, Q75, Q90, Q95 columns exist in hindcast."""
+        model = LinearRegressionModel(
+            data=lr_tester.data,
+            static_data=lr_tester.static_data,
+            general_config=lr_tester.configs["general_config"],
+            model_config=BAYESIAN_MODEL_CONFIG,
+            feature_config=lr_tester.configs["feature_config"],
+            path_config=lr_tester.configs["path_config"],
+        )
+
+        hindcast_df = model.calibrate_model_and_hindcast()
+
+        assert len(hindcast_df) > 0, "No hindcast predictions generated"
+
+        expected_quantile_cols = ["Q5", "Q10", "Q25", "Q75", "Q90", "Q95"]
+        for col in expected_quantile_cols:
+            assert col in hindcast_df.columns, f"Missing quantile column: {col}"
+
+    def test_bayesian_ridge_quantile_ordering(lr_tester):
+        """Verify Q5 <= Q10 <= Q25 <= mean <= Q75 <= Q90 <= Q95."""
+        model = LinearRegressionModel(
+            data=lr_tester.data,
+            static_data=lr_tester.static_data,
+            general_config=lr_tester.configs["general_config"],
+            model_config=BAYESIAN_MODEL_CONFIG,
+            feature_config=lr_tester.configs["feature_config"],
+            path_config=lr_tester.configs["path_config"],
+        )
+
+        hindcast_df = model.calibrate_model_and_hindcast()
+        pred_col = f"Q_{model.name}"
+
+        # Check ordering for each row
+        for _, row in hindcast_df.iterrows():
+            assert row["Q5"] <= row["Q10"], "Q5 should be <= Q10"
+            assert row["Q10"] <= row["Q25"], "Q10 should be <= Q25"
+            assert row["Q25"] <= row[pred_col], "Q25 should be <= mean prediction"
+            assert row[pred_col] <= row["Q75"], "mean prediction should be <= Q75"
+            assert row["Q75"] <= row["Q90"], "Q75 should be <= Q90"
+            assert row["Q90"] <= row["Q95"], "Q90 should be <= Q95"
+
+    def test_bayesian_ridge_quantile_non_negative(lr_tester):
+        """All quantile values >= 0."""
+        model = LinearRegressionModel(
+            data=lr_tester.data,
+            static_data=lr_tester.static_data,
+            general_config=lr_tester.configs["general_config"],
+            model_config=BAYESIAN_MODEL_CONFIG,
+            feature_config=lr_tester.configs["feature_config"],
+            path_config=lr_tester.configs["path_config"],
+        )
+
+        hindcast_df = model.calibrate_model_and_hindcast()
+
+        quantile_cols = ["Q5", "Q10", "Q25", "Q75", "Q90", "Q95"]
+        for col in quantile_cols:
+            assert (hindcast_df[col] >= 0).all(), f"Negative values found in {col}"
+
+    def test_bayesian_ridge_operational_forecast(lr_tester):
+        """Quantiles present in operational output."""
+        model = LinearRegressionModel(
+            data=lr_tester.data,
+            static_data=lr_tester.static_data,
+            general_config=lr_tester.configs["general_config"],
+            model_config=BAYESIAN_MODEL_CONFIG,
+            feature_config=lr_tester.configs["feature_config"],
+            path_config=lr_tester.configs["path_config"],
+        )
+
+        forecast_df = model.predict_operational()
+
+        if len(forecast_df) > 0:
+            expected_quantile_cols = ["Q5", "Q10", "Q25", "Q75", "Q90", "Q95"]
+            for col in expected_quantile_cols:
+                assert col in forecast_df.columns, (
+                    f"Missing quantile column in operational forecast: {col}"
+                )
+
+    def test_backward_compatibility_no_quantiles_for_ridge(lr_tester):
+        """Ridge does NOT have quantile columns."""
+        model_config = {"lr_type": "ridge"}
+
+        model = LinearRegressionModel(
+            data=lr_tester.data,
+            static_data=lr_tester.static_data,
+            general_config=lr_tester.configs["general_config"],
+            model_config=model_config,
+            feature_config=lr_tester.configs["feature_config"],
+            path_config=lr_tester.configs["path_config"],
+        )
+
+        hindcast_df = model.calibrate_model_and_hindcast()
+
+        assert len(hindcast_df) > 0, "No hindcast predictions generated"
+
+        quantile_cols = ["Q5", "Q10", "Q25", "Q75", "Q90", "Q95"]
+        for col in quantile_cols:
+            assert col not in hindcast_df.columns, (
+                f"Ridge should not have quantile column: {col}"
+            )
+
+    def test_backward_compatibility_existing_models_unchanged(lr_tester):
+        """linear, ridge, lasso, pca_lr still work."""
+        model_types = ["linear", "ridge", "lasso", "pca_lr"]
+
+        for lr_type in model_types:
+            model_config = {"lr_type": lr_type}
+            if lr_type == "pca_lr":
+                model_config["pca_n_components"] = 2
+
+            model = LinearRegressionModel(
+                data=lr_tester.data.copy(),
+                static_data=lr_tester.static_data,
+                general_config=lr_tester.configs["general_config"],
+                model_config=model_config,
+                feature_config=lr_tester.configs["feature_config"],
+                path_config=lr_tester.configs["path_config"],
+            )
+
+            hindcast_df = model.calibrate_model_and_hindcast()
+
+            assert len(hindcast_df) > 0, (
+                f"No hindcast predictions generated for {lr_type}"
+            )
+            pred_col = f"Q_{model.name}"
+            assert pred_col in hindcast_df.columns, (
+                f"Missing prediction column for {lr_type}"
+            )
+            assert not hindcast_df[pred_col].isna().all(), (
+                f"All predictions are NaN for {lr_type}"
+            )
 
 
 def main():

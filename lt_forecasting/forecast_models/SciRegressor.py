@@ -218,7 +218,7 @@ class SciRegressor(BaseForecastModel):
                 self.data = self.data.drop(columns=snow_vars_drop)
 
         # Extract extended features for snowmapper:
-        self.data = du.derive_features_from_snowmapper(self.data)
+        # self.data = du.derive_features_from_snowmapper(self.data)
 
         logger.debug("Data preprocessing completed. Data shape: %s", self.data.shape)
 
@@ -1048,13 +1048,12 @@ class SciRegressor(BaseForecastModel):
         if "day" not in self.data.columns:
             self.data["day"] = self.data["date"].dt.day
 
-        # Allows to specify which months to include in the forecast 
+        # Allows to specify which months to include in the forecast
         forecast_months = self.general_config.get(
             "forecast_months", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
         )
 
         self.data = self.data[self.data["date"].dt.month.isin(forecast_months)].copy()
-
 
         # Get configuration parameters
         test_years = self.test_years
@@ -1210,7 +1209,7 @@ class SciRegressor(BaseForecastModel):
         if "day" not in self.data.columns:
             self.data["day"] = self.data["date"].dt.day
 
-        # Allows to specify which months to include in the forecast 
+        # Allows to specify which months to include in the forecast
         forecast_months = self.general_config.get(
             "forecast_months", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
         )

@@ -18,17 +18,31 @@ logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logg
 
 
 from lt_forecasting.forecast_models.base_class import BaseForecastModel
-from sklearn.linear_model import LinearRegression, RidgeCV, LassoCV, ElasticNetCV
+from sklearn.linear_model import (
+    LinearRegression,
+    RidgeCV,
+    LassoCV,
+    ElasticNetCV,
+    BayesianRidge,
+)
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.pipeline import make_pipeline
 from sklearn.pipeline import Pipeline
+from sklearn.compose import TransformedTargetRegressor
 from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.feature_selection import SequentialFeatureSelector
+from sklearn.model_selection import LeaveOneOut
+from scipy.stats import norm
 import pickle
 import json
 from tqdm import tqdm
 
 from lt_forecasting.scr import FeatureExtractor as FE
+
+# Quantile levels for Bayesian Ridge uncertainty estimation
+BAYESIAN_QUANTILES = [0.05, 0.10, 0.25, 0.75, 0.90, 0.95]
+QUANTILE_COL_NAMES = ["Q5", "Q10", "Q25", "Q75", "Q90", "Q95"]
 
 
 class LinearRegressionModel(BaseForecastModel):
@@ -184,13 +198,39 @@ class LinearRegressionModel(BaseForecastModel):
 
         return features_week.to_list()
 
+    def _get_features_for_modeling(
+        self, df_period: pd.DataFrame, target: str
+    ) -> list[str]:
+        """
+        Get features for modeling - either via correlation selection or all available.
+        """
+        use_corr_selection = self.general_config.get(
+            "corr_based_feature_selection", True
+        )
+
+        if use_corr_selection:
+            return self.get_highest_corr_features(df_period, target)
+
+        # Use all features matching base_features and snow_vars
+        base_features = self.general_config.get("base_features", [])
+        snow_vars = self.general_config.get("snow_vars", [])
+
+        possible_features = []
+        for feat in base_features:
+            possible_features += [col for col in df_period.columns if feat in col]
+        for feat in snow_vars:
+            possible_features += [col for col in df_period.columns if feat in col]
+
+        # Remove duplicates while preserving order
+        return list(dict.fromkeys(possible_features))
+
     def predict_on_sample(
         self,
         calibration_data: pd.DataFrame,
         prediction_data: pd.DataFrame,
         features: List[str],
         target: str,
-    ):
+    ) -> tuple[np.ndarray, np.ndarray, float, Any, dict[str, np.ndarray] | None]:
         """
         Predict on a sample of data.
 
@@ -205,6 +245,7 @@ class LinearRegressionModel(BaseForecastModel):
             y_pred_calibration (np.ndarray): Predicted values for calibration data.
             r2_calibration (float): R-squared value for calibration data.
             model (sklearn.linear_model): Fitted model.
+            quantiles (dict[str, np.ndarray] | None): Quantile predictions for bayesian_ridge, None otherwise.
         """
 
         calibration_data = calibration_data.dropna(
@@ -217,10 +258,10 @@ class LinearRegressionModel(BaseForecastModel):
             # get the columns with nan in features
             nan_columns = prediction_data[features].isna().any()
             missing_features = nan_columns[nan_columns].index.tolist()
-            return [np.nan], [np.nan], np.nan, None
+            return [np.nan], [np.nan], np.nan, None, None
         if len(calibration_data) < self.general_config["num_features"] * 2:
             logger.debug("Not enough calibration data available after dropping NaNs.")
-            return [np.nan], [np.nan], np.nan, None
+            return [np.nan], [np.nan], np.nan, None, None
 
         X_calibration = calibration_data[features]
         y_calibration = calibration_data[target]
@@ -270,21 +311,76 @@ class LinearRegressionModel(BaseForecastModel):
             model = make_pipeline(
                 StandardScaler(), PCA(n_components=n_components), LinearRegression()
             )
+        elif lr_type == "bayesian_ridge":
+            base_model = BayesianRidge(
+                max_iter=self.model_config.get("bayesian_max_iter", 300),
+                tol=self.model_config.get("bayesian_tol", 1e-3),
+                compute_score=True,
+            )
+            model = Pipeline(
+                [
+                    ("scaler", StandardScaler()),
+                    (
+                        "regressor",
+                        TransformedTargetRegressor(
+                            regressor=base_model,
+                            transformer=StandardScaler(),
+                        ),
+                    ),
+                ]
+            )
         else:
             raise ValueError(f"Unknown model type: {lr_type}")
 
         try:
             model.fit(X_calibration, y_calibration)
 
-            y_pred = model.predict(X_prediction)
+            # Handle BayesianRidge with uncertainty estimation
+            if lr_type == "bayesian_ridge":
+                # Get the TransformedTargetRegressor from pipeline
+                ttr = model.named_steps["regressor"]
+                # Scale features using the fitted scaler
+                X_pred_scaled = model.named_steps["scaler"].transform(X_prediction)
+                X_cali_scaled = model.named_steps["scaler"].transform(X_calibration)
 
-            y_pred_calibration = model.predict(X_calibration)
+                # Get predictions with std from BayesianRidge (in target-scaled space)
+                y_pred_scaled, y_std_scaled = ttr.regressor_.predict(
+                    X_pred_scaled, return_std=True
+                )
+                y_pred_cali_scaled, _ = ttr.regressor_.predict(
+                    X_cali_scaled, return_std=True
+                )
+
+                # Inverse transform predictions back to original scale
+                y_pred = ttr.transformer_.inverse_transform(
+                    y_pred_scaled.reshape(-1, 1)
+                ).ravel()
+                y_pred_calibration = ttr.transformer_.inverse_transform(
+                    y_pred_cali_scaled.reshape(-1, 1)
+                ).ravel()
+
+                # Scale std back to original scale
+                target_scale = ttr.transformer_.scale_[0]
+                y_std = y_std_scaled * target_scale
+
+                # Compute quantiles using inverse normal CDF
+                quantiles = {}
+                for q, col_name in zip(BAYESIAN_QUANTILES, QUANTILE_COL_NAMES):
+                    quantile_values = y_pred + norm.ppf(q) * y_std
+                    quantiles[col_name] = np.maximum(
+                        quantile_values, 0
+                    )  # Ensure non-negative
+            else:
+                y_pred = model.predict(X_prediction)
+                y_pred_calibration = model.predict(X_calibration)
+                quantiles = None
+
         except Exception as e:
             logger.error(f"Error fitting/predicting with Linear Regression model: {e}")
-            return [np.nan], [np.nan], np.nan, None
+            return [np.nan], [np.nan], np.nan, None, None
 
         r2_calibration = r2_score(y_calibration, y_pred_calibration)
-        return y_pred, y_pred_calibration, r2_calibration, model
+        return y_pred, y_pred_calibration, r2_calibration, model, quantiles
 
     def predict_operational(self, today: datetime.datetime = None) -> pd.DataFrame:
         """
@@ -358,7 +454,7 @@ class LinearRegressionModel(BaseForecastModel):
             code_data = operational_data[operational_data["code"] == code].copy()
 
             # Get the features for the current code
-            features = self.get_highest_corr_features(code_data, "target")
+            features = self._get_features_for_modeling(code_data, "target")
             logger.debug(f"Features for {code}: {features}")
 
             logger.debug(
@@ -379,7 +475,7 @@ class LinearRegressionModel(BaseForecastModel):
                 calibration_target_mean = 0
 
             # Predict on the sample
-            predictions, _, r2_cali, model = self.predict_on_sample(
+            predictions, _, r2_cali, model, quantiles = self.predict_on_sample(
                 calibration_data=calibration_data,
                 prediction_data=prediction_data,
                 features=features,
@@ -410,6 +506,12 @@ class LinearRegressionModel(BaseForecastModel):
                 }
             )
 
+            # Add quantile columns if available (bayesian_ridge)
+            if quantiles is not None:
+                for col_name in QUANTILE_COL_NAMES:
+                    if col_name in quantiles:
+                        pred_df[col_name] = np.round(quantiles[col_name], 2)
+
             forecast = pd.concat([forecast, pred_df], ignore_index=True)
 
         # clip predictions to be >= 0
@@ -433,7 +535,7 @@ class LinearRegressionModel(BaseForecastModel):
         if "day" not in self.data.columns:
             self.data["day"] = self.data["date"].dt.day
 
-        # Allows to specify which months to include in the forecast 
+        # Allows to specify which months to include in the forecast
         forecast_months = self.general_config.get(
             "forecast_months", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
         )
@@ -510,7 +612,7 @@ class LinearRegressionModel(BaseForecastModel):
 
                 # Get features for this code and period on the training data
 
-                features = self.get_highest_corr_features(code_period_df, "target")
+                features = self._get_features_for_modeling(code_period_df, "target")
 
                 # Perform Leave-One-Year-Out CV on non-test years
                 for test_year in loocv_years:
@@ -546,7 +648,7 @@ class LinearRegressionModel(BaseForecastModel):
                         continue
 
                     # Make predictions
-                    predictions, _, r2, model = self.predict_on_sample(
+                    predictions, _, r2, model, quantiles = self.predict_on_sample(
                         calibration_data=train_data,
                         prediction_data=test_data,
                         features=features,
@@ -567,17 +669,23 @@ class LinearRegressionModel(BaseForecastModel):
                             continue
 
                         if not np.isnan(predictions[i]):
-                            all_predictions.append(
-                                {
-                                    "date": row["date"],
-                                    "code": code,
-                                    Q_pred_col: max(
-                                        0, predictions[i]
-                                    ),  # Ensure non-negative
-                                    "period": period_name,
-                                    "Q_obs": Q_obs[i],
-                                }
-                            )
+                            record = {
+                                "date": row["date"],
+                                "code": code,
+                                Q_pred_col: max(
+                                    0, predictions[i]
+                                ),  # Ensure non-negative
+                                "period": period_name,
+                                "Q_obs": Q_obs[i],
+                            }
+                            # Add quantile values if available (bayesian_ridge)
+                            if quantiles is not None:
+                                for col_name in QUANTILE_COL_NAMES:
+                                    if col_name in quantiles:
+                                        record[col_name] = round(
+                                            quantiles[col_name][i], 2
+                                        )
+                            all_predictions.append(record)
 
         logger.debug(
             f"Failed linear regression for {len(failed_lr)} cases: {failed_lr}"
@@ -586,8 +694,12 @@ class LinearRegressionModel(BaseForecastModel):
         # Convert to DataFrame
         if all_predictions:
             hindcast_df = pd.DataFrame(all_predictions)
-            # Remove period and cv_type columns as they're not in the expected output format
-            hindcast_df = hindcast_df[["date", "code", Q_pred_col, "period", "Q_obs"]]
+            # Select output columns - include quantiles if present
+            base_cols = ["date", "code", Q_pred_col, "period", "Q_obs"]
+            quantile_cols = [
+                col for col in QUANTILE_COL_NAMES if col in hindcast_df.columns
+            ]
+            hindcast_df = hindcast_df[base_cols + quantile_cols]
             # Sort by date and code
             hindcast_df = hindcast_df.sort_values(["date", "code"]).reset_index(
                 drop=True
@@ -621,6 +733,26 @@ class LinearRegressionModel(BaseForecastModel):
 
         pred_col = f"Q_{self.name}"
         hindcast_df[pred_col] = hindcast_df[pred_col].clip(lower=0)
+
+        # Quickly calculate r2 for each code and log summary statistics
+        r2_summary = []
+        for code in hindcast_df["code"].unique():
+            code_df = (
+                hindcast_df[hindcast_df["code"] == code]
+                .dropna(subset=["Q_obs", pred_col])
+                .copy()
+            )
+            if len(code_df) > 1:
+                r2 = r2_score(code_df["Q_obs"], code_df[pred_col])
+                r2_summary.append(r2)
+                logger.debug(f"R2 for code {code}: {r2}")
+            else:
+                logger.debug(f"Not enough data to calculate R2 for code {code}")
+
+        if r2_summary:
+            logger.info(
+                f"R2 summary across codes - Mean: {np.mean(r2_summary)}, Median: {np.median(r2_summary)}, Std: {np.std(r2_summary)}"
+            )
 
         return hindcast_df
 
