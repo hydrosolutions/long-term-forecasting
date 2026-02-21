@@ -35,133 +35,291 @@ lt_forecasting/
     ├── functionality/       # Functionality tests
     └── integration/         # Integration tests
 ```
+## Task Management Principles
 
-## COMMON BASH COMMANDS:
+### Avoid Task Jags
 
-1. activate environment
-As we are working we do not need to activate the venv specifically but can just use
-bash 
-'
-uv run python scripts/some_script.py
-'
+**Critical**: Avoid task jags at all cost. Jags are semantic changes in task direction:
 
-2. Run ruff
-bash
-'uv run ruff format'
+- Going from implementing A to testing A
+- Switching from implementing A to implementing B
+- Any mid-stream change in the core task focus
 
-3. run the tests:
-bash 
-'
-uv run pytest -v
-'
+Stay focused on the current task until completion. Delegate tasks to sub agents aggressively (3+ agents at a time), and remain at a higher level of abstraction and coordination, resisting the temptation of jumping in yourself for quick fixes.
 
-4. Run specific test categories:
-bash
-'
-uv run pytest tests/unit/ -v       # Run unit tests
-uv run pytest tests/functionality/ -v  # Run functionality tests
-'
+### Delegation Strategy
 
-5. Run the shell scripts:
-bash
-'
-./tune_and_calibrate_script.sh
-'
+**Always delegate orthogonal tasks to sub-agents**. Use the most appropriate agent from `agents/` for each task:
 
+- Break down complex work into focused sub-tasks
+- Route each sub-task to the specialist agent best suited for it
+- Maintain clear task boundaries between agents
+- Give agents all the context they need, and instruction on where to gather more context if needed.
 
-## Scratchpad System
+## Context Awareness
 
-Use structured markdown files for complex work planning and documentation.
+### Library Implementation Details
 
-### Directory Structure
+`.context` contains git submodules of libraries used. Agents are **highly encouraged** to grep for implementation details of the files they work with to ensure consistency with library conventions.
+
+## Use Skills and Ask Questions
+
+Use all skills that make semantic sense for the task.
+Ask clarifying questions often to fill gaps. Better to clarify upfront than to implement the wrong solution.
+
+---
+
+## Python Package Management with `uv`
+
+- **Use `uv` exclusively** for Python package management.
+- Do **not** use `pip`, `pip-tools`, `poetry`, or `conda` directly.
+- Commands:
+  - Install: `uv add <package>`
+  - Remove: `uv remove <package>`
+  - Sync lockfile: `uv sync`
+- Running:
+  - Python scripts: `uv run <script>.py`
+  - Tools: `uv run pytest`, `uv run ruff`
+  - REPL: `uv run python`
+
+---
+
+## Ad-hoc Analyses and One-Time Scripts
+
+- **Use shell heredoc syntax** for one-time data analyses and exploratory work.
+- Do **not** create throwaway `.py` files or use alternative shell tools (awk, sed, etc.) for data manipulation.
+- Python is more readable, maintainable, and powerful for these tasks.
+
+**Preferred pattern:**
 
 ```bash
-scratchpads/
-├── issues/          # Issue-specific work (/project:fix-issue command)
-├── planning/        # Feature planning and design
-└── research/        # Technical exploration and spikes
+uv run python3 << 'EOF'
+import pandas as pd
+
+# Your analysis code here
+df = pd.read_csv('data.csv')
+print(df.describe())
+EOF
 ```
 
-### Naming Convention
+**Why this matters:**
 
-`scratchpads/{type}/{brief-description}.md`
+- **No file clutter** — no orphaned `temp.py` or `test_script.py` files
+- **Self-documenting** — the command and its context live together in shell history or docs
+- **Efficient** — Claude can generate complete, working analyses inline
+- **Reproducible** — easy to copy-paste entire commands
 
-Examples:
+This approach is **mandatory** for:
 
-- `scratchpads/issues/fix-data-validation-bug-123.md`
-- `scratchpads/planning/user-authentication-system.md`  
-- `scratchpads/research/performance-optimization-analysis.md`
+- Quick data inspections
+- One-time transformations
+- Exploratory analyses
+- Data quality checks
 
-### Standard Template
+For **reusable** logic that runs regularly, create proper Python scripts or modules.
 
-```markdown
-# [Task Name]
+---
 
-## Objective
-[Clear description of what needs to be accomplished]
+## Python Coding Style
 
-## Context
-[Background information, links to issues, previous work]
+### Type Hints (mandatory)
 
-## Plan
-- [ ] Step 1: [Specific actionable item]
-- [ ] Step 2: [Specific actionable item]
-- [ ] Step 3: [Specific actionable item]
+- Always annotate function parameters and return types.
+- Use built-in generics (`list`, `dict`, `tuple`, `set`) — **never** import `List`, `Dict`, etc. from `typing`.
+- Use `|` for unions (Python 3.10+).
+- Annotate variables where type is not obvious.
 
-## Implementation Notes
-[Code snippets, architectural decisions, API changes]
+```python
+def process_data(items: list[str]) -> dict[str, int]:
+    ...
 
-## Testing Strategy
-[How to verify the solution works]
-
-## Review Points
-[Areas requiring special attention during code review]
+value: str | None = None
 ```
 
+### Error Handling
 
-## Custom Slash Commands
+- **Never** use bare `except`.
+- Always raise meaningful errors with context.
+- Prefer explicit error classes over generic `Exception`.
 
-Available project-specific commands:
+### Logging
 
-### `/project:issue <issue-number>`
+- Use `logging` — never `print` — for runtime diagnostics.
 
-Complete issue-driven development workflow following TDD principles.
+### Formatting & Linting
 
-**Usage**: `/project:issue 123`
+- Use `ruff` for both linting and formatting:
+  - Format: `uv run ruff format`
+  - Lint + fix: `uv run ruff check --fix`
 
-**What it does**:
+---
 
-1. Analyzes GitHub issue via `gh issue view`
-2. Searches codebase for relevant context
-3. Creates implementation plan in scratchpad
-4. Implements solution using TDD approach
-5. Creates pull request with proper documentation
+## Code Quality Standards
 
+### High Signal-to-Noise Ratio
 
-### Error Handling Philosophy
+Strive for high signal-to-noise ratio in code:
 
-The `scripts/dev.py` includes robust error handling:
+- Clear, purposeful implementations
+- Direct, readable solutions
+- Declarative over imperative styles
 
-- **Graceful degradation**: Warns about missing tools instead of failing
-- **Detailed diagnostics**: Shows exact commands and exit codes
-- **Clear reporting**: ✅/❌ status summary for all operations
-- **CI compatibility**: Identical behavior locally and in GitHub Actions
+### Structural Preferences
 
-## Best Practices Summary
+- **Avoid nested loops**: Prefer flat, pipeline-style code
+- **Avoid deep nesting**: Keep nesting shallow (max 2-3 levels)
+- **Prefer comprehensions and generators**: Use list/dict comprehensions for transformations
+- **Use dataclasses and Protocols**: Leverage structural typing for clean interfaces
 
-### Daily Development
+### Example Pipeline Style
 
-1. **Use scratchpads**: Document complex work for context preservation
-2.  **Write maintainable code** write functions which can be re-used: if a lot of code is repeated write a function for it.
+```python
+from functools import reduce
 
-### Code Quality
+result = reduce(
+    combine,
+    filter(predicate, map(transform, data))
+)
 
-1. **Test incrementally**: Run specific tests during development
-2. **Think deeply**: Use extended thinking for complex architectural decisions
+# Or with comprehensions
+result = [transform(x) for x in data if predicate(x)]
+```
 
-### Collaboration  
+### Example Pattern Matching (Python 3.10+)
 
-1. **Document decisions**: Use scratchpads for complex reasoning
-2. **Create clear PRs**: Use `/project:create-pr` for consistent formatting
-3. **Link issues**: Always reference relevant GitHub issues
-4. **Review thoroughly**: Focus on areas highlighted in PR descriptions
+```python
+match command:
+    case {"action": "create", "name": name}:
+        return create_resource(name)
+    case {"action": "delete", "id": id}:
+        return delete_resource(id)
+    case _:
+        raise ValueError(f"Unknown command: {command}")
+```
+
+---
+
+## Testability Requirements
+
+### Control Side Effects via Dependency Injection
+
+**CRITICAL**: Never use `datetime.now()` or `random.random()` directly in business logic. Always inject dependencies:
+
+```python
+# ❌ WRONG - untestable
+def create_record():
+    return {"created_at": datetime.now(), "id": random.randint(1, 1000)}
+
+# ✅ CORRECT - testable
+def create_record(clock: Callable[[], datetime], rng: random.Random) -> dict:
+    return {"created_at": clock(), "id": rng.randint(1, 1000)}
+```
+
+**Why this matters**: Direct calls to `datetime.now()` and `random` are impure and non-deterministic, making tests flaky. Dependency injection allows:
+
+- Controlled time in tests via fake clocks
+- Deterministic random values via seeded RNGs
+- Proper composition and testing
+
+---
+
+## Testing Philosophy
+
+Good tests do not just check code; they shape its design. Tests are **contracts**: they describe what must stay true even if the implementation changes.
+
+### Golden Rules
+
+1. **Test behavior, not implementation**
+   - Assert on outputs and public APIs.
+   - Do not inspect private attributes like `_steps` unless no public API exists. If needed, add a public `.spec()` for testability.
+
+2. **Each test should fail for one reason**
+   - Keep assertions focused. Split broad tests into smaller ones.
+
+3. **Prefer fast, deterministic tests**
+   - No `sleep()`; control time with libraries like `freezegun` or dependency injection.
+   - Control randomness by seeding or injecting RNGs.
+
+4. **Use fakes over mocks**
+   - Fake implementations are easier to read and maintain than heavy mocking.
+   - Mock only at external boundaries (HTTP, file I/O, external services).
+
+5. **Structure tests for readability**
+   - Setup (Arrange) → Action → Assertion.
+   - Use fixtures for repeated setup, but don't hide complexity in `conftest.py`.
+
+### Test Coverage
+
+- Use `pytest-cov` to measure coverage.
+- Run with coverage: `uv run pytest --cov=src/<package> --cov-report=term-missing tests/`
+- Coverage should be **used to find gaps**, not chased to 100%. A brittle 100% is worse than 85% meaningful coverage.
+
+### Testing Conventions
+
+#### File & Class Organization
+
+- **One test file per module**: `test_<module>.py`
+- **One test class per function/class under test**: `Test<ThingUnderTest>`
+- Test methods: descriptive, snake_case, explain the behavior.
+  Example: `test_fails_with_empty_dataframe`, not `test1`.
+
+#### Categories of Tests
+
+1. **Basic functionality**: happy paths with simple inputs.
+2. **Error handling**: invalid inputs should raise the right exception with the right message.
+3. **Edge cases**: empty data, null values, large inputs, unexpected types.
+4. **Data preservation**: non-transformed fields, schema, and order remain intact.
+5. **Integration paths**: small number of tests where the real pipeline runs end-to-end.
+
+#### Assert Patterns
+
+- Prefer **direct comparisons** for clarity.
+- For complex structures, use `.to_dict()` or `.spec()` for clarity.
+- Check types explicitly when relevant.
+
+#### Error Testing
+
+Always assert both **exception type** and **message fragment**:
+
+```python
+with pytest.raises(ValueError, match="no steps"):
+    builder.build()
+```
+
+#### Fixtures
+
+- Use fixtures sparingly and descriptively (`simple_df`, `df_with_missing_values`).
+- Avoid fixture over-engineering; clarity > DRY.
+
+---
+
+## Anti-Patterns (Avoid These)
+
+- Asserting on private attributes (`._steps`, `._internal_state`).
+- Overly specific error message checks (brittle wording).
+- Giant integration tests covering all cases — push most variation down into unit tests.
+- 100s of trivial tests (getter/setter, boilerplate) — test behaviors that matter.
+- Hiding critical setup in nested fixtures.
+- Using bare `except:` clauses.
+- Importing deprecated typing generics (`List`, `Dict`, `Optional`).
+
+**Tests should describe contracts, not internals.**
+If your test breaks after a refactor that doesn't change behavior, the test was wrong.
+
+---
+
+## Documentation Standards
+
+### Minimal Documentation During Prototyping
+
+**CRITICAL**: Forego excessive docstrings unless specifically asked to.
+
+- **NO lengthy docstrings** - They add significant context overhead
+- **NO detailed comments** for self-explanatory code
+- Focus on clean, self-documenting implementations
+- Add documentation only when:
+  - Explicitly requested by the user
+  - Code is ready for production/publishing
+  - Public API requires clarification
+
+**Rationale**: During prototyping and development, verbose documentation significantly bloats context. Write clear, readable code first. Documentation can be added later when actually needed.

@@ -2,8 +2,7 @@
 """
 Seasonal Forecast Visualization Script
 
-Evaluates seasonal forecasts (6-month and 3-month) and compares ML model predictions
-with SWE-based linear regression predictions using LOOCV.
+Evaluates seasonal forecasts (6-month and 3-month) by comparing ML model predictions.
 
 Forecast Configurations:
 - 6-Month Forecasts (Apr-Sep average): Issue dates Jan 25, Feb 25, Mar 25, Apr 25
@@ -15,19 +14,14 @@ Output structure:
         │   ├── scatter_Jan25.png
         │   ├── r2_vs_issue_date.png
         │   └── metrics_summary.csv
-        ├── 3_month/
-        │   ├── scatter_Mar25.png
-        │   ├── r2_vs_issue_date.png
-        │   └── metrics_summary.csv
-        └── swe_analysis/
-            ├── swe_correlation_boxplot.png
-            ├── swe_vs_ml_comparison.png
-            └── correlation_summary.csv
+        └── 3_month/
+            ├── scatter_Mar25.png
+            ├── r2_vs_issue_date.png
+            └── metrics_summary.csv
 """
 
 import argparse
 import logging
-import os
 import sys
 from pathlib import Path
 
@@ -36,7 +30,6 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from scipy import stats
-from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 
 # Add project root to path for imports
@@ -53,15 +46,11 @@ load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 from examine_operational_fc import (
     load_predictions,
     load_observations,
-    calculate_target,
     kgz_path_config,
     taj_path_config,
     day_of_forecast,
     output_dir as default_output_dir,
 )
-
-# Import data loading
-from lt_forecasting.scr.data_loading import load_snow_data
 
 # Import style configuration
 from dev_tools.visualization.style_config import set_global_plot_style
@@ -82,9 +71,6 @@ if not logger.handlers:
 # =============================================================================
 # CONSTANTS
 # =============================================================================
-
-# Number of days to average SWE before issue date
-SWE_AVERAGING_DAYS = 10
 
 # 6-month forecast issue dates (month, day) -> target months (Apr-Sep)
 ISSUE_DATES_6M = {
@@ -123,6 +109,26 @@ MONTH_ABBREV = {
     12: "Dec",
 }
 
+# Seasonal model directory names by issue month
+SEASONAL_DIR_NAMES = {
+    1: "seasonal_january",
+    2: "seasonal_february",
+    3: "seasonal_march",
+    4: "seasonal_april",
+}
+
+# Suffix for seasonal model names to distinguish from monthly-reconstructed
+SEASONAL_MODEL_SUFFIX = "_seasonal"
+
+# Quantile column names (must match LINEAR_REGRESSION.py)
+QUANTILE_COLS = ["Q5", "Q10", "Q25", "Q75", "Q90", "Q95"]
+
+# PI coverage definitions: (lower_quantile_col, upper_quantile_col, nominal_coverage)
+PI_COVERAGE_DEFS = {
+    "50%": ("Q25", "Q75", 0.50),
+    "90%": ("Q5", "Q95", 0.90),
+}
+
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -145,6 +151,42 @@ def get_horizon(issue_month: int, target_month: int) -> int:
     return (12 - issue_month) + target_month
 
 
+def calculate_target_with_threshold(
+    obs: pd.DataFrame,
+    min_coverage: float = 0.9,
+) -> pd.DataFrame:
+    """
+    Aggregates daily observations to monthly means, only if >=90% data is present.
+
+    Args:
+        obs: DataFrame with columns: date, code, discharge
+        min_coverage: Minimum fraction of non-missing days required (default 0.9)
+
+    Returns:
+        DataFrame with monthly means where data coverage meets threshold
+    """
+    obs = obs.copy()
+    obs["year"] = obs["date"].dt.year
+    obs["month"] = obs["date"].dt.month
+    obs["days_in_month"] = obs["date"].dt.daysinmonth
+
+    grouped = (
+        obs.groupby(["code", "year", "month"])
+        .agg(
+            discharge_mean=("discharge", "mean"),
+            discharge_count=("discharge", "count"),
+            days_in_month=("days_in_month", "first"),
+        )
+        .reset_index()
+    )
+
+    grouped["coverage"] = grouped["discharge_count"] / grouped["days_in_month"]
+    filtered = grouped[grouped["coverage"] >= min_coverage].copy()
+    filtered = filtered.rename(columns={"discharge_mean": "Q_obs_monthly"})
+
+    return filtered[["code", "year", "month", "Q_obs_monthly"]]
+
+
 def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     """
     Calculate performance metrics.
@@ -156,7 +198,6 @@ def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     Returns:
         Dictionary with r2, rmse, mae, pbias, nse, n_samples
     """
-    # Drop NaN values
     mask = ~(np.isnan(y_true) | np.isnan(y_pred))
     y_true_clean = y_true[mask]
     y_pred_clean = y_pred[mask]
@@ -171,18 +212,15 @@ def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
             "n_samples": len(y_true_clean),
         }
 
-    # Calculate metrics
     r2 = r2_score(y_true_clean, y_pred_clean)
     rmse = np.sqrt(mean_squared_error(y_true_clean, y_pred_clean))
     mae = mean_absolute_error(y_true_clean, y_pred_clean)
 
-    # PBIAS: Percent Bias
     sum_obs = y_true_clean.sum()
     pbias = (
         100 * (y_pred_clean - y_true_clean).sum() / sum_obs if sum_obs != 0 else np.nan
     )
 
-    # NSE: Nash-Sutcliffe Efficiency
     ss_res = np.sum((y_true_clean - y_pred_clean) ** 2)
     ss_tot = np.sum((y_true_clean - np.mean(y_true_clean)) ** 2)
     nse = 1 - (ss_res / ss_tot) if ss_tot != 0 else np.nan
@@ -197,6 +235,66 @@ def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     }
 
 
+def calculate_pi_coverage(
+    df: pd.DataFrame,
+    obs_col: str = "Q_obs_seasonal",
+) -> dict[str, float]:
+    """
+    Calculate prediction interval coverage for models with quantile columns.
+
+    Args:
+        df: DataFrame with observations and quantile predictions
+        obs_col: Name of observation column
+
+    Returns:
+        Dictionary with coverage stats: {
+            "coverage_50": actual 50% PI coverage,
+            "coverage_90": actual 90% PI coverage,
+            "n_samples": number of valid samples,
+            "has_quantiles": whether quantile columns exist (with actual values)
+        }
+    """
+    result = {
+        "coverage_50": np.nan,
+        "coverage_90": np.nan,
+        "n_samples": 0,
+        "has_quantiles": False,
+    }
+
+    # Check if quantile columns exist AND have non-NaN values
+    available_quantiles = [
+        col for col in QUANTILE_COLS if col in df.columns and df[col].notna().any()
+    ]
+    if not available_quantiles:
+        return result
+
+    result["has_quantiles"] = True
+
+    # Calculate coverage for each PI definition
+    for pi_name, (lower_col, upper_col, _) in PI_COVERAGE_DEFS.items():
+        if lower_col not in df.columns or upper_col not in df.columns:
+            continue
+
+        # Filter to rows with valid obs and quantile values
+        valid_mask = df[obs_col].notna() & df[lower_col].notna() & df[upper_col].notna()
+        valid_df = df[valid_mask]
+
+        if len(valid_df) == 0:
+            continue
+
+        # Calculate coverage: fraction of observations within PI
+        in_interval = (valid_df[obs_col] >= valid_df[lower_col]) & (
+            valid_df[obs_col] <= valid_df[upper_col]
+        )
+        coverage = in_interval.mean()
+
+        key = f"coverage_{pi_name.replace('%', '')}"
+        result[key] = coverage
+        result["n_samples"] = len(valid_df)
+
+    return result
+
+
 def calculate_r2_per_code(
     df: pd.DataFrame,
     obs_col: str = "Q_obs_seasonal",
@@ -204,7 +302,7 @@ def calculate_r2_per_code(
     min_samples: int = 3,
 ) -> pd.DataFrame:
     """
-    Calculate R² for each code (basin) separately.
+    Calculate R² for each code (basin) separately using vectorized groupby.
 
     Args:
         df: DataFrame with observations and predictions
@@ -215,76 +313,28 @@ def calculate_r2_per_code(
     Returns:
         DataFrame with columns: code, r2, n_samples
     """
-    results = []
 
-    for code in df["code"].unique():
-        code_data = df[df["code"] == code].dropna(subset=[obs_col, pred_col])
-
-        if len(code_data) < min_samples:
-            continue
-
-        y_true = code_data[obs_col].values
-        y_pred = code_data[pred_col].values
-
+    def compute_r2(group: pd.DataFrame) -> pd.Series:
+        clean = group.dropna(subset=[obs_col, pred_col])
+        n = len(clean)
+        if n < min_samples:
+            return pd.Series({"r2": np.nan, "n_samples": n})
         try:
-            r2 = r2_score(y_true, y_pred)
+            r2 = r2_score(clean[obs_col], clean[pred_col])
         except Exception:
             r2 = np.nan
+        return pd.Series({"r2": r2, "n_samples": n})
 
-        results.append(
-            {
-                "code": code,
-                "r2": r2,
-                "n_samples": len(code_data),
-            }
-        )
-
-    return pd.DataFrame(results)
+    result = df.groupby("code").apply(compute_r2, include_groups=False).reset_index()
+    return result[result["n_samples"] >= min_samples]
 
 
-# =============================================================================
-# DATA LOADING
-# =============================================================================
-
-
-def load_swe_data(swe_path: str | None = None) -> pd.DataFrame | None:
-    """
-    Load SWE data from environment variable path or specified path.
-
-    Args:
-        swe_path: Optional path to SWE file. If None, uses env variable.
-
-    Returns:
-        DataFrame with columns: date, code, SWE
-    """
-    if swe_path is None:
-        swe_path = os.getenv("path_SWE_00003")
-
-    if swe_path is None or not Path(swe_path).exists():
-        logger.warning(f"SWE data path not found: {swe_path}")
-        return None
-
-    logger.info(f"Loading SWE data from {swe_path}")
-    swe_df = load_snow_data(swe_path, "SWE")
-
-    if swe_df is None or swe_df.empty:
-        logger.warning("SWE data is empty")
-        return None
-
-    # Standardize column names
-    if "SWE" not in swe_df.columns:
-        # Try to find SWE column
-        swe_cols = [c for c in swe_df.columns if "swe" in c.lower()]
-        if swe_cols:
-            swe_df = swe_df.rename(columns={swe_cols[0]: "SWE"})
-        else:
-            logger.warning("Could not find SWE column")
-            return None
-
-    logger.info(
-        f"Loaded SWE data: {len(swe_df)} rows, codes: {swe_df['code'].nunique()}"
-    )
-    return swe_df
+def get_shared_codes(seasonal_df: pd.DataFrame) -> set[int]:
+    """Get codes that are present in ALL models."""
+    codes_per_model = seasonal_df.groupby("model")["code"].apply(set)
+    if codes_per_model.empty:
+        return set()
+    return set.intersection(*codes_per_model)
 
 
 # =============================================================================
@@ -292,22 +342,66 @@ def load_swe_data(swe_path: str | None = None) -> pd.DataFrame | None:
 # =============================================================================
 
 
+def calculate_partial_month_obs(
+    daily_obs: pd.DataFrame,
+    issue_month: int,
+    issue_day: int,
+) -> pd.DataFrame:
+    """
+    Calculate observed mean discharge for partial month (day 1 to issue_day).
+
+    For forecasts issued on e.g. April 25, this calculates the mean observed
+    discharge from April 1-25 for each code and year.
+
+    Args:
+        daily_obs: DataFrame with columns: date, code, discharge
+        issue_month: Month of forecast issue (1-12)
+        issue_day: Day of forecast issue (1-31)
+
+    Returns:
+        DataFrame with columns: code, year, Q_obs_partial
+    """
+    obs = daily_obs.copy()
+    obs["year"] = obs["date"].dt.year
+    obs["month"] = obs["date"].dt.month
+    obs["day"] = obs["date"].dt.day
+
+    # Filter to issue month and days 1 to issue_day
+    partial = obs[(obs["month"] == issue_month) & (obs["day"] <= issue_day)]
+
+    # Calculate mean per code and year
+    partial_means = (
+        partial.groupby(["code", "year"])["discharge"]
+        .mean()
+        .reset_index()
+        .rename(columns={"discharge": "Q_obs_partial"})
+    )
+
+    return partial_means
+
+
 def reconstruct_seasonal_forecasts(
     predictions_df: pd.DataFrame,
     monthly_obs: pd.DataFrame,
     issue_dates: dict,
+    daily_obs: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
     Reconstruct seasonal forecasts by averaging monthly predictions.
 
-    For each issue date, loads monthly predictions for target months and
-    averages them to get seasonal prediction. Also averages monthly
-    observations to get seasonal observation.
+    Uses vectorized operations for performance.
+
+    If daily_obs is provided and the issue month is in the target months,
+    the model prediction for the issue month is replaced with observed
+    partial month mean (days 1 to issue_day). This uses actual data we
+    have at forecast time instead of predicting what we already know.
 
     Args:
         predictions_df: DataFrame with monthly predictions (from load_predictions)
         monthly_obs: DataFrame with monthly observations (from calculate_target)
         issue_dates: Dictionary mapping (issue_month, issue_day) to config
+        daily_obs: Optional DataFrame with daily observations for partial month
+                   calculation. Columns: date, code, discharge
 
     Returns:
         DataFrame with columns: code, issue_year, issue_month, issue_day,
@@ -318,110 +412,102 @@ def reconstruct_seasonal_forecasts(
     for (issue_month, issue_day), config in issue_dates.items():
         target_months = config["target_months"]
         label = config["label"]
+        horizons_needed = [get_horizon(issue_month, tm) for tm in target_months]
 
         logger.info(f"Processing issue date {label} -> targets {target_months}")
 
-        # Calculate required horizons for each target month
-        horizons_needed = [get_horizon(issue_month, tm) for tm in target_months]
+        # Check if issue month is in target months (e.g., Apr 25 for Apr-Sep)
+        use_partial_obs = daily_obs is not None and issue_month in target_months
 
-        # Filter predictions for this issue month
+        # Filter predictions for this issue month and required horizons
         issue_preds = predictions_df[
-            predictions_df["issue_date"].dt.month == issue_month
+            (predictions_df["issue_date"].dt.month == issue_month)
+            & (predictions_df["horizon"].isin(horizons_needed))
         ].copy()
 
         if issue_preds.empty:
             logger.warning(f"No predictions found for issue month {issue_month}")
             continue
 
-        # Get unique issue years
-        issue_years = issue_preds["issue_date"].dt.year.unique()
+        issue_preds["issue_year"] = issue_preds["issue_date"].dt.year
 
-        for model in issue_preds["model"].unique():
-            model_preds = issue_preds[issue_preds["model"] == model]
+        # Replace predictions for issue month with observed partial month mean
+        if use_partial_obs:
+            partial_obs = calculate_partial_month_obs(daily_obs, issue_month, issue_day)
 
-            for issue_year in issue_years:
-                # Filter for this issue year
-                year_preds = model_preds[
-                    model_preds["issue_date"].dt.year == issue_year
-                ]
+            # horizon=0 means predicting the same month as issue
+            # Reset index to ensure proper alignment after merge
+            issue_preds = issue_preds.reset_index(drop=True)
+            issue_month_mask = issue_preds["horizon"] == 0
 
-                # Collect monthly predictions for target months
-                monthly_preds_list = []
-                monthly_obs_list = []
+            if issue_month_mask.any():
+                # Merge partial observations
+                issue_preds = issue_preds.merge(
+                    partial_obs,
+                    left_on=["code", "issue_year"],
+                    right_on=["code", "year"],
+                    how="left",
+                )
+                if "year" in issue_preds.columns:
+                    issue_preds = issue_preds.drop(columns=["year"])
 
-                for target_month, horizon in zip(target_months, horizons_needed):
-                    # Determine target year (handle year boundary)
-                    target_year = (
-                        issue_year if target_month >= issue_month else issue_year + 1
-                    )
+                # Recalculate mask after merge (index may have changed)
+                issue_month_mask = issue_preds["horizon"] == 0
 
-                    # Find prediction for this horizon
-                    horizon_pred = year_preds[year_preds["horizon"] == horizon]
+                # Replace Q_pred with observed partial mean for issue month
+                issue_preds.loc[issue_month_mask, "Q_pred"] = issue_preds.loc[
+                    issue_month_mask, "Q_obs_partial"
+                ].values
 
-                    if horizon_pred.empty:
-                        continue
+                # Clear quantiles for issue month (we don't have uncertainty for obs)
+                for q_col in QUANTILE_COLS:
+                    if q_col in issue_preds.columns:
+                        issue_preds.loc[issue_month_mask, q_col] = np.nan
 
-                    # Get prediction (average if multiple per code)
-                    for code in horizon_pred["code"].unique():
-                        code_pred = horizon_pred[horizon_pred["code"] == code]
+                if "Q_obs_partial" in issue_preds.columns:
+                    issue_preds = issue_preds.drop(columns=["Q_obs_partial"])
 
-                        pred_val = code_pred["Q_pred"].mean()
-                        monthly_preds_list.append(
-                            {
-                                "code": code,
-                                "target_year": target_year,
-                                "target_month": target_month,
-                                "Q_pred": pred_val,
-                            }
-                        )
+                n_replaced = issue_month_mask.sum()
+                logger.info(
+                    f"  Replaced {n_replaced} predictions for {MONTH_ABBREV[issue_month]} "
+                    f"with observed partial month mean (days 1-{issue_day})"
+                )
 
-                        # Get corresponding observation
-                        obs = monthly_obs[
-                            (monthly_obs["code"] == code)
-                            & (monthly_obs["year"] == target_year)
-                            & (monthly_obs["month"] == target_month)
-                        ]
+        # Identify columns to aggregate (Q_pred + any quantile columns)
+        agg_cols = ["Q_pred"]
+        available_quantiles = [c for c in QUANTILE_COLS if c in issue_preds.columns]
+        agg_cols.extend(available_quantiles)
 
-                        if not obs.empty:
-                            monthly_obs_list.append(
-                                {
-                                    "code": code,
-                                    "target_year": target_year,
-                                    "target_month": target_month,
-                                    "Q_obs": obs["Q_obs_monthly"].iloc[0],
-                                }
-                            )
+        # Vectorized seasonal averaging per (model, code, issue_year)
+        seasonal_pred = (
+            issue_preds.groupby(["model", "code", "issue_year"])[agg_cols]
+            .mean()
+            .reset_index()
+            .rename(columns={"Q_pred": "Q_pred_seasonal"})
+        )
 
-                if not monthly_preds_list:
-                    continue
+        if available_quantiles:
+            logger.debug(f"Averaged quantile columns: {available_quantiles}")
 
-                # Convert to DataFrames
-                preds_df = pd.DataFrame(monthly_preds_list)
-                obs_df = pd.DataFrame(monthly_obs_list) if monthly_obs_list else None
+        # Get seasonal observations - filter for target months and average
+        obs_target = monthly_obs[monthly_obs["month"].isin(target_months)].copy()
+        seasonal_obs = (
+            obs_target.groupby(["code", "year"])["Q_obs_monthly"]
+            .mean()
+            .reset_index()
+            .rename(columns={"year": "issue_year", "Q_obs_monthly": "Q_obs_seasonal"})
+        )
 
-                # Calculate seasonal average per code
-                seasonal_pred = preds_df.groupby("code")["Q_pred"].mean().reset_index()
-                seasonal_pred.columns = ["code", "Q_pred_seasonal"]
+        # Merge predictions with observations
+        seasonal = seasonal_pred.merge(
+            seasonal_obs, on=["code", "issue_year"], how="left"
+        )
+        seasonal["issue_month"] = issue_month
+        seasonal["issue_day"] = issue_day
+        seasonal["issue_label"] = label
+        seasonal["n_target_months"] = len(target_months)
 
-                if obs_df is not None and not obs_df.empty:
-                    seasonal_obs = obs_df.groupby("code")["Q_obs"].mean().reset_index()
-                    seasonal_obs.columns = ["code", "Q_obs_seasonal"]
-
-                    # Merge predictions and observations
-                    seasonal = seasonal_pred.merge(seasonal_obs, on="code", how="left")
-                else:
-                    seasonal = seasonal_pred
-                    seasonal["Q_obs_seasonal"] = np.nan
-
-                # Add metadata
-                seasonal["issue_year"] = issue_year
-                seasonal["issue_month"] = issue_month
-                seasonal["issue_day"] = issue_day
-                seasonal["issue_label"] = label
-                seasonal["model"] = model
-                seasonal["n_target_months"] = len(target_months)
-
-                results.append(seasonal)
+        results.append(seasonal)
 
     if not results:
         logger.warning("No seasonal forecasts reconstructed")
@@ -436,199 +522,155 @@ def reconstruct_seasonal_forecasts(
 
 
 # =============================================================================
-# SWE-BASED PREDICTION (LOOCV)
+# DIRECT SEASONAL MODEL LOADING
 # =============================================================================
 
 
-def calculate_swe_predictor(
-    swe_df: pd.DataFrame,
-    issue_month: int,
-    issue_day: int,
-    n_days: int = SWE_AVERAGING_DAYS,
+def load_seasonal_model_hindcasts(
+    base_path: Path,
+    issue_months: list[int],
+    models: list[str] | None = None,
 ) -> pd.DataFrame:
     """
-    Calculate average SWE from n_days before issue date per basin/year.
+    Load direct seasonal model hindcast predictions.
+
+    Seasonal models predict Apr-Sep discharge directly (not monthly).
+    Hindcast files are stored at:
+        {base_path}/seasonal_{month_name}/{model}/{model}_hindcast.csv
 
     Args:
-        swe_df: DataFrame with SWE data (date, code, SWE)
-        issue_month: Issue date month
-        issue_day: Issue date day
-        n_days: Number of days to average before issue date
+        base_path: Base directory for predictions (e.g., long_term_predictions/)
+        issue_months: List of issue months to load (1=Jan, 2=Feb, etc.)
+        models: List of model names to load. If None, loads all available.
 
     Returns:
-        DataFrame with columns: code, year, SWE_avg
+        DataFrame with columns: code, issue_year, issue_month, issue_day,
+                               issue_label, Q_pred_seasonal, model
     """
     results = []
 
-    for year in swe_df["date"].dt.year.unique():
-        # Create issue date for this year
-        try:
-            issue_date = pd.Timestamp(year=year, month=issue_month, day=issue_day)
-        except ValueError:
-            # Handle edge cases (e.g., Feb 29)
+    for issue_month in issue_months:
+        if issue_month not in SEASONAL_DIR_NAMES:
             continue
 
-        # Calculate date range (issue_date - n_days + 1 to issue_date)
-        start_date = issue_date - pd.Timedelta(days=n_days - 1)
-        end_date = issue_date
+        dir_name = SEASONAL_DIR_NAMES[issue_month]
+        seasonal_dir = Path(base_path) / dir_name
 
-        # Filter SWE data for this date range
-        mask = (swe_df["date"] >= start_date) & (swe_df["date"] <= end_date)
-        period_swe = swe_df[mask]
-
-        if period_swe.empty:
+        if not seasonal_dir.exists():
+            logger.debug(f"Seasonal directory not found: {seasonal_dir}")
             continue
 
-        # Calculate average SWE per code
-        avg_swe = period_swe.groupby("code")["SWE"].mean().reset_index()
-        avg_swe.columns = ["code", "SWE_avg"]
-        avg_swe["year"] = year
+        model_dirs = [d for d in seasonal_dir.iterdir() if d.is_dir()]
 
-        results.append(avg_swe)
+        for model_dir in model_dirs:
+            model_name = model_dir.name
 
-    if not results:
-        return pd.DataFrame()
-
-    return pd.concat(results, ignore_index=True)
-
-
-def swe_loocv_prediction(
-    swe_predictor: pd.DataFrame,
-    seasonal_obs: pd.DataFrame,
-    min_train_years: int = 3,
-) -> pd.DataFrame:
-    """
-    Perform leave-one-year-out cross-validation for SWE-based predictions.
-
-    For each year, trains a linear regression on all other years to predict
-    seasonal discharge from SWE.
-
-    Args:
-        swe_predictor: DataFrame with SWE_avg per code/year
-        seasonal_obs: DataFrame with Q_obs_seasonal per code/year
-        min_train_years: Minimum training years required per basin
-
-    Returns:
-        DataFrame with columns: code, year, Q_pred_swe, Q_obs_seasonal, SWE_avg
-    """
-    # Merge SWE predictor with seasonal observations
-    merged = swe_predictor.merge(seasonal_obs, on=["code", "year"], how="inner")
-
-    if merged.empty:
-        logger.warning("No matching data between SWE predictor and observations")
-        return pd.DataFrame()
-
-    # Filter out rows with NaN values
-    merged = merged.dropna(subset=["SWE_avg", "Q_obs_seasonal"])
-
-    if merged.empty:
-        logger.warning("No valid data after removing NaN values")
-        return pd.DataFrame()
-
-    results = []
-    all_years = sorted(merged["year"].unique())
-
-    for code in merged["code"].unique():
-        code_data = merged[merged["code"] == code].copy()
-
-        # Skip if insufficient data
-        if len(code_data) < min_train_years + 1:
-            continue
-
-        for test_year in all_years:
-            # Split data
-            train_data = code_data[code_data["year"] != test_year]
-            test_data = code_data[code_data["year"] == test_year]
-
-            if len(train_data) < min_train_years or test_data.empty:
+            if models is not None and model_name not in models:
                 continue
 
-            # Ensure no NaN in training data
-            train_data = train_data.dropna(subset=["SWE_avg", "Q_obs_seasonal"])
-            if len(train_data) < min_train_years:
+            hindcast_file = model_dir / f"{model_name}_hindcast.csv"
+            if not hindcast_file.exists():
+                logger.debug(f"Hindcast file not found: {hindcast_file}")
                 continue
 
-            # Train linear regression
-            X_train = train_data[["SWE_avg"]].values
-            y_train = train_data["Q_obs_seasonal"].values
+            try:
+                df = pd.read_csv(hindcast_file)
+            except Exception as e:
+                logger.warning(f"Failed to read {hindcast_file}: {e}")
+                continue
 
-            model = LinearRegression()
-            model.fit(X_train, y_train)
+            if df.empty:
+                continue
 
-            # Predict
-            X_test = test_data[["SWE_avg"]].values
-            y_pred = model.predict(X_test)[0]
+            df["date"] = pd.to_datetime(df["date"])
+            df["issue_year"] = df["date"].dt.year
+            df["issue_month"] = df["date"].dt.month
+            df["issue_day"] = df["date"].dt.day
 
-            results.append(
-                {
-                    "code": code,
-                    "year": test_year,
-                    "Q_pred_swe": y_pred,
-                    "Q_obs_seasonal": test_data["Q_obs_seasonal"].iloc[0],
-                    "SWE_avg": test_data["SWE_avg"].iloc[0],
-                    "n_train_years": len(train_data),
-                }
+            month_abbrev = MONTH_ABBREV.get(issue_month, str(issue_month))
+            df["issue_label"] = f"{month_abbrev} 25"
+
+            pred_col = f"Q_{model_name}"
+            if pred_col not in df.columns:
+                q_cols = [c for c in df.columns if c.startswith("Q_")]
+                if q_cols:
+                    pred_col = q_cols[0]
+                else:
+                    logger.warning(f"No prediction column found in {hindcast_file}")
+                    continue
+
+            df["Q_pred_seasonal"] = df[pred_col]
+            df["model"] = f"{model_name}{SEASONAL_MODEL_SUFFIX}"
+
+            # Base columns to keep
+            base_cols = [
+                "code",
+                "issue_year",
+                "issue_month",
+                "issue_day",
+                "issue_label",
+                "Q_pred_seasonal",
+                "model",
+            ]
+
+            # Add quantile columns if present
+            available_quantile_cols = [c for c in QUANTILE_COLS if c in df.columns]
+            keep_cols = base_cols + available_quantile_cols
+
+            result = df[keep_cols].copy()
+
+            results.append(result)
+            quantile_info = (
+                f" (with quantiles: {available_quantile_cols})"
+                if available_quantile_cols
+                else ""
+            )
+            logger.info(
+                f"Loaded {len(result)} seasonal hindcasts for {model_name} "
+                f"({month_abbrev}){quantile_info}"
             )
 
     if not results:
+        logger.info("No direct seasonal model hindcasts found")
         return pd.DataFrame()
 
-    return pd.DataFrame(results)
+    combined = pd.concat(results, ignore_index=True)
+    logger.info(
+        f"Loaded {len(combined)} total seasonal hindcasts for "
+        f"{combined['model'].nunique()} models"
+    )
+    return combined
 
 
-# =============================================================================
-# CORRELATION ANALYSIS
-# =============================================================================
-
-
-def calculate_swe_correlations(
-    swe_predictor: pd.DataFrame,
-    seasonal_obs: pd.DataFrame,
+def get_seasonal_observations(
+    monthly_obs: pd.DataFrame,
+    target_months: list[int] | None = None,
 ) -> pd.DataFrame:
     """
-    Calculate Pearson correlation between SWE and seasonal discharge per basin.
+    Calculate seasonal observations by averaging monthly values for Apr-Sep.
 
     Args:
-        swe_predictor: DataFrame with SWE_avg per code/year
-        seasonal_obs: DataFrame with Q_obs_seasonal per code/year
+        monthly_obs: DataFrame with monthly observations (from calculate_target)
+                    Expected columns: code, year, month, Q_obs_monthly
+        target_months: Months to average (default: [4, 5, 6, 7, 8, 9] for Apr-Sep)
 
     Returns:
-        DataFrame with columns: code, correlation, p_value, n_samples
+        DataFrame with columns: code, year, Q_obs_seasonal
     """
-    # Merge SWE predictor with seasonal observations
-    merged = swe_predictor.merge(seasonal_obs, on=["code", "year"], how="inner")
+    if target_months is None:
+        target_months = [4, 5, 6, 7, 8, 9]
 
-    if merged.empty:
+    filtered = monthly_obs[monthly_obs["month"].isin(target_months)].copy()
+
+    if filtered.empty:
         return pd.DataFrame()
 
-    # Filter out rows with NaN values
-    merged = merged.dropna(subset=["SWE_avg", "Q_obs_seasonal"])
+    seasonal_obs = (
+        filtered.groupby(["code", "year"])["Q_obs_monthly"].mean().reset_index()
+    )
+    seasonal_obs.columns = ["code", "year", "Q_obs_seasonal"]
 
-    if merged.empty:
-        return pd.DataFrame()
-
-    results = []
-    for code in merged["code"].unique():
-        code_data = merged[merged["code"] == code].dropna(
-            subset=["SWE_avg", "Q_obs_seasonal"]
-        )
-
-        if len(code_data) < 3:
-            continue
-
-        # Calculate Pearson correlation
-        r, p_value = stats.pearsonr(code_data["SWE_avg"], code_data["Q_obs_seasonal"])
-
-        results.append(
-            {
-                "code": code,
-                "correlation": r,
-                "p_value": p_value,
-                "n_samples": len(code_data),
-            }
-        )
-
-    return pd.DataFrame(results)
+    return seasonal_obs
 
 
 # =============================================================================
@@ -641,7 +683,6 @@ def plot_seasonal_scatter(
     models: list[str],
     issue_label: str,
     output_path: Path,
-    swe_predictions: pd.DataFrame | None = None,
     forecast_type: str = "6-month",
     code_filter: int | None = SCATTER_PLOT_CODE,
 ) -> plt.Figure:
@@ -653,35 +694,27 @@ def plot_seasonal_scatter(
         models: List of models to plot
         issue_label: Issue date label (e.g., "Jan 25")
         output_path: Path to save figure
-        swe_predictions: Optional DataFrame with SWE-based predictions
         forecast_type: "6-month" or "3-month"
         code_filter: If specified, only plot this specific code (basin)
 
     Returns:
         matplotlib Figure
     """
-    # Filter data
     df = seasonal_df[seasonal_df["issue_label"] == issue_label].copy()
 
     if df.empty:
         logger.warning(f"No data for issue date {issue_label}")
         return plt.figure()
 
-    # Filter for specific code if requested
     if code_filter is not None:
         df = df[df["code"] == code_filter].copy()
-        if swe_predictions is not None:
-            swe_predictions = swe_predictions[
-                swe_predictions["code"] == code_filter
-            ].copy()
-
         if df.empty:
             logger.warning(
                 f"No data for code {code_filter} at issue date {issue_label}"
             )
             return plt.figure()
 
-    n_models = len(models) + (1 if swe_predictions is not None else 0)
+    n_models = len(models)
     n_cols = min(3, n_models)
     n_rows = (n_models + n_cols - 1) // n_cols
 
@@ -691,26 +724,14 @@ def plot_seasonal_scatter(
     else:
         axes = axes.flatten()
 
-    # Color palette
     colors = sns.color_palette("husl", n_models)
 
-    all_models = list(models) + (["SWE_LR"] if swe_predictions is not None else [])
-
-    for idx, model in enumerate(all_models):
+    for idx, model in enumerate(models):
         ax = axes[idx]
-
-        if model == "SWE_LR" and swe_predictions is not None:
-            # Use SWE predictions
-            plot_data = swe_predictions
-            x_col = "Q_obs_seasonal"
-            y_col = "Q_pred_swe"
-            color = colors[idx]
-        else:
-            # Use ML model predictions
-            plot_data = df[df["model"] == model]
-            x_col = "Q_obs_seasonal"
-            y_col = "Q_pred_seasonal"
-            color = colors[idx]
+        plot_data = df[df["model"] == model]
+        x_col = "Q_obs_seasonal"
+        y_col = "Q_pred_seasonal"
+        color = colors[idx]
 
         if plot_data.empty:
             ax.text(
@@ -725,7 +746,6 @@ def plot_seasonal_scatter(
             ax.set_ylim(0, 1)
             continue
 
-        # Drop NaN values
         plot_data = plot_data.dropna(subset=[x_col, y_col])
 
         if plot_data.empty:
@@ -742,40 +762,33 @@ def plot_seasonal_scatter(
         x = plot_data[x_col].values
         y = plot_data[y_col].values
 
-        # Calculate metrics
         metrics = calculate_metrics(x, y)
 
-        # Scatter plot
         ax.scatter(
             x, y, alpha=0.6, color=color, s=40, edgecolors="white", linewidths=0.5
         )
 
-        # 1:1 line
         max_val = max(x.max(), y.max()) * 1.1
         min_val = min(x.min(), y.min()) * 0.9
         ax.plot([min_val, max_val], [min_val, max_val], "k--", linewidth=1, alpha=0.5)
 
-        # Linear regression line
-        slope, intercept, r_value, *_ = stats.linregress(x, y)
+        slope, intercept, *_ = stats.linregress(x, y)
         x_line = np.array([min_val, max_val])
         y_line = slope * x_line + intercept
         ax.plot(x_line, y_line, color=color, linewidth=2, alpha=0.8)
 
-        # Labels
         ax.set_xlabel("Observed (m³/s)", fontsize=10)
         ax.set_ylabel("Predicted (m³/s)", fontsize=10)
         ax.set_title(
             f"{model}\nR²={metrics['r2']:.3f}, n={metrics['n_samples']}", fontsize=11
         )
 
-        # Equal aspect ratio
         ax.set_xlim(min_val, max_val)
         ax.set_ylim(min_val, max_val)
         ax.set_aspect("equal")
         ax.grid(alpha=0.3)
 
-    # Hide unused axes
-    for idx in range(len(all_models), len(axes)):
+    for idx in range(len(models), len(axes)):
         axes[idx].set_visible(False)
 
     code_str = f" - Code {code_filter}" if code_filter is not None else ""
@@ -788,97 +801,9 @@ def plot_seasonal_scatter(
 
     plt.tight_layout()
 
-    # Save
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     logger.info(f"Saved scatter plot to {output_path}")
-
-    return fig
-
-
-def plot_swe_correlation_boxplot(
-    correlations: dict[str, pd.DataFrame],
-    output_path: Path,
-) -> plt.Figure:
-    """
-    Create boxplot showing SWE-discharge correlation distribution across basins.
-
-    Args:
-        correlations: Dict mapping issue_label to correlation DataFrame
-        output_path: Path to save figure
-
-    Returns:
-        matplotlib Figure
-    """
-    # Prepare data for plotting
-    plot_data = []
-    for label, corr_df in correlations.items():
-        for _, row in corr_df.iterrows():
-            plot_data.append(
-                {
-                    "Issue Date": label,
-                    "Correlation": row["correlation"],
-                    "code": row["code"],
-                }
-            )
-
-    if not plot_data:
-        logger.warning("No correlation data to plot")
-        return plt.figure()
-
-    plot_df = pd.DataFrame(plot_data)
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    sns.boxplot(
-        data=plot_df,
-        x="Issue Date",
-        y="Correlation",
-        hue="Issue Date",
-        ax=ax,
-        palette="Blues",
-        width=0.6,
-        legend=False,
-    )
-
-    # Add individual points
-    sns.stripplot(
-        data=plot_df,
-        x="Issue Date",
-        y="Correlation",
-        ax=ax,
-        color="black",
-        alpha=0.4,
-        size=4,
-    )
-
-    # Reference lines
-    ax.axhline(y=0, color="gray", linestyle="--", linewidth=1, alpha=0.5)
-    ax.axhline(
-        y=0.7,
-        color="green",
-        linestyle=":",
-        linewidth=1,
-        alpha=0.5,
-        label="Strong (r=0.7)",
-    )
-    ax.axhline(y=-0.7, color="green", linestyle=":", linewidth=1, alpha=0.5)
-
-    ax.set_ylabel("Pearson Correlation (SWE vs Seasonal Q)", fontsize=12)
-    ax.set_xlabel("Forecast Issue Date", fontsize=12)
-    ax.set_title(
-        "SWE-Discharge Correlation by Issue Date",
-        fontsize=14,
-        fontweight="bold",
-    )
-    ax.set_ylim(-1, 1)
-    ax.grid(axis="y", alpha=0.3)
-
-    plt.tight_layout()
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    logger.info(f"Saved SWE correlation boxplot to {output_path}")
 
     return fig
 
@@ -887,7 +812,6 @@ def plot_r2_vs_issue_date(
     seasonal_df: pd.DataFrame,
     models: list[str],
     output_path: Path,
-    swe_results: dict[str, pd.DataFrame] | None = None,
     forecast_type: str = "6-month",
 ) -> plt.Figure:
     """
@@ -899,15 +823,12 @@ def plot_r2_vs_issue_date(
         seasonal_df: DataFrame with seasonal forecasts
         models: List of models to plot
         output_path: Path to save figure
-        swe_results: Optional dict mapping issue_label to SWE predictions DataFrame
         forecast_type: "6-month" or "3-month"
 
     Returns:
         matplotlib Figure
     """
-    # Calculate R² per code, model, and issue date
     plot_data = []
-
     issue_labels = sorted(seasonal_df["issue_label"].unique())
 
     for model in models:
@@ -919,7 +840,6 @@ def plot_r2_vs_issue_date(
             if label_df.empty:
                 continue
 
-            # Calculate R² per code
             r2_per_code = calculate_r2_per_code(
                 label_df, obs_col="Q_obs_seasonal", pred_col="Q_pred_seasonal"
             )
@@ -934,50 +854,27 @@ def plot_r2_vs_issue_date(
                     }
                 )
 
-    # Add SWE baseline if available
-    if swe_results:
-        for label, swe_df in swe_results.items():
-            if swe_df.empty:
-                continue
-
-            r2_per_code = calculate_r2_per_code(
-                swe_df, obs_col="Q_obs_seasonal", pred_col="Q_pred_swe"
-            )
-
-            for _, row in r2_per_code.iterrows():
-                plot_data.append(
-                    {
-                        "Issue Date": label,
-                        "R²": row["r2"],
-                        "Model": "SWE_LR",
-                        "code": row["code"],
-                    }
-                )
-
     if not plot_data:
         logger.warning("No data for R² vs issue date plot")
         return plt.figure()
 
     plot_df = pd.DataFrame(plot_data)
 
-    # Create figure with boxplots
     fig, ax = plt.subplots(figsize=(12, 7))
 
-    all_models = list(models) + (["SWE_LR"] if swe_results else [])
-    colors = sns.color_palette("husl", len(all_models))
+    colors = sns.color_palette("husl", len(models))
 
     sns.boxplot(
         data=plot_df,
         x="Issue Date",
         y="R²",
         hue="Model",
-        hue_order=all_models,
+        hue_order=models,
         palette=colors,
         ax=ax,
         width=0.7,
     )
 
-    # Reference line
     ax.axhline(y=0, color="gray", linestyle=":", linewidth=1, alpha=0.5)
 
     ax.set_ylabel("R² (per basin)", fontsize=12)
@@ -1003,34 +900,27 @@ def plot_r2_vs_issue_date(
 def plot_skill_comparison(
     seasonal_df: pd.DataFrame,
     models: list[str],
-    swe_results: dict[str, pd.DataFrame],
     output_path: Path,
-    issue_dates: dict,
 ) -> plt.Figure:
     """
-    Create boxplot comparing R² distribution per code for ML models vs SWE baseline.
+    Create boxplot comparing R² distribution per code for ML models.
 
     Args:
         seasonal_df: DataFrame with seasonal forecasts
         models: List of ML models
-        swe_results: Dict mapping issue_label to SWE prediction DataFrame
         output_path: Path to save figure
-        issue_dates: Issue dates configuration
 
     Returns:
         matplotlib Figure
     """
-    # Calculate R² per code for each model (aggregated across all issue dates)
     plot_data = []
 
-    # ML models - aggregate across all issue dates
     for model in models:
         model_df = seasonal_df[seasonal_df["model"] == model]
 
         if model_df.empty:
             continue
 
-        # Calculate R² per code across all issue dates
         r2_per_code = calculate_r2_per_code(
             model_df, obs_col="Q_obs_seasonal", pred_col="Q_pred_seasonal"
         )
@@ -1044,28 +934,6 @@ def plot_skill_comparison(
                 }
             )
 
-    # SWE baseline - aggregate across all issue dates
-    if swe_results:
-        all_swe = []
-        for label, swe_df in swe_results.items():
-            if not swe_df.empty:
-                all_swe.append(swe_df)
-
-        if all_swe:
-            combined_swe = pd.concat(all_swe, ignore_index=True)
-            r2_per_code = calculate_r2_per_code(
-                combined_swe, obs_col="Q_obs_seasonal", pred_col="Q_pred_swe"
-            )
-
-            for _, row in r2_per_code.iterrows():
-                plot_data.append(
-                    {
-                        "R²": row["r2"],
-                        "Model": "SWE_LR",
-                        "code": row["code"],
-                    }
-                )
-
     if not plot_data:
         logger.warning("No data for skill comparison plot")
         return plt.figure()
@@ -1074,53 +942,176 @@ def plot_skill_comparison(
 
     fig, ax = plt.subplots(figsize=(12, 6))
 
-    # Create grouped boxplot
-    all_models = list(models) + (["SWE_LR"] if swe_results else [])
-    colors = sns.color_palette("husl", len(all_models))
+    colors = sns.color_palette("husl", len(models))
 
     sns.boxplot(
         data=plot_df,
         x="Model",
         y="R²",
         hue="Model",
-        order=all_models,
+        order=models,
         palette=colors,
         ax=ax,
         width=0.6,
         legend=False,
     )
 
-    # Add individual points
     sns.stripplot(
         data=plot_df,
         x="Model",
         y="R²",
-        order=all_models,
+        order=models,
         ax=ax,
         color="black",
         alpha=0.3,
         size=3,
     )
 
-    # Reference line
     ax.axhline(y=0, color="gray", linestyle="--", linewidth=1, alpha=0.5)
 
     ax.set_ylabel("R² (per basin)", fontsize=12)
     ax.set_xlabel("Model", fontsize=12)
     ax.set_title(
-        "ML Models vs SWE Baseline - R² Distribution Across Basins",
+        "ML Model Comparison - R² Distribution Across Basins",
         fontsize=14,
         fontweight="bold",
     )
     ax.set_ylim(-0.5, 1.0)
     ax.grid(axis="y", alpha=0.3)
-    ax.legend(title="Model", loc="best", fontsize=9)
 
     plt.tight_layout()
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     logger.info(f"Saved skill comparison plot to {output_path}")
+
+    return fig
+
+
+def plot_pi_coverage(
+    seasonal_df: pd.DataFrame,
+    models: list[str],
+    output_path: Path,
+) -> plt.Figure:
+    """
+    Create bar plot comparing prediction interval coverage for probabilistic models.
+
+    Shows actual vs nominal coverage for 50% and 90% prediction intervals.
+
+    Args:
+        seasonal_df: DataFrame with seasonal forecasts (must include quantile columns)
+        models: List of ML models to evaluate
+        output_path: Path to save figure
+
+    Returns:
+        matplotlib Figure
+    """
+    coverage_data = []
+
+    for model in models:
+        model_df = seasonal_df[seasonal_df["model"] == model]
+        if model_df.empty:
+            continue
+
+        coverage = calculate_pi_coverage(model_df, obs_col="Q_obs_seasonal")
+
+        if not coverage["has_quantiles"]:
+            continue
+
+        for pi_name, (_, __, nominal) in PI_COVERAGE_DEFS.items():
+            key = f"coverage_{pi_name.replace('%', '')}"
+            actual = coverage.get(key, np.nan)
+            if not np.isnan(actual):
+                coverage_data.append(
+                    {
+                        "Model": model,
+                        "PI": pi_name,
+                        "Coverage": actual,
+                        "Nominal": nominal,
+                        "n_samples": coverage["n_samples"],
+                    }
+                )
+
+    if not coverage_data:
+        logger.info("No models with quantile predictions found for PI coverage plot")
+        return plt.figure()
+
+    plot_df = pd.DataFrame(coverage_data)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Get unique models with quantiles
+    models_with_quantiles = plot_df["Model"].unique()
+    n_models = len(models_with_quantiles)
+    x = np.arange(n_models)
+    width = 0.35
+
+    # Plot 50% and 90% coverage side by side
+    coverage_50 = plot_df[plot_df["PI"] == "50%"].set_index("Model")["Coverage"]
+    coverage_90 = plot_df[plot_df["PI"] == "90%"].set_index("Model")["Coverage"]
+
+    bars_50 = ax.bar(
+        x - width / 2,
+        [coverage_50.get(m, 0) for m in models_with_quantiles],
+        width,
+        label="50% PI Coverage",
+        color="steelblue",
+        alpha=0.8,
+    )
+    bars_90 = ax.bar(
+        x + width / 2,
+        [coverage_90.get(m, 0) for m in models_with_quantiles],
+        width,
+        label="90% PI Coverage",
+        color="darkorange",
+        alpha=0.8,
+    )
+
+    # Add nominal coverage reference lines
+    ax.axhline(y=0.50, color="steelblue", linestyle="--", linewidth=1.5, alpha=0.7)
+    ax.axhline(y=0.90, color="darkorange", linestyle="--", linewidth=1.5, alpha=0.7)
+
+    # Add text labels for nominal lines
+    ax.text(
+        n_models - 0.5, 0.52, "Nominal 50%", fontsize=9, color="steelblue", alpha=0.8
+    )
+    ax.text(
+        n_models - 0.5, 0.92, "Nominal 90%", fontsize=9, color="darkorange", alpha=0.8
+    )
+
+    # Add value labels on bars
+    for bars in [bars_50, bars_90]:
+        for bar in bars:
+            height = bar.get_height()
+            if height > 0:
+                ax.annotate(
+                    f"{height:.0%}",
+                    xy=(bar.get_x() + bar.get_width() / 2, height),
+                    xytext=(0, 3),
+                    textcoords="offset points",
+                    ha="center",
+                    va="bottom",
+                    fontsize=9,
+                )
+
+    ax.set_ylabel("Coverage", fontsize=12)
+    ax.set_xlabel("Model", fontsize=12)
+    ax.set_title(
+        "Prediction Interval Coverage\n(Dashed lines = nominal coverage)",
+        fontsize=14,
+        fontweight="bold",
+    )
+    ax.set_xticks(x)
+    ax.set_xticklabels(models_with_quantiles, rotation=45, ha="right")
+    ax.set_ylim(0, 1.05)
+    ax.legend(loc="upper left")
+    ax.grid(axis="y", alpha=0.3)
+
+    plt.tight_layout()
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    logger.info(f"Saved PI coverage plot to {output_path}")
 
     return fig
 
@@ -1133,29 +1124,23 @@ def plot_skill_comparison(
 def generate_metrics_summary(
     seasonal_df: pd.DataFrame,
     models: list[str],
-    swe_results: dict[str, pd.DataFrame],
     output_path: Path,
 ) -> pd.DataFrame:
     """
     Generate CSV summary of per-code R² statistics per model and issue date.
 
-    Now calculates R² per code and reports distribution statistics.
-
     Args:
         seasonal_df: DataFrame with seasonal forecasts
         models: List of ML models
-        swe_results: Dict mapping issue_label to SWE prediction DataFrame
         output_path: Path to save CSV
 
     Returns:
         Summary DataFrame
     """
     results = []
-
     issue_labels = seasonal_df["issue_label"].unique()
 
     for label in issue_labels:
-        # ML models
         for model in models:
             model_df = seasonal_df[
                 (seasonal_df["model"] == model) & (seasonal_df["issue_label"] == label)
@@ -1164,7 +1149,6 @@ def generate_metrics_summary(
             if model_df.empty:
                 continue
 
-            # Calculate R² per code
             r2_per_code = calculate_r2_per_code(
                 model_df, obs_col="Q_obs_seasonal", pred_col="Q_pred_seasonal"
             )
@@ -1174,45 +1158,27 @@ def generate_metrics_summary(
 
             r2_values = r2_per_code["r2"].dropna()
 
-            results.append(
-                {
-                    "issue_label": label,
-                    "model": model,
-                    "n_codes": len(r2_values),
-                    "r2_mean": r2_values.mean(),
-                    "r2_median": r2_values.median(),
-                    "r2_std": r2_values.std(),
-                    "r2_min": r2_values.min(),
-                    "r2_max": r2_values.max(),
-                    "r2_q25": r2_values.quantile(0.25),
-                    "r2_q75": r2_values.quantile(0.75),
-                }
-            )
+            record = {
+                "issue_label": label,
+                "model": model,
+                "n_codes": len(r2_values),
+                "r2_mean": r2_values.mean(),
+                "r2_median": r2_values.median(),
+                "r2_std": r2_values.std(),
+                "r2_min": r2_values.min(),
+                "r2_max": r2_values.max(),
+                "r2_q25": r2_values.quantile(0.25),
+                "r2_q75": r2_values.quantile(0.75),
+            }
 
-        # SWE baseline
-        if label in swe_results and not swe_results[label].empty:
-            swe_df = swe_results[label]
-            r2_per_code = calculate_r2_per_code(
-                swe_df, obs_col="Q_obs_seasonal", pred_col="Q_pred_swe"
-            )
+            # Add PI coverage metrics if quantiles available
+            coverage = calculate_pi_coverage(model_df, obs_col="Q_obs_seasonal")
+            if coverage["has_quantiles"]:
+                record["coverage_50"] = coverage["coverage_50"]
+                record["coverage_90"] = coverage["coverage_90"]
+                record["n_coverage_samples"] = coverage["n_samples"]
 
-            if not r2_per_code.empty:
-                r2_values = r2_per_code["r2"].dropna()
-
-                results.append(
-                    {
-                        "issue_label": label,
-                        "model": "SWE_LR",
-                        "n_codes": len(r2_values),
-                        "r2_mean": r2_values.mean(),
-                        "r2_median": r2_values.median(),
-                        "r2_std": r2_values.std(),
-                        "r2_min": r2_values.min(),
-                        "r2_max": r2_values.max(),
-                        "r2_q25": r2_values.quantile(0.25),
-                        "r2_q75": r2_values.quantile(0.75),
-                    }
-                )
+            results.append(record)
 
     if not results:
         return pd.DataFrame()
@@ -1236,7 +1202,6 @@ def process_seasonal_forecasts(
     forecast_type: str,
     models: list[str],
     output_dir: Path,
-    swe_path: str | None = None,
 ) -> None:
     """
     Main processing function for seasonal forecast visualization.
@@ -1246,15 +1211,12 @@ def process_seasonal_forecasts(
         forecast_type: "6_month", "3_month", or "both"
         models: List of models to evaluate
         output_dir: Base output directory
-        swe_path: Optional path to SWE data
     """
-    # Determine paths based on region
     if region == "Tajikistan":
         pred_config = taj_path_config
     else:
         pred_config = kgz_path_config
 
-    # Load all horizon predictions
     horizons = list(day_of_forecast.keys())
     logger.info(f"Loading predictions for {region}...")
 
@@ -1267,15 +1229,10 @@ def process_seasonal_forecasts(
         logger.error("No predictions loaded. Exiting.")
         return
 
-    # Load observations
     logger.info(f"Loading observations from {pred_config['obs_file']}...")
     obs_df = load_observations(pred_config["obs_file"])
-    monthly_obs = calculate_target(obs_df)
+    monthly_obs = calculate_target_with_threshold(obs_df)
 
-    # Load SWE data
-    swe_df = load_swe_data(swe_path)
-
-    # Process forecast types
     forecast_configs = []
     if forecast_type in ["6_month", "both"]:
         forecast_configs.append(("6_month", ISSUE_DATES_6M))
@@ -1290,78 +1247,84 @@ def process_seasonal_forecasts(
         fc_output_dir = output_dir / region.lower() / "seasonal" / fc_type
         fc_output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Reconstruct seasonal forecasts
+        # Reconstruct seasonal forecasts from monthly predictions
+        # Pass daily_obs to use actual observations for issue month when in target period
         seasonal_df = reconstruct_seasonal_forecasts(
-            predictions_df, monthly_obs, issue_dates
+            predictions_df, monthly_obs, issue_dates, daily_obs=obs_df
         )
+
+        # Load direct seasonal model hindcasts
+        issue_months_list = [k[0] for k in issue_dates.keys()]
+        seasonal_model_df = load_seasonal_model_hindcasts(
+            base_path=pred_config["pred_dir"],
+            issue_months=issue_months_list,
+            models=models,
+        )
+
+        # Merge seasonal model predictions with observations
+        if not seasonal_model_df.empty:
+            target_months = list(issue_dates.values())[0]["target_months"]
+            seasonal_obs_for_models = get_seasonal_observations(
+                monthly_obs, target_months=target_months
+            )
+
+            if not seasonal_obs_for_models.empty:
+                seasonal_model_df = seasonal_model_df.merge(
+                    seasonal_obs_for_models,
+                    left_on=["code", "issue_year"],
+                    right_on=["code", "year"],
+                    how="left",
+                )
+                if "year" in seasonal_model_df.columns:
+                    seasonal_model_df = seasonal_model_df.drop(columns=["year"])
+            else:
+                seasonal_model_df["Q_obs_seasonal"] = np.nan
+
+            if not seasonal_df.empty:
+                seasonal_df = pd.concat(
+                    [seasonal_df, seasonal_model_df], ignore_index=True
+                )
+            else:
+                seasonal_df = seasonal_model_df
 
         if seasonal_df.empty:
             logger.warning(f"No seasonal forecasts for {fc_type}")
             continue
 
-        # Filter to requested models
-        available_models = [m for m in models if m in seasonal_df["model"].unique()]
+        # Filter to requested models (including seasonal variants)
+        seasonal_model_names = [f"{m}{SEASONAL_MODEL_SUFFIX}" for m in models]
+        all_model_names = models + seasonal_model_names
+        available_models = [
+            m for m in all_model_names if m in seasonal_df["model"].unique()
+        ]
         if not available_models:
             logger.warning(f"None of the requested models found in {fc_type} forecasts")
             continue
 
+        # Filter to shared codes across all models
+        filtered_df = seasonal_df[seasonal_df["model"].isin(available_models)]
+        shared_codes = get_shared_codes(filtered_df)
+        if not shared_codes:
+            logger.warning("No shared codes found across all models")
+            continue
+
+        seasonal_df = seasonal_df[seasonal_df["code"].isin(shared_codes)]
+        logger.info(f"Filtered to {len(shared_codes)} shared codes across all models")
         logger.info(f"Available models: {available_models}")
-
-        # Process SWE baseline if data available
-        swe_results = {}
-        swe_correlations = {}
-
-        if swe_df is not None:
-            logger.info("Processing SWE baseline...")
-
-            for (issue_month, issue_day), config in issue_dates.items():
-                label = config["label"]
-
-                # Calculate SWE predictor
-                swe_predictor = calculate_swe_predictor(swe_df, issue_month, issue_day)
-
-                if swe_predictor.empty:
-                    continue
-
-                # Get seasonal observations for matching years
-                seasonal_obs = (
-                    seasonal_df[seasonal_df["issue_label"] == label]
-                    .groupby(["code", "issue_year"])["Q_obs_seasonal"]
-                    .first()
-                    .reset_index()
-                )
-                seasonal_obs.columns = ["code", "year", "Q_obs_seasonal"]
-
-                if seasonal_obs.empty:
-                    continue
-
-                # LOOCV prediction
-                swe_pred = swe_loocv_prediction(swe_predictor, seasonal_obs)
-                if not swe_pred.empty:
-                    swe_results[label] = swe_pred
-                    logger.info(f"  {label}: {len(swe_pred)} SWE predictions")
-
-                # Correlation analysis
-                corr_df = calculate_swe_correlations(swe_predictor, seasonal_obs)
-                if not corr_df.empty:
-                    swe_correlations[label] = corr_df
 
         # Generate plots
         logger.info("Generating plots...")
 
         # 1. Scatter plots per issue date
-        for (issue_month, issue_day), config in issue_dates.items():
+        for config in issue_dates.values():
             label = config["label"]
             label_clean = label.replace(" ", "")
-
-            swe_for_plot = swe_results.get(label) if swe_results else None
 
             fig = plot_seasonal_scatter(
                 seasonal_df=seasonal_df,
                 models=available_models,
                 issue_label=label,
                 output_path=fc_output_dir / f"scatter_{label_clean}.png",
-                swe_predictions=swe_for_plot,
                 forecast_type=fc_type.replace("_", "-"),
             )
             plt.close(fig)
@@ -1371,52 +1334,32 @@ def process_seasonal_forecasts(
             seasonal_df=seasonal_df,
             models=available_models,
             output_path=fc_output_dir / "r2_distribution_vs_issue_date.png",
-            swe_results=swe_results if swe_results else None,
             forecast_type=fc_type.replace("_", "-"),
         )
         plt.close(fig)
 
-        # 3. Skill comparison bar chart
+        # 3. Skill comparison plot
         fig = plot_skill_comparison(
             seasonal_df=seasonal_df,
             models=available_models,
-            swe_results=swe_results,
             output_path=fc_output_dir / "skill_comparison.png",
-            issue_dates=issue_dates,
         )
         plt.close(fig)
 
-        # 4. Metrics summary CSV
+        # 4. PI coverage plot (for models with quantile predictions)
+        fig = plot_pi_coverage(
+            seasonal_df=seasonal_df,
+            models=available_models,
+            output_path=fc_output_dir / "pi_coverage.png",
+        )
+        plt.close(fig)
+
+        # 5. Metrics summary CSV
         generate_metrics_summary(
             seasonal_df=seasonal_df,
             models=available_models,
-            swe_results=swe_results,
             output_path=fc_output_dir / "metrics_summary.csv",
         )
-
-        # 5. SWE correlation boxplot (in swe_analysis subfolder)
-        if swe_correlations:
-            swe_output_dir = output_dir / region.lower() / "seasonal" / "swe_analysis"
-            swe_output_dir.mkdir(parents=True, exist_ok=True)
-
-            fig = plot_swe_correlation_boxplot(
-                correlations=swe_correlations,
-                output_path=swe_output_dir / f"swe_correlation_boxplot_{fc_type}.png",
-            )
-            plt.close(fig)
-
-            # Save correlation summary
-            all_corr = []
-            for label, corr_df in swe_correlations.items():
-                corr_df = corr_df.copy()
-                corr_df["issue_label"] = label
-                all_corr.append(corr_df)
-
-            if all_corr:
-                corr_summary = pd.concat(all_corr, ignore_index=True)
-                corr_summary.to_csv(
-                    swe_output_dir / f"correlation_summary_{fc_type}.csv", index=False
-                )
 
     logger.info("\nProcessing complete!")
 
@@ -1424,7 +1367,7 @@ def process_seasonal_forecasts(
 def main():
     """Main entry point with CLI argument parsing."""
     parser = argparse.ArgumentParser(
-        description="Evaluate seasonal forecasts and compare with SWE baseline."
+        description="Evaluate seasonal forecasts and compare ML models."
     )
     parser.add_argument(
         "--region",
@@ -1453,19 +1396,11 @@ def main():
         default=None,
         help="Override output directory",
     )
-    parser.add_argument(
-        "--swe-path",
-        type=str,
-        default=None,
-        help="Path to SWE data file (uses env variable if not specified)",
-    )
 
     args = parser.parse_args()
 
-    # Set global plot style
     set_global_plot_style()
 
-    # Determine output directory
     if args.output_dir:
         output_dir = Path(args.output_dir)
     else:
@@ -1481,7 +1416,6 @@ def main():
         forecast_type=args.forecast_type,
         models=args.models,
         output_dir=output_dir,
-        swe_path=args.swe_path,
     )
 
 
