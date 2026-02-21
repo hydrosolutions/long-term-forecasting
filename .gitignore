@@ -6,7 +6,7 @@
 /__pycache__
 /eval_scr/__pycache__
 /tests/__pycache__
-/logs
+**/logs/
 /catboost_info
 /tests_output
 *.log
@@ -38,7 +38,6 @@
 /monthly_forecasting/deep_scr/__pycache__
 /monthly_forecasting/forecast_models/deep_models/losses/__pycache__
 /monthly_forecasting/forecast_models/deep_models/losses/__pycache__
-/notebooks/logs
 /lt_forecasting/__pycache__
 /lt_forecasting/deep_scr/__pycache__
 /lt_forecasting/forecast_models/__pycache__
