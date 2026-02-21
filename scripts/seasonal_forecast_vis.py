@@ -120,6 +120,15 @@ SEASONAL_DIR_NAMES = {
 # Suffix for seasonal model names to distinguish from monthly-reconstructed
 SEASONAL_MODEL_SUFFIX = "_seasonal"
 
+# Quantile column names (must match LINEAR_REGRESSION.py)
+QUANTILE_COLS = ["Q5", "Q10", "Q25", "Q75", "Q90", "Q95"]
+
+# PI coverage definitions: (lower_quantile_col, upper_quantile_col, nominal_coverage)
+PI_COVERAGE_DEFS = {
+    "50%": ("Q25", "Q75", 0.50),
+    "90%": ("Q5", "Q95", 0.90),
+}
+
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -226,6 +235,66 @@ def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     }
 
 
+def calculate_pi_coverage(
+    df: pd.DataFrame,
+    obs_col: str = "Q_obs_seasonal",
+) -> dict[str, float]:
+    """
+    Calculate prediction interval coverage for models with quantile columns.
+
+    Args:
+        df: DataFrame with observations and quantile predictions
+        obs_col: Name of observation column
+
+    Returns:
+        Dictionary with coverage stats: {
+            "coverage_50": actual 50% PI coverage,
+            "coverage_90": actual 90% PI coverage,
+            "n_samples": number of valid samples,
+            "has_quantiles": whether quantile columns exist (with actual values)
+        }
+    """
+    result = {
+        "coverage_50": np.nan,
+        "coverage_90": np.nan,
+        "n_samples": 0,
+        "has_quantiles": False,
+    }
+
+    # Check if quantile columns exist AND have non-NaN values
+    available_quantiles = [
+        col for col in QUANTILE_COLS if col in df.columns and df[col].notna().any()
+    ]
+    if not available_quantiles:
+        return result
+
+    result["has_quantiles"] = True
+
+    # Calculate coverage for each PI definition
+    for pi_name, (lower_col, upper_col, _) in PI_COVERAGE_DEFS.items():
+        if lower_col not in df.columns or upper_col not in df.columns:
+            continue
+
+        # Filter to rows with valid obs and quantile values
+        valid_mask = df[obs_col].notna() & df[lower_col].notna() & df[upper_col].notna()
+        valid_df = df[valid_mask]
+
+        if len(valid_df) == 0:
+            continue
+
+        # Calculate coverage: fraction of observations within PI
+        in_interval = (valid_df[obs_col] >= valid_df[lower_col]) & (
+            valid_df[obs_col] <= valid_df[upper_col]
+        )
+        coverage = in_interval.mean()
+
+        key = f"coverage_{pi_name.replace('%', '')}"
+        result[key] = coverage
+        result["n_samples"] = len(valid_df)
+
+    return result
+
+
 def calculate_r2_per_code(
     df: pd.DataFrame,
     obs_col: str = "Q_obs_seasonal",
@@ -273,20 +342,66 @@ def get_shared_codes(seasonal_df: pd.DataFrame) -> set[int]:
 # =============================================================================
 
 
+def calculate_partial_month_obs(
+    daily_obs: pd.DataFrame,
+    issue_month: int,
+    issue_day: int,
+) -> pd.DataFrame:
+    """
+    Calculate observed mean discharge for partial month (day 1 to issue_day).
+
+    For forecasts issued on e.g. April 25, this calculates the mean observed
+    discharge from April 1-25 for each code and year.
+
+    Args:
+        daily_obs: DataFrame with columns: date, code, discharge
+        issue_month: Month of forecast issue (1-12)
+        issue_day: Day of forecast issue (1-31)
+
+    Returns:
+        DataFrame with columns: code, year, Q_obs_partial
+    """
+    obs = daily_obs.copy()
+    obs["year"] = obs["date"].dt.year
+    obs["month"] = obs["date"].dt.month
+    obs["day"] = obs["date"].dt.day
+
+    # Filter to issue month and days 1 to issue_day
+    partial = obs[(obs["month"] == issue_month) & (obs["day"] <= issue_day)]
+
+    # Calculate mean per code and year
+    partial_means = (
+        partial.groupby(["code", "year"])["discharge"]
+        .mean()
+        .reset_index()
+        .rename(columns={"discharge": "Q_obs_partial"})
+    )
+
+    return partial_means
+
+
 def reconstruct_seasonal_forecasts(
     predictions_df: pd.DataFrame,
     monthly_obs: pd.DataFrame,
     issue_dates: dict,
+    daily_obs: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
     Reconstruct seasonal forecasts by averaging monthly predictions.
 
     Uses vectorized operations for performance.
 
+    If daily_obs is provided and the issue month is in the target months,
+    the model prediction for the issue month is replaced with observed
+    partial month mean (days 1 to issue_day). This uses actual data we
+    have at forecast time instead of predicting what we already know.
+
     Args:
         predictions_df: DataFrame with monthly predictions (from load_predictions)
         monthly_obs: DataFrame with monthly observations (from calculate_target)
         issue_dates: Dictionary mapping (issue_month, issue_day) to config
+        daily_obs: Optional DataFrame with daily observations for partial month
+                   calculation. Columns: date, code, discharge
 
     Returns:
         DataFrame with columns: code, issue_year, issue_month, issue_day,
@@ -301,6 +416,9 @@ def reconstruct_seasonal_forecasts(
 
         logger.info(f"Processing issue date {label} -> targets {target_months}")
 
+        # Check if issue month is in target months (e.g., Apr 25 for Apr-Sep)
+        use_partial_obs = daily_obs is not None and issue_month in target_months
+
         # Filter predictions for this issue month and required horizons
         issue_preds = predictions_df[
             (predictions_df["issue_date"].dt.month == issue_month)
@@ -313,13 +431,63 @@ def reconstruct_seasonal_forecasts(
 
         issue_preds["issue_year"] = issue_preds["issue_date"].dt.year
 
+        # Replace predictions for issue month with observed partial month mean
+        if use_partial_obs:
+            partial_obs = calculate_partial_month_obs(daily_obs, issue_month, issue_day)
+
+            # horizon=0 means predicting the same month as issue
+            # Reset index to ensure proper alignment after merge
+            issue_preds = issue_preds.reset_index(drop=True)
+            issue_month_mask = issue_preds["horizon"] == 0
+
+            if issue_month_mask.any():
+                # Merge partial observations
+                issue_preds = issue_preds.merge(
+                    partial_obs,
+                    left_on=["code", "issue_year"],
+                    right_on=["code", "year"],
+                    how="left",
+                )
+                if "year" in issue_preds.columns:
+                    issue_preds = issue_preds.drop(columns=["year"])
+
+                # Recalculate mask after merge (index may have changed)
+                issue_month_mask = issue_preds["horizon"] == 0
+
+                # Replace Q_pred with observed partial mean for issue month
+                issue_preds.loc[issue_month_mask, "Q_pred"] = issue_preds.loc[
+                    issue_month_mask, "Q_obs_partial"
+                ].values
+
+                # Clear quantiles for issue month (we don't have uncertainty for obs)
+                for q_col in QUANTILE_COLS:
+                    if q_col in issue_preds.columns:
+                        issue_preds.loc[issue_month_mask, q_col] = np.nan
+
+                if "Q_obs_partial" in issue_preds.columns:
+                    issue_preds = issue_preds.drop(columns=["Q_obs_partial"])
+
+                n_replaced = issue_month_mask.sum()
+                logger.info(
+                    f"  Replaced {n_replaced} predictions for {MONTH_ABBREV[issue_month]} "
+                    f"with observed partial month mean (days 1-{issue_day})"
+                )
+
+        # Identify columns to aggregate (Q_pred + any quantile columns)
+        agg_cols = ["Q_pred"]
+        available_quantiles = [c for c in QUANTILE_COLS if c in issue_preds.columns]
+        agg_cols.extend(available_quantiles)
+
         # Vectorized seasonal averaging per (model, code, issue_year)
         seasonal_pred = (
-            issue_preds.groupby(["model", "code", "issue_year"])["Q_pred"]
+            issue_preds.groupby(["model", "code", "issue_year"])[agg_cols]
             .mean()
             .reset_index()
             .rename(columns={"Q_pred": "Q_pred_seasonal"})
         )
+
+        if available_quantiles:
+            logger.debug(f"Averaged quantile columns: {available_quantiles}")
 
         # Get seasonal observations - filter for target months and average
         obs_target = monthly_obs[monthly_obs["month"].isin(target_months)].copy()
@@ -434,22 +602,32 @@ def load_seasonal_model_hindcasts(
             df["Q_pred_seasonal"] = df[pred_col]
             df["model"] = f"{model_name}{SEASONAL_MODEL_SUFFIX}"
 
-            result = df[
-                [
-                    "code",
-                    "issue_year",
-                    "issue_month",
-                    "issue_day",
-                    "issue_label",
-                    "Q_pred_seasonal",
-                    "model",
-                ]
-            ].copy()
+            # Base columns to keep
+            base_cols = [
+                "code",
+                "issue_year",
+                "issue_month",
+                "issue_day",
+                "issue_label",
+                "Q_pred_seasonal",
+                "model",
+            ]
+
+            # Add quantile columns if present
+            available_quantile_cols = [c for c in QUANTILE_COLS if c in df.columns]
+            keep_cols = base_cols + available_quantile_cols
+
+            result = df[keep_cols].copy()
 
             results.append(result)
+            quantile_info = (
+                f" (with quantiles: {available_quantile_cols})"
+                if available_quantile_cols
+                else ""
+            )
             logger.info(
                 f"Loaded {len(result)} seasonal hindcasts for {model_name} "
-                f"({month_abbrev})"
+                f"({month_abbrev}){quantile_info}"
             )
 
     if not results:
@@ -810,6 +988,134 @@ def plot_skill_comparison(
     return fig
 
 
+def plot_pi_coverage(
+    seasonal_df: pd.DataFrame,
+    models: list[str],
+    output_path: Path,
+) -> plt.Figure:
+    """
+    Create bar plot comparing prediction interval coverage for probabilistic models.
+
+    Shows actual vs nominal coverage for 50% and 90% prediction intervals.
+
+    Args:
+        seasonal_df: DataFrame with seasonal forecasts (must include quantile columns)
+        models: List of ML models to evaluate
+        output_path: Path to save figure
+
+    Returns:
+        matplotlib Figure
+    """
+    coverage_data = []
+
+    for model in models:
+        model_df = seasonal_df[seasonal_df["model"] == model]
+        if model_df.empty:
+            continue
+
+        coverage = calculate_pi_coverage(model_df, obs_col="Q_obs_seasonal")
+
+        if not coverage["has_quantiles"]:
+            continue
+
+        for pi_name, (_, __, nominal) in PI_COVERAGE_DEFS.items():
+            key = f"coverage_{pi_name.replace('%', '')}"
+            actual = coverage.get(key, np.nan)
+            if not np.isnan(actual):
+                coverage_data.append(
+                    {
+                        "Model": model,
+                        "PI": pi_name,
+                        "Coverage": actual,
+                        "Nominal": nominal,
+                        "n_samples": coverage["n_samples"],
+                    }
+                )
+
+    if not coverage_data:
+        logger.info("No models with quantile predictions found for PI coverage plot")
+        return plt.figure()
+
+    plot_df = pd.DataFrame(coverage_data)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Get unique models with quantiles
+    models_with_quantiles = plot_df["Model"].unique()
+    n_models = len(models_with_quantiles)
+    x = np.arange(n_models)
+    width = 0.35
+
+    # Plot 50% and 90% coverage side by side
+    coverage_50 = plot_df[plot_df["PI"] == "50%"].set_index("Model")["Coverage"]
+    coverage_90 = plot_df[plot_df["PI"] == "90%"].set_index("Model")["Coverage"]
+
+    bars_50 = ax.bar(
+        x - width / 2,
+        [coverage_50.get(m, 0) for m in models_with_quantiles],
+        width,
+        label="50% PI Coverage",
+        color="steelblue",
+        alpha=0.8,
+    )
+    bars_90 = ax.bar(
+        x + width / 2,
+        [coverage_90.get(m, 0) for m in models_with_quantiles],
+        width,
+        label="90% PI Coverage",
+        color="darkorange",
+        alpha=0.8,
+    )
+
+    # Add nominal coverage reference lines
+    ax.axhline(y=0.50, color="steelblue", linestyle="--", linewidth=1.5, alpha=0.7)
+    ax.axhline(y=0.90, color="darkorange", linestyle="--", linewidth=1.5, alpha=0.7)
+
+    # Add text labels for nominal lines
+    ax.text(
+        n_models - 0.5, 0.52, "Nominal 50%", fontsize=9, color="steelblue", alpha=0.8
+    )
+    ax.text(
+        n_models - 0.5, 0.92, "Nominal 90%", fontsize=9, color="darkorange", alpha=0.8
+    )
+
+    # Add value labels on bars
+    for bars in [bars_50, bars_90]:
+        for bar in bars:
+            height = bar.get_height()
+            if height > 0:
+                ax.annotate(
+                    f"{height:.0%}",
+                    xy=(bar.get_x() + bar.get_width() / 2, height),
+                    xytext=(0, 3),
+                    textcoords="offset points",
+                    ha="center",
+                    va="bottom",
+                    fontsize=9,
+                )
+
+    ax.set_ylabel("Coverage", fontsize=12)
+    ax.set_xlabel("Model", fontsize=12)
+    ax.set_title(
+        "Prediction Interval Coverage\n(Dashed lines = nominal coverage)",
+        fontsize=14,
+        fontweight="bold",
+    )
+    ax.set_xticks(x)
+    ax.set_xticklabels(models_with_quantiles, rotation=45, ha="right")
+    ax.set_ylim(0, 1.05)
+    ax.legend(loc="upper left")
+    ax.grid(axis="y", alpha=0.3)
+
+    plt.tight_layout()
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    logger.info(f"Saved PI coverage plot to {output_path}")
+
+    return fig
+
+
 # =============================================================================
 # METRICS SUMMARY
 # =============================================================================
@@ -852,20 +1158,27 @@ def generate_metrics_summary(
 
             r2_values = r2_per_code["r2"].dropna()
 
-            results.append(
-                {
-                    "issue_label": label,
-                    "model": model,
-                    "n_codes": len(r2_values),
-                    "r2_mean": r2_values.mean(),
-                    "r2_median": r2_values.median(),
-                    "r2_std": r2_values.std(),
-                    "r2_min": r2_values.min(),
-                    "r2_max": r2_values.max(),
-                    "r2_q25": r2_values.quantile(0.25),
-                    "r2_q75": r2_values.quantile(0.75),
-                }
-            )
+            record = {
+                "issue_label": label,
+                "model": model,
+                "n_codes": len(r2_values),
+                "r2_mean": r2_values.mean(),
+                "r2_median": r2_values.median(),
+                "r2_std": r2_values.std(),
+                "r2_min": r2_values.min(),
+                "r2_max": r2_values.max(),
+                "r2_q25": r2_values.quantile(0.25),
+                "r2_q75": r2_values.quantile(0.75),
+            }
+
+            # Add PI coverage metrics if quantiles available
+            coverage = calculate_pi_coverage(model_df, obs_col="Q_obs_seasonal")
+            if coverage["has_quantiles"]:
+                record["coverage_50"] = coverage["coverage_50"]
+                record["coverage_90"] = coverage["coverage_90"]
+                record["n_coverage_samples"] = coverage["n_samples"]
+
+            results.append(record)
 
     if not results:
         return pd.DataFrame()
@@ -935,8 +1248,9 @@ def process_seasonal_forecasts(
         fc_output_dir.mkdir(parents=True, exist_ok=True)
 
         # Reconstruct seasonal forecasts from monthly predictions
+        # Pass daily_obs to use actual observations for issue month when in target period
         seasonal_df = reconstruct_seasonal_forecasts(
-            predictions_df, monthly_obs, issue_dates
+            predictions_df, monthly_obs, issue_dates, daily_obs=obs_df
         )
 
         # Load direct seasonal model hindcasts
@@ -1032,7 +1346,15 @@ def process_seasonal_forecasts(
         )
         plt.close(fig)
 
-        # 4. Metrics summary CSV
+        # 4. PI coverage plot (for models with quantile predictions)
+        fig = plot_pi_coverage(
+            seasonal_df=seasonal_df,
+            models=available_models,
+            output_path=fc_output_dir / "pi_coverage.png",
+        )
+        plt.close(fig)
+
+        # 5. Metrics summary CSV
         generate_metrics_summary(
             seasonal_df=seasonal_df,
             models=available_models,
