@@ -327,8 +327,8 @@ class TabularDataset(Dataset):
         df = df.reset_index(drop=True)  # This is critical!
 
         # Check if your DataFrame is a view
-        logger.info(f"DataFrame is copy: {df._is_copy}")
-        logger.info(f"DataFrame is view: {df._is_view}")
+        # logger.info(f"DataFrame is copy: {df._is_copy}")
+        # logger.info(f"DataFrame is view: {df._is_view}")
 
         # FIX: Force a deep copy
         df = df[self.features + [self.target]].copy(

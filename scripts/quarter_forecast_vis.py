@@ -1,23 +1,33 @@
 #!/usr/bin/env python3
 """
-Seasonal Forecast Visualization Script
+Quarter Forecast Visualization Script
 
-Evaluates seasonal forecasts (6-month and 3-month) by comparing ML model predictions.
+Evaluates 3-month (quarterly) discharge forecasts by comparing ML model predictions
+with quarter baseline models (LR_SM, LR_Base).
 
 Forecast Configurations:
-- 6-Month Forecasts (Apr-Sep average): Issue dates Jan 25, Feb 25, Mar 25, Apr 25
-- 3-Month Forecasts (rolling): Issue dates Mar 25, Apr 25, May 25
+- Quarter Forecasts (3-month rolling): Issue dates Mar 25, Apr 25, May 25, Jun 25
+
+Issue Date → Target Period Mapping:
+| Issue Date | Target Period | Target Months |
+|------------|---------------|---------------|
+| March 25   | Apr-Jun       | [4, 5, 6]     |
+| April 25   | May-Jul       | [5, 6, 7]     |
+| May 25     | Jun-Aug       | [6, 7, 8]     |
+| June 25    | Jul-Sep       | [7, 8, 9]     |
 
 Output structure:
-    {output_dir}/{region}/seasonal/
-        ├── 6_month/
-        │   ├── scatter_Jan25.png
-        │   ├── r2_vs_issue_date.png
-        │   └── metrics_summary.csv
-        └── 3_month/
-            ├── scatter_Mar25.png
-            ├── r2_vs_issue_date.png
-            └── metrics_summary.csv
+    {output_dir}/{region}/quarter/
+        ├── scatter_Mar25.png
+        ├── scatter_Apr25.png
+        ├── scatter_May25.png
+        ├── scatter_Jun25.png
+        ├── r2_distribution_vs_issue_date.png
+        ├── skill_comparison.png
+        ├── pi_coverage.png
+        ├── pi_coverage_by_issue_date.png
+        ├── timeseries_16936_*.png
+        └── metrics_summary.csv
 """
 
 import argparse
@@ -72,20 +82,19 @@ if not logger.handlers:
 # CONSTANTS
 # =============================================================================
 
-# 6-month forecast issue dates (month, day) -> target months (Apr-Sep)
-ISSUE_DATES_6M = {
-    (1, 25): {"target_months": [4, 5, 6, 7, 8, 9], "label": "Jan 25"},
-    (2, 25): {"target_months": [4, 5, 6, 7, 8, 9], "label": "Feb 25"},
-    (3, 25): {"target_months": [4, 5, 6, 7, 8, 9], "label": "Mar 25"},
-    (4, 25): {"target_months": [4, 5, 6, 7, 8, 9], "label": "Apr 25"},
-}
-
-# 3-month forecast issue dates (month, day) -> target months (rolling)
-ISSUE_DATES_3M = {
+# Quarter forecast issue dates (month, day) -> target months (rolling 3-month)
+ISSUE_DATES_QUARTER = {
     (3, 25): {"target_months": [4, 5, 6], "label": "Mar 25"},
     (4, 25): {"target_months": [5, 6, 7], "label": "Apr 25"},
     (5, 25): {"target_months": [6, 7, 8], "label": "May 25"},
+    (6, 25): {"target_months": [7, 8, 9], "label": "Jun 25"},
 }
+
+# Suffix for quarter model names to distinguish from monthly-reconstructed
+QUARTER_MODEL_SUFFIX = "_quarter"
+
+# Quarter directory name
+QUARTER_DIR_NAME = "quarter"
 
 # Default models to include
 DEFAULT_MODELS = ["LR_Base", "LR_SM", "MC_ALD", "Ensemble"]
@@ -111,17 +120,6 @@ MONTH_ABBREV = {
 
 # Reverse mapping for sorting issue labels by month
 MONTH_ORDER = {abbrev: num for num, abbrev in MONTH_ABBREV.items()}
-
-# Seasonal model directory names by issue month
-SEASONAL_DIR_NAMES = {
-    1: "seasonal_january",
-    2: "seasonal_february",
-    3: "seasonal_march",
-    4: "seasonal_april",
-}
-
-# Suffix for seasonal model names to distinguish from monthly-reconstructed
-SEASONAL_MODEL_SUFFIX = "_seasonal"
 
 # Quantile column names (must match LINEAR_REGRESSION.py)
 QUANTILE_COLS = ["Q5", "Q10", "Q25", "Q75", "Q90", "Q95"]
@@ -240,7 +238,7 @@ def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
 
 def calculate_pi_coverage(
     df: pd.DataFrame,
-    obs_col: str = "Q_obs_seasonal",
+    obs_col: str = "Q_obs_quarter",
 ) -> dict[str, float]:
     """
     Calculate prediction interval coverage for models with quantile columns.
@@ -300,8 +298,8 @@ def calculate_pi_coverage(
 
 def calculate_r2_per_code(
     df: pd.DataFrame,
-    obs_col: str = "Q_obs_seasonal",
-    pred_col: str = "Q_pred_seasonal",
+    obs_col: str = "Q_obs_quarter",
+    pred_col: str = "Q_pred_quarter",
     min_samples: int = 3,
 ) -> pd.DataFrame:
     """
@@ -332,16 +330,16 @@ def calculate_r2_per_code(
     return result[result["n_samples"] >= min_samples]
 
 
-def get_shared_codes(seasonal_df: pd.DataFrame) -> set[int]:
+def get_shared_codes(quarter_df: pd.DataFrame) -> set[int]:
     """Get codes that are present in ALL models."""
-    codes_per_model = seasonal_df.groupby("model")["code"].apply(set)
+    codes_per_model = quarter_df.groupby("model")["code"].apply(set)
     if codes_per_model.empty:
         return set()
     return set.intersection(*codes_per_model)
 
 
 # =============================================================================
-# SEASONAL FORECAST RECONSTRUCTION
+# QUARTER FORECAST RECONSTRUCTION
 # =============================================================================
 
 
@@ -383,14 +381,14 @@ def calculate_partial_month_obs(
     return partial_means
 
 
-def reconstruct_seasonal_forecasts(
+def reconstruct_quarter_forecasts(
     predictions_df: pd.DataFrame,
     monthly_obs: pd.DataFrame,
     issue_dates: dict,
     daily_obs: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
-    Reconstruct seasonal forecasts by averaging monthly predictions.
+    Reconstruct quarter forecasts by averaging monthly predictions over 3 target months.
 
     Uses vectorized operations for performance.
 
@@ -408,7 +406,7 @@ def reconstruct_seasonal_forecasts(
 
     Returns:
         DataFrame with columns: code, issue_year, issue_month, issue_day,
-                               issue_label, Q_pred_seasonal, Q_obs_seasonal, model
+                               issue_label, Q_pred_quarter, Q_obs_quarter, model
     """
     results = []
 
@@ -419,7 +417,7 @@ def reconstruct_seasonal_forecasts(
 
         logger.info(f"Processing issue date {label} -> targets {target_months}")
 
-        # Check if issue month is in target months (e.g., Apr 25 for Apr-Sep)
+        # Check if issue month is in target months (e.g., Apr 25 for Apr-Jun)
         use_partial_obs = daily_obs is not None and issue_month in target_months
 
         # Filter predictions for this issue month and required horizons
@@ -481,199 +479,208 @@ def reconstruct_seasonal_forecasts(
         available_quantiles = [c for c in QUANTILE_COLS if c in issue_preds.columns]
         agg_cols.extend(available_quantiles)
 
-        # Vectorized seasonal averaging per (model, code, issue_year)
-        seasonal_pred = (
+        # Vectorized quarter averaging per (model, code, issue_year)
+        quarter_pred = (
             issue_preds.groupby(["model", "code", "issue_year"])[agg_cols]
             .mean()
             .reset_index()
-            .rename(columns={"Q_pred": "Q_pred_seasonal"})
+            .rename(columns={"Q_pred": "Q_pred_quarter"})
         )
 
         if available_quantiles:
             logger.debug(f"Averaged quantile columns: {available_quantiles}")
 
-        # Get seasonal observations - filter for target months and average
+        # Get quarter observations - filter for target months and average
         obs_target = monthly_obs[monthly_obs["month"].isin(target_months)].copy()
-        seasonal_obs = (
+        quarter_obs = (
             obs_target.groupby(["code", "year"])["Q_obs_monthly"]
             .mean()
             .reset_index()
-            .rename(columns={"year": "issue_year", "Q_obs_monthly": "Q_obs_seasonal"})
+            .rename(columns={"year": "issue_year", "Q_obs_monthly": "Q_obs_quarter"})
         )
 
         # Merge predictions with observations
-        seasonal = seasonal_pred.merge(
-            seasonal_obs, on=["code", "issue_year"], how="left"
-        )
-        seasonal["issue_month"] = issue_month
-        seasonal["issue_day"] = issue_day
-        seasonal["issue_label"] = label
-        seasonal["n_target_months"] = len(target_months)
+        quarter = quarter_pred.merge(quarter_obs, on=["code", "issue_year"], how="left")
+        quarter["issue_month"] = issue_month
+        quarter["issue_day"] = issue_day
+        quarter["issue_label"] = label
+        quarter["n_target_months"] = len(target_months)
 
-        results.append(seasonal)
+        results.append(quarter)
 
     if not results:
-        logger.warning("No seasonal forecasts reconstructed")
+        logger.warning("No quarter forecasts reconstructed")
         return pd.DataFrame()
 
     result_df = pd.concat(results, ignore_index=True)
     logger.info(
-        f"Reconstructed {len(result_df)} seasonal forecasts for "
+        f"Reconstructed {len(result_df)} quarter forecasts for "
         f"{result_df['model'].nunique()} models"
     )
     return result_df
 
 
 # =============================================================================
-# DIRECT SEASONAL MODEL LOADING
+# DIRECT QUARTER MODEL LOADING
 # =============================================================================
 
 
-def load_seasonal_model_hindcasts(
+def load_quarter_model_hindcasts(
     base_path: Path,
     issue_months: list[int],
     models: list[str] | None = None,
 ) -> pd.DataFrame:
     """
-    Load direct seasonal model hindcast predictions.
+    Load direct quarter model hindcast predictions.
 
-    Seasonal models predict Apr-Sep discharge directly (not monthly).
+    Quarter models predict 3-month discharge directly (not monthly).
     Hindcast files are stored at:
-        {base_path}/seasonal_{month_name}/{model}/{model}_hindcast.csv
+        {base_path}/quarter/{model}/{model}_hindcast.csv
+
+    File format:
+        date,code,valid_from,valid_to,flag,Q_{model},Q5,Q10,Q25,Q75,Q90,Q95
 
     Args:
         base_path: Base directory for predictions (e.g., long_term_predictions/)
-        issue_months: List of issue months to load (1=Jan, 2=Feb, etc.)
+        issue_months: List of issue months to filter (3, 4, 5, 6 for quarter)
         models: List of model names to load. If None, loads all available.
 
     Returns:
         DataFrame with columns: code, issue_year, issue_month, issue_day,
-                               issue_label, Q_pred_seasonal, model
+                               issue_label, Q_pred_quarter, model
     """
     results = []
 
-    for issue_month in issue_months:
-        if issue_month not in SEASONAL_DIR_NAMES:
+    quarter_dir = Path(base_path) / QUARTER_DIR_NAME
+
+    if not quarter_dir.exists():
+        logger.info(f"Quarter directory not found: {quarter_dir}")
+        return pd.DataFrame()
+
+    model_dirs = [d for d in quarter_dir.iterdir() if d.is_dir()]
+
+    for model_dir in model_dirs:
+        model_name = model_dir.name
+
+        if models is not None and model_name not in models:
             continue
 
-        dir_name = SEASONAL_DIR_NAMES[issue_month]
-        seasonal_dir = Path(base_path) / dir_name
-
-        if not seasonal_dir.exists():
-            logger.debug(f"Seasonal directory not found: {seasonal_dir}")
+        hindcast_file = model_dir / f"{model_name}_hindcast.csv"
+        if not hindcast_file.exists():
+            logger.debug(f"Hindcast file not found: {hindcast_file}")
             continue
 
-        model_dirs = [d for d in seasonal_dir.iterdir() if d.is_dir()]
+        try:
+            df = pd.read_csv(hindcast_file)
+        except Exception as e:
+            logger.warning(f"Failed to read {hindcast_file}: {e}")
+            continue
 
-        for model_dir in model_dirs:
-            model_name = model_dir.name
+        if df.empty:
+            continue
 
-            if models is not None and model_name not in models:
-                continue
+        df["date"] = pd.to_datetime(df["date"])
+        df["valid_from"] = pd.to_datetime(df["valid_from"])
+        df["valid_to"] = pd.to_datetime(df["valid_to"])
 
-            hindcast_file = model_dir / f"{model_name}_hindcast.csv"
-            if not hindcast_file.exists():
-                logger.debug(f"Hindcast file not found: {hindcast_file}")
-                continue
+        df["issue_year"] = df["date"].dt.year
+        df["issue_month"] = df["date"].dt.month
+        df["issue_day"] = df["date"].dt.day
 
-            try:
-                df = pd.read_csv(hindcast_file)
-            except Exception as e:
-                logger.warning(f"Failed to read {hindcast_file}: {e}")
-                continue
+        # Filter by issue_months
+        df = df[df["issue_month"].isin(issue_months)].copy()
+        if df.empty:
+            logger.debug(f"No data after filtering by issue months in {hindcast_file}")
+            continue
 
-            if df.empty:
-                continue
+        # Determine target months from valid_from/valid_to for label mapping
+        df["target_start_month"] = df["valid_from"].dt.month
 
-            df["date"] = pd.to_datetime(df["date"])
-            df["issue_year"] = df["date"].dt.year
-            df["issue_month"] = df["date"].dt.month
-            df["issue_day"] = df["date"].dt.day
+        # Create issue label based on issue month
+        df["issue_label"] = df["issue_month"].map(
+            lambda m: f"{MONTH_ABBREV.get(m, str(m))} 25"
+        )
 
-            month_abbrev = MONTH_ABBREV.get(issue_month, str(issue_month))
-            df["issue_label"] = f"{month_abbrev} 25"
-
-            pred_col = f"Q_{model_name}"
-            if pred_col not in df.columns:
-                q_cols = [c for c in df.columns if c.startswith("Q_")]
-                if q_cols:
-                    pred_col = q_cols[0]
-                else:
-                    logger.warning(f"No prediction column found in {hindcast_file}")
-                    continue
-
-            df["Q_pred_seasonal"] = df[pred_col]
-            df["model"] = f"{model_name}{SEASONAL_MODEL_SUFFIX}"
-
-            # Base columns to keep
-            base_cols = [
-                "code",
-                "issue_year",
-                "issue_month",
-                "issue_day",
-                "issue_label",
-                "Q_pred_seasonal",
-                "model",
+        # Find prediction column (Q_{model_name})
+        pred_col = f"Q_{model_name}"
+        if pred_col not in df.columns:
+            q_cols = [
+                c for c in df.columns if c.startswith("Q_") and c not in QUANTILE_COLS
             ]
+            if q_cols:
+                pred_col = q_cols[0]
+            else:
+                logger.warning(f"No prediction column found in {hindcast_file}")
+                continue
 
-            # Add quantile columns if present
-            available_quantile_cols = [c for c in QUANTILE_COLS if c in df.columns]
-            keep_cols = base_cols + available_quantile_cols
+        df["Q_pred_quarter"] = df[pred_col]
+        df["model"] = f"{model_name}{QUARTER_MODEL_SUFFIX}"
 
-            result = df[keep_cols].copy()
+        # Base columns to keep
+        base_cols = [
+            "code",
+            "issue_year",
+            "issue_month",
+            "issue_day",
+            "issue_label",
+            "Q_pred_quarter",
+            "model",
+        ]
 
-            results.append(result)
-            quantile_info = (
-                f" (with quantiles: {available_quantile_cols})"
-                if available_quantile_cols
-                else ""
-            )
-            logger.info(
-                f"Loaded {len(result)} seasonal hindcasts for {model_name} "
-                f"({month_abbrev}){quantile_info}"
-            )
+        # Add quantile columns if present
+        available_quantile_cols = [c for c in QUANTILE_COLS if c in df.columns]
+        keep_cols = base_cols + available_quantile_cols
+
+        result = df[keep_cols].copy()
+
+        results.append(result)
+        quantile_info = (
+            f" (with quantiles: {available_quantile_cols})"
+            if available_quantile_cols
+            else ""
+        )
+        logger.info(
+            f"Loaded {len(result)} quarter hindcasts for {model_name}{quantile_info}"
+        )
 
     if not results:
-        logger.info("No direct seasonal model hindcasts found")
+        logger.info("No direct quarter model hindcasts found")
         return pd.DataFrame()
 
     combined = pd.concat(results, ignore_index=True)
     logger.info(
-        f"Loaded {len(combined)} total seasonal hindcasts for "
+        f"Loaded {len(combined)} total quarter hindcasts for "
         f"{combined['model'].nunique()} models"
     )
     return combined
 
 
-def get_seasonal_observations(
+def get_quarter_observations(
     monthly_obs: pd.DataFrame,
-    target_months: list[int] | None = None,
+    target_months: list[int],
 ) -> pd.DataFrame:
     """
-    Calculate seasonal observations by averaging monthly values for Apr-Sep.
+    Calculate quarter observations by averaging monthly values for target 3-month period.
 
     Args:
         monthly_obs: DataFrame with monthly observations (from calculate_target)
                     Expected columns: code, year, month, Q_obs_monthly
-        target_months: Months to average (default: [4, 5, 6, 7, 8, 9] for Apr-Sep)
+        target_months: Months to average (e.g., [4, 5, 6] for Apr-Jun)
 
     Returns:
-        DataFrame with columns: code, year, Q_obs_seasonal
+        DataFrame with columns: code, year, Q_obs_quarter
     """
-    if target_months is None:
-        target_months = [4, 5, 6, 7, 8, 9]
-
     filtered = monthly_obs[monthly_obs["month"].isin(target_months)].copy()
 
     if filtered.empty:
         return pd.DataFrame()
 
-    seasonal_obs = (
+    quarter_obs = (
         filtered.groupby(["code", "year"])["Q_obs_monthly"].mean().reset_index()
     )
-    seasonal_obs.columns = ["code", "year", "Q_obs_seasonal"]
+    quarter_obs.columns = ["code", "year", "Q_obs_quarter"]
 
-    return seasonal_obs
+    return quarter_obs
 
 
 # =============================================================================
@@ -681,29 +688,27 @@ def get_seasonal_observations(
 # =============================================================================
 
 
-def plot_seasonal_scatter(
-    seasonal_df: pd.DataFrame,
+def plot_quarter_scatter(
+    quarter_df: pd.DataFrame,
     models: list[str],
     issue_label: str,
     output_path: Path,
-    forecast_type: str = "6-month",
     code_filter: int | None = SCATTER_PLOT_CODE,
 ) -> plt.Figure:
     """
-    Create scatter plot of predicted vs observed seasonal discharge.
+    Create scatter plot of predicted vs observed quarter discharge.
 
     Args:
-        seasonal_df: DataFrame with Q_pred_seasonal, Q_obs_seasonal, model
+        quarter_df: DataFrame with Q_pred_quarter, Q_obs_quarter, model
         models: List of models to plot
-        issue_label: Issue date label (e.g., "Jan 25")
+        issue_label: Issue date label (e.g., "Mar 25")
         output_path: Path to save figure
-        forecast_type: "6-month" or "3-month"
         code_filter: If specified, only plot this specific code (basin)
 
     Returns:
         matplotlib Figure
     """
-    df = seasonal_df[seasonal_df["issue_label"] == issue_label].copy()
+    df = quarter_df[quarter_df["issue_label"] == issue_label].copy()
 
     if df.empty:
         logger.warning(f"No data for issue date {issue_label}")
@@ -732,8 +737,8 @@ def plot_seasonal_scatter(
     for idx, model in enumerate(models):
         ax = axes[idx]
         plot_data = df[df["model"] == model]
-        x_col = "Q_obs_seasonal"
-        y_col = "Q_pred_seasonal"
+        x_col = "Q_obs_quarter"
+        y_col = "Q_pred_quarter"
         color = colors[idx]
 
         if plot_data.empty:
@@ -780,10 +785,11 @@ def plot_seasonal_scatter(
         y_line = slope * x_line + intercept
         ax.plot(x_line, y_line, color=color, linewidth=2, alpha=0.8)
 
-        ax.set_xlabel("Observed (m³/s)", fontsize=10)
-        ax.set_ylabel("Predicted (m³/s)", fontsize=10)
+        ax.set_xlabel("Observed (m\u00b3/s)", fontsize=10)
+        ax.set_ylabel("Predicted (m\u00b3/s)", fontsize=10)
         ax.set_title(
-            f"{model}\nR²={metrics['r2']:.3f}, n={metrics['n_samples']}", fontsize=11
+            f"{model}\nR\u00b2={metrics['r2']:.3f}, n={metrics['n_samples']}",
+            fontsize=11,
         )
 
         ax.set_xlim(min_val, max_val)
@@ -796,7 +802,7 @@ def plot_seasonal_scatter(
 
     code_str = f" - Code {code_filter}" if code_filter is not None else ""
     fig.suptitle(
-        f"{forecast_type} Seasonal Forecast - Issue Date: {issue_label}{code_str}",
+        f"Quarter Forecast - Issue Date: {issue_label}{code_str}",
         fontsize=14,
         fontweight="bold",
         y=1.02,
@@ -822,10 +828,9 @@ def _sort_issue_labels(labels: list[str]) -> list[str]:
 
 
 def plot_r2_vs_issue_date(
-    seasonal_df: pd.DataFrame,
+    quarter_df: pd.DataFrame,
     models: list[str],
     output_path: Path,
-    forecast_type: str = "6-month",
 ) -> plt.Figure:
     """
     Plot R² distribution across codes for each model and issue date.
@@ -833,19 +838,18 @@ def plot_r2_vs_issue_date(
     Shows boxplot of per-code R² values to visualize skill distribution.
 
     Args:
-        seasonal_df: DataFrame with seasonal forecasts
+        quarter_df: DataFrame with quarter forecasts
         models: List of models to plot
         output_path: Path to save figure
-        forecast_type: "6-month" or "3-month"
 
     Returns:
         matplotlib Figure
     """
     plot_data = []
-    issue_labels = _sort_issue_labels(list(seasonal_df["issue_label"].unique()))
+    issue_labels = _sort_issue_labels(list(quarter_df["issue_label"].unique()))
 
     for model in models:
-        model_df = seasonal_df[seasonal_df["model"] == model]
+        model_df = quarter_df[quarter_df["model"] == model]
 
         for label in issue_labels:
             label_df = model_df[model_df["issue_label"] == label]
@@ -854,21 +858,21 @@ def plot_r2_vs_issue_date(
                 continue
 
             r2_per_code = calculate_r2_per_code(
-                label_df, obs_col="Q_obs_seasonal", pred_col="Q_pred_seasonal"
+                label_df, obs_col="Q_obs_quarter", pred_col="Q_pred_quarter"
             )
 
             for _, row in r2_per_code.iterrows():
                 plot_data.append(
                     {
                         "Issue Date": label,
-                        "R²": row["r2"],
+                        "R\u00b2": row["r2"],
                         "Model": model,
                         "code": row["code"],
                     }
                 )
 
     if not plot_data:
-        logger.warning("No data for R² vs issue date plot")
+        logger.warning("No data for R\u00b2 vs issue date plot")
         return plt.figure()
 
     plot_df = pd.DataFrame(plot_data)
@@ -880,7 +884,7 @@ def plot_r2_vs_issue_date(
     sns.boxplot(
         data=plot_df,
         x="Issue Date",
-        y="R²",
+        y="R\u00b2",
         hue="Model",
         order=issue_labels,
         hue_order=models,
@@ -891,10 +895,10 @@ def plot_r2_vs_issue_date(
 
     ax.axhline(y=0, color="gray", linestyle=":", linewidth=1, alpha=0.5)
 
-    ax.set_ylabel("R² (per basin)", fontsize=12)
+    ax.set_ylabel("R\u00b2 (per basin)", fontsize=12)
     ax.set_xlabel("Forecast Issue Date", fontsize=12)
     ax.set_title(
-        f"{forecast_type} Forecast Skill Distribution by Issue Date",
+        "Quarter Forecast Skill Distribution by Issue Date",
         fontsize=14,
         fontweight="bold",
     )
@@ -906,13 +910,13 @@ def plot_r2_vs_issue_date(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    logger.info(f"Saved R² vs issue date plot to {output_path}")
+    logger.info(f"Saved R\u00b2 vs issue date plot to {output_path}")
 
     return fig
 
 
 def plot_skill_comparison(
-    seasonal_df: pd.DataFrame,
+    quarter_df: pd.DataFrame,
     models: list[str],
     output_path: Path,
 ) -> plt.Figure:
@@ -920,7 +924,7 @@ def plot_skill_comparison(
     Create boxplot comparing R² distribution per code for ML models.
 
     Args:
-        seasonal_df: DataFrame with seasonal forecasts
+        quarter_df: DataFrame with quarter forecasts
         models: List of ML models
         output_path: Path to save figure
 
@@ -930,19 +934,19 @@ def plot_skill_comparison(
     plot_data = []
 
     for model in models:
-        model_df = seasonal_df[seasonal_df["model"] == model]
+        model_df = quarter_df[quarter_df["model"] == model]
 
         if model_df.empty:
             continue
 
         r2_per_code = calculate_r2_per_code(
-            model_df, obs_col="Q_obs_seasonal", pred_col="Q_pred_seasonal"
+            model_df, obs_col="Q_obs_quarter", pred_col="Q_pred_quarter"
         )
 
         for _, row in r2_per_code.iterrows():
             plot_data.append(
                 {
-                    "R²": row["r2"],
+                    "R\u00b2": row["r2"],
                     "Model": model,
                     "code": row["code"],
                 }
@@ -961,7 +965,7 @@ def plot_skill_comparison(
     sns.boxplot(
         data=plot_df,
         x="Model",
-        y="R²",
+        y="R\u00b2",
         hue="Model",
         order=models,
         palette=colors,
@@ -973,7 +977,7 @@ def plot_skill_comparison(
     sns.stripplot(
         data=plot_df,
         x="Model",
-        y="R²",
+        y="R\u00b2",
         order=models,
         ax=ax,
         color="black",
@@ -983,10 +987,10 @@ def plot_skill_comparison(
 
     ax.axhline(y=0, color="gray", linestyle="--", linewidth=1, alpha=0.5)
 
-    ax.set_ylabel("R² (per basin)", fontsize=12)
+    ax.set_ylabel("R\u00b2 (per basin)", fontsize=12)
     ax.set_xlabel("Model", fontsize=12)
     ax.set_title(
-        "ML Model Comparison - R² Distribution Across Basins",
+        "Model Comparison - R\u00b2 Distribution Across Basins",
         fontsize=14,
         fontweight="bold",
     )
@@ -1003,7 +1007,7 @@ def plot_skill_comparison(
 
 
 def plot_pi_coverage(
-    seasonal_df: pd.DataFrame,
+    quarter_df: pd.DataFrame,
     models: list[str],
     output_path: Path,
 ) -> plt.Figure:
@@ -1013,7 +1017,7 @@ def plot_pi_coverage(
     Shows actual vs nominal coverage for 50% and 90% prediction intervals.
 
     Args:
-        seasonal_df: DataFrame with seasonal forecasts (must include quantile columns)
+        quarter_df: DataFrame with quarter forecasts (must include quantile columns)
         models: List of ML models to evaluate
         output_path: Path to save figure
 
@@ -1023,11 +1027,11 @@ def plot_pi_coverage(
     coverage_data = []
 
     for model in models:
-        model_df = seasonal_df[seasonal_df["model"] == model]
+        model_df = quarter_df[quarter_df["model"] == model]
         if model_df.empty:
             continue
 
-        coverage = calculate_pi_coverage(model_df, obs_col="Q_obs_seasonal")
+        coverage = calculate_pi_coverage(model_df, obs_col="Q_obs_quarter")
 
         if not coverage["has_quantiles"]:
             continue
@@ -1131,10 +1135,9 @@ def plot_pi_coverage(
 
 
 def plot_pi_coverage_by_issue_date(
-    seasonal_df: pd.DataFrame,
+    quarter_df: pd.DataFrame,
     models: list[str],
     output_path: Path,
-    forecast_type: str = "6-month",
 ) -> plt.Figure:
     """
     Create 2x2 figure showing PI coverage for each issue date.
@@ -1143,15 +1146,14 @@ def plot_pi_coverage_by_issue_date(
     actual vs nominal coverage for 50% and 90% prediction intervals.
 
     Args:
-        seasonal_df: DataFrame with seasonal forecasts (must include quantile columns)
+        quarter_df: DataFrame with quarter forecasts (must include quantile columns)
         models: List of ML models to evaluate
         output_path: Path to save figure
-        forecast_type: "6-month" or "3-month" for title
 
     Returns:
         matplotlib Figure
     """
-    issue_labels = _sort_issue_labels(list(seasonal_df["issue_label"].unique()))
+    issue_labels = _sort_issue_labels(list(quarter_df["issue_label"].unique()))
     n_dates = len(issue_labels)
 
     if n_dates == 0:
@@ -1162,14 +1164,14 @@ def plot_pi_coverage_by_issue_date(
     coverage_by_date: dict[str, list[dict]] = {label: [] for label in issue_labels}
 
     for label in issue_labels:
-        label_df = seasonal_df[seasonal_df["issue_label"] == label]
+        label_df = quarter_df[quarter_df["issue_label"] == label]
 
         for model in models:
             model_df = label_df[label_df["model"] == model]
             if model_df.empty:
                 continue
 
-            coverage = calculate_pi_coverage(model_df, obs_col="Q_obs_seasonal")
+            coverage = calculate_pi_coverage(model_df, obs_col="Q_obs_quarter")
 
             if not coverage["has_quantiles"]:
                 continue
@@ -1280,7 +1282,7 @@ def plot_pi_coverage_by_issue_date(
         axes[0].legend(loc="upper left", fontsize=11)
 
     fig.suptitle(
-        f"{forecast_type} Prediction Interval Coverage by Issue Date\n"
+        "Quarter Prediction Interval Coverage by Issue Date\n"
         "(Dashed lines = nominal coverage)",
         fontsize=15,
         fontweight="bold",
@@ -1296,29 +1298,27 @@ def plot_pi_coverage_by_issue_date(
 
 
 def plot_timeseries_with_uncertainty(
-    seasonal_df: pd.DataFrame,
+    quarter_df: pd.DataFrame,
     models: list[str],
     issue_label: str,
     code: int,
     output_path: Path,
-    forecast_type: str = "6-month",
 ) -> plt.Figure:
     """
-    Plot time series of observed vs predicted seasonal discharge with uncertainty.
+    Plot time series of observed vs predicted quarter discharge with uncertainty.
 
     Args:
-        seasonal_df: DataFrame with seasonal forecasts including quantile columns
+        quarter_df: DataFrame with quarter forecasts including quantile columns
         models: List of models to plot
-        issue_label: Issue date label (e.g., "Jan 25")
+        issue_label: Issue date label (e.g., "Mar 25")
         code: Basin code to plot
         output_path: Path to save figure
-        forecast_type: "6-month" or "3-month" for title
 
     Returns:
         matplotlib Figure
     """
-    df = seasonal_df[
-        (seasonal_df["issue_label"] == issue_label) & (seasonal_df["code"] == code)
+    df = quarter_df[
+        (quarter_df["issue_label"] == issue_label) & (quarter_df["code"] == code)
     ].copy()
 
     if df.empty:
@@ -1333,7 +1333,7 @@ def plot_timeseries_with_uncertainty(
     # Plot observed (use data from first model, obs should be same across models)
     obs_df = df[df["model"] == models[0]].sort_values("issue_year")
     obs_years = obs_df["issue_year"].values
-    obs_values = obs_df["Q_obs_seasonal"].values
+    obs_values = obs_df["Q_obs_quarter"].values
 
     ax.plot(
         obs_years,
@@ -1348,8 +1348,9 @@ def plot_timeseries_with_uncertainty(
     colors = {
         "LR_SM": "steelblue",
         "MC_ALD": "darkorange",
-        "LR_SM_seasonal": "steelblue",
-        "MC_ALD_seasonal": "darkorange",
+        "LR_SM_quarter": "steelblue",
+        "LR_Base_quarter": "forestgreen",
+        "MC_ALD_quarter": "darkorange",
     }
     default_colors = sns.color_palette("husl", len(models))
 
@@ -1364,7 +1365,7 @@ def plot_timeseries_with_uncertainty(
             continue
 
         pred_years = model_df["issue_year"].values + offsets[idx]
-        pred_values = model_df["Q_pred_seasonal"].values
+        pred_values = model_df["Q_pred_quarter"].values
 
         color = colors.get(model, default_colors[idx])
 
@@ -1414,9 +1415,9 @@ def plot_timeseries_with_uncertainty(
             )
 
     ax.set_xlabel("Year", fontsize=12)
-    ax.set_ylabel("Seasonal Discharge (m³/s)", fontsize=12)
+    ax.set_ylabel("Quarter Discharge (m\u00b3/s)", fontsize=12)
     ax.set_title(
-        f"{forecast_type} Forecast - Code {code} - Issue Date: {issue_label}",
+        f"Quarter Forecast - Code {code} - Issue Date: {issue_label}",
         fontsize=14,
         fontweight="bold",
     )
@@ -1441,7 +1442,7 @@ def plot_timeseries_with_uncertainty(
 
 
 def generate_metrics_summary(
-    seasonal_df: pd.DataFrame,
+    quarter_df: pd.DataFrame,
     models: list[str],
     output_path: Path,
 ) -> pd.DataFrame:
@@ -1449,7 +1450,7 @@ def generate_metrics_summary(
     Generate CSV summary of per-code R² statistics per model and issue date.
 
     Args:
-        seasonal_df: DataFrame with seasonal forecasts
+        quarter_df: DataFrame with quarter forecasts
         models: List of ML models
         output_path: Path to save CSV
 
@@ -1457,19 +1458,19 @@ def generate_metrics_summary(
         Summary DataFrame
     """
     results = []
-    issue_labels = seasonal_df["issue_label"].unique()
+    issue_labels = quarter_df["issue_label"].unique()
 
     for label in issue_labels:
         for model in models:
-            model_df = seasonal_df[
-                (seasonal_df["model"] == model) & (seasonal_df["issue_label"] == label)
+            model_df = quarter_df[
+                (quarter_df["model"] == model) & (quarter_df["issue_label"] == label)
             ]
 
             if model_df.empty:
                 continue
 
             r2_per_code = calculate_r2_per_code(
-                model_df, obs_col="Q_obs_seasonal", pred_col="Q_pred_seasonal"
+                model_df, obs_col="Q_obs_quarter", pred_col="Q_pred_quarter"
             )
 
             if r2_per_code.empty:
@@ -1491,7 +1492,7 @@ def generate_metrics_summary(
             }
 
             # Add PI coverage metrics if quantiles available
-            coverage = calculate_pi_coverage(model_df, obs_col="Q_obs_seasonal")
+            coverage = calculate_pi_coverage(model_df, obs_col="Q_obs_quarter")
             if coverage["has_quantiles"]:
                 record["coverage_50"] = coverage["coverage_50"]
                 record["coverage_90"] = coverage["coverage_90"]
@@ -1516,18 +1517,16 @@ def generate_metrics_summary(
 # =============================================================================
 
 
-def process_seasonal_forecasts(
+def process_quarter_forecasts(
     region: str,
-    forecast_type: str,
     models: list[str],
     output_dir: Path,
 ) -> None:
     """
-    Main processing function for seasonal forecast visualization.
+    Main processing function for quarter forecast visualization.
 
     Args:
         region: "Kyrgyzstan" or "Tajikistan"
-        forecast_type: "6_month", "3_month", or "both"
         models: List of models to evaluate
         output_dir: Base output directory
     """
@@ -1552,162 +1551,170 @@ def process_seasonal_forecasts(
     obs_df = load_observations(pred_config["obs_file"])
     monthly_obs = calculate_target_with_threshold(obs_df)
 
-    forecast_configs = []
-    if forecast_type in ["6_month", "both"]:
-        forecast_configs.append(("6_month", ISSUE_DATES_6M))
-    if forecast_type in ["3_month", "both"]:
-        forecast_configs.append(("3_month", ISSUE_DATES_3M))
+    logger.info("\n" + "=" * 60)
+    logger.info("Processing quarter forecasts")
+    logger.info("=" * 60)
 
-    for fc_type, issue_dates in forecast_configs:
-        logger.info(f"\n{'=' * 60}")
-        logger.info(f"Processing {fc_type} forecasts")
-        logger.info(f"{'=' * 60}")
+    fc_output_dir = output_dir / region.lower() / QUARTER_DIR_NAME
+    fc_output_dir.mkdir(parents=True, exist_ok=True)
 
-        fc_output_dir = output_dir / region.lower() / "seasonal" / fc_type
-        fc_output_dir.mkdir(parents=True, exist_ok=True)
+    # Reconstruct quarter forecasts from monthly predictions
+    # Pass daily_obs to use actual observations for issue month when in target period
+    quarter_df = reconstruct_quarter_forecasts(
+        predictions_df, monthly_obs, ISSUE_DATES_QUARTER, daily_obs=obs_df
+    )
 
-        # Reconstruct seasonal forecasts from monthly predictions
-        # Pass daily_obs to use actual observations for issue month when in target period
-        seasonal_df = reconstruct_seasonal_forecasts(
-            predictions_df, monthly_obs, issue_dates, daily_obs=obs_df
-        )
+    # Load direct quarter model hindcasts
+    issue_months_list = [k[0] for k in ISSUE_DATES_QUARTER.keys()]
+    quarter_model_df = load_quarter_model_hindcasts(
+        base_path=pred_config["pred_dir"],
+        issue_months=issue_months_list,
+        models=models,
+    )
 
-        # Load direct seasonal model hindcasts
-        issue_months_list = [k[0] for k in issue_dates.keys()]
-        seasonal_model_df = load_seasonal_model_hindcasts(
-            base_path=pred_config["pred_dir"],
-            issue_months=issue_months_list,
-            models=models,
-        )
+    # Merge quarter model predictions with observations
+    if not quarter_model_df.empty:
+        # Initialize Q_obs_quarter column
+        quarter_model_df["Q_obs_quarter"] = np.nan
 
-        # Merge seasonal model predictions with observations
-        if not seasonal_model_df.empty:
-            target_months = list(issue_dates.values())[0]["target_months"]
-            seasonal_obs_for_models = get_seasonal_observations(
+        # For each issue date, get observations for its target months
+        for (issue_month, _), config in ISSUE_DATES_QUARTER.items():
+            target_months = config["target_months"]
+            issue_label = config["label"]
+
+            quarter_obs_for_models = get_quarter_observations(
                 monthly_obs, target_months=target_months
             )
 
-            if not seasonal_obs_for_models.empty:
-                seasonal_model_df = seasonal_model_df.merge(
-                    seasonal_obs_for_models,
-                    left_on=["code", "issue_year"],
-                    right_on=["code", "year"],
-                    how="left",
-                )
-                if "year" in seasonal_model_df.columns:
-                    seasonal_model_df = seasonal_model_df.drop(columns=["year"])
-            else:
-                seasonal_model_df["Q_obs_seasonal"] = np.nan
+            if quarter_obs_for_models.empty:
+                continue
 
-            if not seasonal_df.empty:
-                seasonal_df = pd.concat(
-                    [seasonal_df, seasonal_model_df], ignore_index=True
-                )
-            else:
-                seasonal_df = seasonal_model_df
+            # Filter quarter_model_df to this issue date
+            mask = quarter_model_df["issue_label"] == issue_label
+            if not mask.any():
+                continue
 
-        if seasonal_df.empty:
-            logger.warning(f"No seasonal forecasts for {fc_type}")
-            continue
-
-        # Filter to requested models (including seasonal variants)
-        seasonal_model_names = [f"{m}{SEASONAL_MODEL_SUFFIX}" for m in models]
-        all_model_names = models + seasonal_model_names
-        available_models = [
-            m for m in all_model_names if m in seasonal_df["model"].unique()
-        ]
-        if not available_models:
-            logger.warning(f"None of the requested models found in {fc_type} forecasts")
-            continue
-
-        # Filter to shared codes across all models
-        filtered_df = seasonal_df[seasonal_df["model"].isin(available_models)]
-        shared_codes = get_shared_codes(filtered_df)
-        if not shared_codes:
-            logger.warning("No shared codes found across all models")
-            continue
-
-        seasonal_df = seasonal_df[seasonal_df["code"].isin(shared_codes)]
-        logger.info(f"Filtered to {len(shared_codes)} shared codes across all models")
-        logger.info(f"Available models: {available_models}")
-
-        # Generate plots
-        logger.info("Generating plots...")
-
-        # 1. Scatter plots per issue date
-        for config in issue_dates.values():
-            label = config["label"]
-            label_clean = label.replace(" ", "")
-
-            fig = plot_seasonal_scatter(
-                seasonal_df=seasonal_df,
-                models=available_models,
-                issue_label=label,
-                output_path=fc_output_dir / f"scatter_{label_clean}.png",
-                forecast_type=fc_type.replace("_", "-"),
+            # Merge observations for this specific issue date
+            subset = quarter_model_df.loc[mask].copy()
+            merged = subset.merge(
+                quarter_obs_for_models,
+                left_on=["code", "issue_year"],
+                right_on=["code", "year"],
+                how="left",
+                suffixes=("", "_obs"),
             )
-            plt.close(fig)
 
-        # 2. R² distribution vs issue date
-        fig = plot_r2_vs_issue_date(
-            seasonal_df=seasonal_df,
+            # Update the Q_obs_quarter column with merged values
+            if "Q_obs_quarter_obs" in merged.columns:
+                quarter_model_df.loc[mask, "Q_obs_quarter"] = merged[
+                    "Q_obs_quarter_obs"
+                ].values
+            elif "Q_obs_quarter" in merged.columns:
+                quarter_model_df.loc[mask, "Q_obs_quarter"] = merged[
+                    "Q_obs_quarter"
+                ].values
+
+        if not quarter_df.empty:
+            quarter_df = pd.concat([quarter_df, quarter_model_df], ignore_index=True)
+        else:
+            quarter_df = quarter_model_df
+
+    if quarter_df.empty:
+        logger.warning("No quarter forecasts found")
+        return
+
+    # Filter to requested models (including quarter variants)
+    quarter_model_names = [f"{m}{QUARTER_MODEL_SUFFIX}" for m in models]
+    all_model_names = models + quarter_model_names
+    available_models = [m for m in all_model_names if m in quarter_df["model"].unique()]
+    if not available_models:
+        logger.warning("None of the requested models found in quarter forecasts")
+        return
+
+    # Filter to shared codes across all models
+    filtered_df = quarter_df[quarter_df["model"].isin(available_models)]
+    shared_codes = get_shared_codes(filtered_df)
+    if not shared_codes:
+        logger.warning("No shared codes found across all models")
+        return
+
+    quarter_df = quarter_df[quarter_df["code"].isin(shared_codes)]
+    logger.info(f"Filtered to {len(shared_codes)} shared codes across all models")
+    logger.info(f"Available models: {available_models}")
+
+    # Generate plots
+    logger.info("Generating plots...")
+
+    # 1. Scatter plots per issue date
+    for config in ISSUE_DATES_QUARTER.values():
+        label = config["label"]
+        label_clean = label.replace(" ", "")
+
+        fig = plot_quarter_scatter(
+            quarter_df=quarter_df,
             models=available_models,
-            output_path=fc_output_dir / "r2_distribution_vs_issue_date.png",
-            forecast_type=fc_type.replace("_", "-"),
+            issue_label=label,
+            output_path=fc_output_dir / f"scatter_{label_clean}.png",
         )
         plt.close(fig)
 
-        # 3. Skill comparison plot
-        fig = plot_skill_comparison(
-            seasonal_df=seasonal_df,
-            models=available_models,
-            output_path=fc_output_dir / "skill_comparison.png",
-        )
-        plt.close(fig)
+    # 2. R² distribution vs issue date
+    fig = plot_r2_vs_issue_date(
+        quarter_df=quarter_df,
+        models=available_models,
+        output_path=fc_output_dir / "r2_distribution_vs_issue_date.png",
+    )
+    plt.close(fig)
 
-        # 4. PI coverage plot (for models with quantile predictions)
-        fig = plot_pi_coverage(
-            seasonal_df=seasonal_df,
-            models=available_models,
-            output_path=fc_output_dir / "pi_coverage.png",
-        )
-        plt.close(fig)
+    # 3. Skill comparison plot
+    fig = plot_skill_comparison(
+        quarter_df=quarter_df,
+        models=available_models,
+        output_path=fc_output_dir / "skill_comparison.png",
+    )
+    plt.close(fig)
 
-        # 5. PI coverage by issue date (one row per issue date)
-        fig = plot_pi_coverage_by_issue_date(
-            seasonal_df=seasonal_df,
-            models=available_models,
-            output_path=fc_output_dir / "pi_coverage_by_issue_date.png",
-            forecast_type=fc_type.replace("_", "-"),
-        )
-        plt.close(fig)
+    # 4. PI coverage plot (for models with quantile predictions)
+    fig = plot_pi_coverage(
+        quarter_df=quarter_df,
+        models=available_models,
+        output_path=fc_output_dir / "pi_coverage.png",
+    )
+    plt.close(fig)
 
-        # 6. Time series with uncertainty for specific code (16936)
-        timeseries_models = ["LR_SM_seasonal", "MC_ALD"]
-        timeseries_models_available = [
-            m for m in timeseries_models if m in available_models
-        ]
-        if timeseries_models_available and SCATTER_PLOT_CODE in shared_codes:
-            for issue_lbl in ["Jan 25", "Mar 25"]:
-                if issue_lbl in seasonal_df["issue_label"].values:
-                    label_clean = issue_lbl.replace(" ", "")
-                    fig = plot_timeseries_with_uncertainty(
-                        seasonal_df=seasonal_df,
-                        models=timeseries_models_available,
-                        issue_label=issue_lbl,
-                        code=SCATTER_PLOT_CODE,
-                        output_path=fc_output_dir
-                        / f"timeseries_{SCATTER_PLOT_CODE}_{label_clean}.png",
-                        forecast_type=fc_type.replace("_", "-"),
-                    )
-                    plt.close(fig)
+    # 5. PI coverage by issue date (one row per issue date)
+    fig = plot_pi_coverage_by_issue_date(
+        quarter_df=quarter_df,
+        models=available_models,
+        output_path=fc_output_dir / "pi_coverage_by_issue_date.png",
+    )
+    plt.close(fig)
 
-        # 7. Metrics summary CSV
-        generate_metrics_summary(
-            seasonal_df=seasonal_df,
-            models=available_models,
-            output_path=fc_output_dir / "metrics_summary.csv",
-        )
+    # 6. Time series with uncertainty for specific code (16936)
+    timeseries_models = ["LR_SM_quarter", "LR_Base_quarter", "MC_ALD"]
+    timeseries_models_available = [
+        m for m in timeseries_models if m in available_models
+    ]
+    if timeseries_models_available and SCATTER_PLOT_CODE in shared_codes:
+        for issue_lbl in ["Mar 25", "Jun 25"]:
+            if issue_lbl in quarter_df["issue_label"].values:
+                label_clean = issue_lbl.replace(" ", "")
+                fig = plot_timeseries_with_uncertainty(
+                    quarter_df=quarter_df,
+                    models=timeseries_models_available,
+                    issue_label=issue_lbl,
+                    code=SCATTER_PLOT_CODE,
+                    output_path=fc_output_dir
+                    / f"timeseries_{SCATTER_PLOT_CODE}_{label_clean}.png",
+                )
+                plt.close(fig)
+
+    # 7. Metrics summary CSV
+    generate_metrics_summary(
+        quarter_df=quarter_df,
+        models=available_models,
+        output_path=fc_output_dir / "metrics_summary.csv",
+    )
 
     logger.info("\nProcessing complete!")
 
@@ -1715,7 +1722,7 @@ def process_seasonal_forecasts(
 def main():
     """Main entry point with CLI argument parsing."""
     parser = argparse.ArgumentParser(
-        description="Evaluate seasonal forecasts and compare ML models."
+        description="Evaluate quarter (3-month) forecasts and compare ML models."
     )
     parser.add_argument(
         "--region",
@@ -1723,13 +1730,6 @@ def main():
         choices=["Kyrgyzstan", "Tajikistan"],
         default="Kyrgyzstan",
         help="Region to process (default: Kyrgyzstan)",
-    )
-    parser.add_argument(
-        "--forecast-type",
-        type=str,
-        choices=["6_month", "3_month", "both"],
-        default="both",
-        help="Forecast type to evaluate (default: both)",
     )
     parser.add_argument(
         "--models",
@@ -1755,13 +1755,11 @@ def main():
         output_dir = Path(default_output_dir)
 
     logger.info(f"Region: {args.region}")
-    logger.info(f"Forecast type: {args.forecast_type}")
     logger.info(f"Models: {args.models}")
     logger.info(f"Output directory: {output_dir}")
 
-    process_seasonal_forecasts(
+    process_quarter_forecasts(
         region=args.region,
-        forecast_type=args.forecast_type,
         models=args.models,
         output_dir=output_dir,
     )
