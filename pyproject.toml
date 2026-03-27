@@ -6,8 +6,6 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "catboost>=1.2.3",
-    "fiona>=1.9.5",
-    "geopandas>=0.14.3",
     "lightgbm>=4.5.0",
     "matplotlib>=3.8.2",
     "numpy>=1.26.4",
@@ -30,6 +28,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "fiona>=1.9.5",
+    "geopandas>=0.14.3",
     "pytest==8.4.1",
     "ruff>=0.12.2",
     "plotly>=5.18.0",

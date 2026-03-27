@@ -1055,8 +1055,6 @@ version = "2.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "catboost" },
-    { name = "fiona" },
-    { name = "geopandas" },
     { name = "lightgbm" },
     { name = "matplotlib" },
     { name = "numpy" },
@@ -1081,6 +1079,8 @@ dependencies = [
 dev = [
     { name = "dash" },
     { name = "dash-bootstrap-components" },
+    { name = "fiona" },
+    { name = "geopandas" },
     { name = "ipykernel" },
     { name = "nbstripout" },
     { name = "pingouin" },
@@ -1094,8 +1094,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "catboost", specifier = ">=1.2.3" },
-    { name = "fiona", specifier = ">=1.9.5" },
-    { name = "geopandas", specifier = ">=0.14.3" },
     { name = "lightgbm", specifier = ">=4.5.0" },
     { name = "matplotlib", specifier = ">=3.8.2" },
     { name = "numpy", specifier = ">=1.26.4" },
@@ -1120,6 +1118,8 @@ requires-dist = [
 dev = [
     { name = "dash", specifier = ">=2.14.0" },
     { name = "dash-bootstrap-components", specifier = ">=1.7.1" },
+    { name = "fiona", specifier = ">=1.9.5" },
+    { name = "geopandas", specifier = ">=0.14.3" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "nbstripout", specifier = ">=0.6.0" },
     { name = "pingouin", specifier = ">=0.5.5" },
