@@ -12,29 +12,6 @@ Glacier Mapper features (Earth Observation) (available every 10th day until t) (
 **Static Data**
 Static Basin features (area, lat., lon, aridity, glacier fraction...)
 
-
-## PROJECT STRUCTURE
-
-The project has been restructured for production deployment:
-
-```
-lt_forecasting/
-├── lt_forecasting/     # Core production package
-│   ├── forecast_models/     # Model implementations
-│   ├── scr/                 # Data processing utilities
-│   └── log_config.py        # Logging configuration
-├── dev_tools/               # Development-only tools
-│   ├── evaluation/          # Evaluation pipeline
-│   ├── visualization/       # Dashboard and plotting
-│   └── eval_scr/            # Evaluation metrics
-├── scripts/                 # Development scripts
-│   ├── calibrate_hindcast.py
-│   └── tune_hyperparams.py
-└── tests/                   # Test suite
-    ├── unit/                # Unit tests
-    ├── functionality/       # Functionality tests
-    └── integration/         # Integration tests
-```
 ## Task Management Principles
 
 ### Avoid Task Jags
