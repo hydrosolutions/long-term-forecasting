@@ -5,8 +5,6 @@ import re
 
 import numpy as np
 import pandas as pd
-
-import geopandas as gpd
 from scipy import stats
 from pathlib import Path
 

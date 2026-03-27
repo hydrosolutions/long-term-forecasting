@@ -1,7 +1,6 @@
 import os
 import pandas as pd
 import numpy as np
-import geopandas as gpd
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Tuple, Optional
 from tqdm import tqdm as progress_bar
@@ -35,8 +34,6 @@ from lt_forecasting.log_config import setup_logging
 setup_logging()
 
 logger = logging.getLogger(__name__)  # Use __name__ to get module-specific logger
-logging.getLogger("fiona.ogrext").setLevel(logging.WARNING)
-logging.getLogger("fiona").setLevel(logging.WARNING)
 
 
 class SciRegressor(BaseForecastModel):
@@ -194,31 +191,6 @@ class SciRegressor(BaseForecastModel):
 
         # Filter out rivers to exclude
         self.data = self.data[~self.data["code"].isin(self.rivers_to_exclude)].copy()
-
-        # -------------- 3. Snow Data to equal percentage area ------------------------------
-        if self.path_config["path_to_hru_shp"] is not None:
-            elevation_band_shp = gpd.read_file(self.path_config["path_to_hru_shp"])
-            # rename CODE to code
-            if "CODE" in elevation_band_shp.columns:
-                elevation_band_shp.rename(columns={"CODE": "code"}, inplace=True)
-            elevation_band_shp["code"] = elevation_band_shp["code"].astype(int)
-
-            for snow_var in self.snow_vars:
-                self.data = du.calculate_percentile_snow_bands(
-                    self.data,
-                    elevation_band_shp,
-                    num_bands=self.general_config["num_elevation_zones"],
-                    col_name=snow_var,
-                )
-                snow_vars_drop = [
-                    col
-                    for col in self.data.columns
-                    if snow_var in col and "elev" not in col
-                ]
-                self.data = self.data.drop(columns=snow_vars_drop)
-
-        # Extract extended features for snowmapper:
-        # self.data = du.derive_features_from_snowmapper(self.data)
 
         logger.debug("Data preprocessing completed. Data shape: %s", self.data.shape)
 
