@@ -123,12 +123,12 @@ def fit_model(
         # Handle models with early stopping support
         if model_type in ["xgb", "lgbm", "catboost"]:
             if model_type == "xgb":
-                # XGBoost
+                # XGBoost (early_stopping_rounds moved to constructor in 2.1+)
+                model.set_params(early_stopping_rounds=early_stopping_rounds)
                 model.fit(
                     X_train,
                     y_train,
                     eval_set=[(X_val, y_val)],
-                    early_stopping_rounds=early_stopping_rounds,
                     verbose=False,
                 )
 

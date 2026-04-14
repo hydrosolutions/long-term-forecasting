@@ -40,7 +40,7 @@ def get_requirements():
         "scipy==1.15.2",
         "seaborn==0.13.2",
         "tqdm==4.66.2",
-        "xgboost==2.0.3",
+        "xgboost==3.2.0",
     ]
 
 
