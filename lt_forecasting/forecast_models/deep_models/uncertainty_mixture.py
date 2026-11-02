@@ -906,14 +906,18 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             return pd.DataFrame()
 
         missing_feature_columns = [
-            feature for feature in self.features if feature not in operational_data.columns
+            feature
+            for feature in self.features
+            if feature not in operational_data.columns
         ]
         available_features = [
             feature for feature in self.features if feature in operational_data.columns
         ]
-        entirely_missing_features = operational_data[available_features].columns[
-            operational_data[available_features].isna().all()
-        ].tolist()
+        entirely_missing_features = (
+            operational_data[available_features]
+            .columns[operational_data[available_features].isna().all()]
+            .tolist()
+        )
         if missing_feature_columns or entirely_missing_features:
             logger.warning(
                 f"{self.name}: skipped operational prediction: required features "
