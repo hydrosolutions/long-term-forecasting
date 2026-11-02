@@ -898,6 +898,31 @@ class UncertaintyMixtureModel(BaseMetaLearner):
         ].copy()
         logger.debug(f"Operational data shape after cutoff: {operational_data.shape}")
 
+        if operational_data.empty:
+            logger.warning(
+                f"{self.name}: skipped operational prediction: no recent input "
+                f"between {cutoff_date.date()} and {today.date()}."
+            )
+            return pd.DataFrame()
+
+        missing_feature_columns = [
+            feature for feature in self.features if feature not in operational_data.columns
+        ]
+        available_features = [
+            feature for feature in self.features if feature in operational_data.columns
+        ]
+        entirely_missing_features = operational_data[available_features].columns[
+            operational_data[available_features].isna().all()
+        ].tolist()
+        if missing_feature_columns or entirely_missing_features:
+            logger.warning(
+                f"{self.name}: skipped operational prediction: required features "
+                f"have no values between {cutoff_date.date()} and {today.date()}; "
+                f"absent columns: {missing_feature_columns}; "
+                f"all-null features: {entirely_missing_features}."
+            )
+            return pd.DataFrame()
+
         recent_operational_data = []
         ## get the most recent date where data is available for each code
         for code in all_codes:
@@ -924,6 +949,14 @@ class UncertaintyMixtureModel(BaseMetaLearner):
             most_recent_date = code_data["date"].iloc[0]
             recent_data = code_data[code_data["date"] == most_recent_date]
             recent_operational_data.append(recent_data)
+
+        if not recent_operational_data:
+            logger.warning(
+                f"{self.name}: skipped operational prediction: no complete recent "
+                f"input between {cutoff_date.date()} and {today.date()}. "
+                "Each required feature has values, but no row has all required features."
+            )
+            return pd.DataFrame()
 
         operational_data = pd.concat(recent_operational_data, ignore_index=True)
 
